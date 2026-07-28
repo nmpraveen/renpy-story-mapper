@@ -14,7 +14,7 @@ Updated: 2026-07-27 (Phase 05 AI story timeline entered semantic review)
 - Planning rules: [`docs/MILESTONE_PLANNING_RULES.md`](MILESTONE_PLANNING_RULES.md).
 - Integration branch: `codex/m15-phase05-story-timeline`.
 - Baseline: merged `main` / PR #30 merge commit `268d30ed15d50136be5a88d464f79adaf7f32f9e`.
-- Status: Semantic review. Product implementation is gated on an independent `PASS`.
+- Status: In progress. Two bounded implementation tasks were released after semantic `PASS`.
 - Phase 04 result: 425 accepted local-model summaries, zero failed jobs and zero cloud story AI,
   with deterministic choices, routes, state, rejoins, endings, Path, and Detail/Evidence preserved.
   PR #30 is merged. Its primary reader remains a 425-section lookup interface and therefore does
@@ -22,8 +22,9 @@ Updated: 2026-07-27 (Phase 05 AI story timeline entered semantic review)
 - Phase 05 correction: reuse those summaries; add one bounded local-AI editorial grouping/overview
   pass with Python-owned coverage/order/mechanics; make a small grouped vertical timeline the
   default and keep the 425 rows as collapsed diagnostics.
-- Semantic review: in progress against the Phase 05 contract checkpoint.
-- Native Codex goal: explicitly requested by the user and created from the Phase 05 done condition.
+- Semantic review: `PASS` at exact reviewed checkpoint `803f94e`, with P0=P1=P2=0.
+- Native Codex goal: active on Orchestra task `019fa621-c148-7652-8b69-76c9e148d4fd` from the exact
+  Phase 05 done condition.
 - Settings: workers and reviewers use explicit `gpt-5.6-sol` and Ultra reasoning. The task API has
   no fast-mode selector, so the user's fast-mode request is unavailable/unverified.
 - Orchestration: one user-visible Orchestra, two concurrent implementation threads, one early

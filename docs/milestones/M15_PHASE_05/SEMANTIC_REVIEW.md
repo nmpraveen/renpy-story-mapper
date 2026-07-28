@@ -2,7 +2,7 @@
 
 Review target: `GOAL.md` and `TASKS.md` on the exact contract checkpoint recorded below.
 
-Status: Semantic review after one narrow authority correction
+Status: PASS
 
 ## Required decision
 
@@ -26,4 +26,9 @@ Status: Semantic review after one narrow authority correction
 
 ## Review 2
 
-Pending the same reviewer's exact-head verdict after the authority-only correction.
+- Exact target: `803f94e73a67a857dbf411a8139aa8abc8a28704`
+- Same reviewer and explicit settings as Review 1.
+- Verdict: `PASS` (`P0=0`, `P1=0`, `P2=0`).
+- The stale current-action authority conflict is resolved. Phase 05 is the sole active correction;
+  its two bounded seams, exclusions, Sol/Ultra settings, real-game usefulness gate, and lean final
+  ladder are consistent. Broad implementation may proceed.

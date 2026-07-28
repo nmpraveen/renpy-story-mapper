@@ -1,6 +1,6 @@
 # M15.1 Phase 05 - AI story timeline
 
-Status: Semantic review
+Status: In progress
 
 Scope authority: `docs/MASTER_PLAN.md`, M15 / M15.1 semantic Story Map correction
 

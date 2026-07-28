@@ -15,8 +15,7 @@ mechanics/evidence, but its 425-section lookup reader did not achieve the requir
 information architecture. Phase 05 is the active bounded correction under
 `docs/milestones/M15_PHASE_05/GOAL.md`: local-AI editorial grouping plus a clean scrolling timeline,
 with Python authoritative for choices, routes, effects, rejoins, endings, and evidence. Its
-lifecycle is `Semantic review`; broad implementation waits for one lightweight `PASS`. M14 remains
-deferred.
+lifecycle is `In progress` after lightweight semantic `PASS` at `803f94e`. M14 remains deferred.
 
 Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
 review found one path-classification P1; its provider-free correction selects Luna mapping, Terra
@@ -1232,8 +1231,8 @@ Status: Phase 01 through Phase 04 are complete and merged. The rejected Stage H/
 architecture and PR #26 are historical only. Phase 04 merged through PR #30 and supplied a working
 local-only full-game generation/reader checkpoint with 425 accepted summaries and deterministic
 mechanics. The user rejected its 425-section lookup interface as the final product shape. Phase 05
-is now in semantic review to add the missing local-AI editorial grouping and clean scrolling story
-timeline without rebuilding Phase 04's workflow infrastructure.
+is now in progress after semantic `PASS`, adding the missing local-AI editorial grouping and clean
+scrolling story timeline without rebuilding Phase 04's workflow infrastructure.
 
 Current product direction: a practical private story guide with a readable chronological
 whole-story overview; visible choices, branch outcomes, requirements, effects, rejoins, persistent
@@ -1436,8 +1435,9 @@ Record factual commands, results, counts, heads, elapsed time when useful, and u
 Phase 04 is complete and merged through PR #30 at
 `268d30ed15d50136be5a88d464f79adaf7f32f9e`. Its local-only 425-summary checkpoint preserves exact
 mechanics and evidence but does not provide the required story-level information architecture.
-Phase 05 is the one active correction under `docs/milestones/M15_PHASE_05/GOAL.md`; implementation
-waits for its lightweight semantic review to record `PASS`.
+Phase 05 is the one active correction under `docs/milestones/M15_PHASE_05/GOAL.md`; its lightweight
+semantic review passed at exact checkpoint `803f94e` and the two bounded implementation tasks are
+in progress.
 
 After `PASS`, one Orchestra may run the two bounded implementation threads already selected by the
 user: local-AI editorial grouping/Python validation and the scrolling timeline browser composition.
