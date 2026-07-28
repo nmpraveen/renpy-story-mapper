@@ -1,0 +1,1144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://renpy-story-mapper.invalid/schemas/story_map_workflow_http_v2.schema.json",
+  "title": "Story Map V2 Phase 04 workflow HTTP v2 contract bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "routes", "examples"],
+  "properties": {
+    "contract": {"const": "story-map-v2-workflow-http-v2"},
+    "routes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["story_map_v2_workflow"],
+      "properties": {
+        "story_map_v2_workflow": {"$ref": "#/$defs/workflowRoutes"}
+      }
+    },
+    "examples": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requests", "successes", "stale_errors", "non_stale_errors"],
+      "properties": {
+        "requests": {"$ref": "#/$defs/requests"},
+        "successes": {"$ref": "#/$defs/successes"},
+        "stale_errors": {"$ref": "#/$defs/staleErrors"},
+        "non_stale_errors": {"$ref": "#/$defs/nonStaleErrors"}
+      }
+    }
+  },
+  "$defs": {
+    "contract": {"const": "story-map-v2-workflow-http-v2"},
+    "nonempty": {"type": "string", "minLength": 1, "maxLength": 512},
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!.*[A-Za-z]:[\\\\/])(?!.*\\\\\\\\)(?!/)(?!.*\\s/).+$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nullableDigest": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nullableNonempty": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "workflowRoutes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "prepare",
+        "start",
+        "cancel",
+        "resume",
+        "retry",
+        "status"
+      ],
+      "properties": {
+        "contract": {"$ref": "#/$defs/contract"},
+        "prepare": {"const": "/api/v1/story-map-v2/workflow/prepare"},
+        "start": {"const": "/api/v1/story-map-v2/workflow/start"},
+        "cancel": {"const": "/api/v1/story-map-v2/workflow/cancel"},
+        "resume": {"const": "/api/v1/story-map-v2/workflow/resume"},
+        "retry": {"const": "/api/v1/story-map-v2/workflow/retry"},
+        "status": {"const": "/api/v1/story-map-v2/workflow/status"}
+      }
+    },
+    "prepareRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract"],
+      "properties": {
+        "contract": {"$ref": "#/$defs/contract"}
+      }
+    },
+    "statusRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "run_id"],
+      "properties": {
+        "contract": {"$ref": "#/$defs/contract"},
+        "run_id": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "runPreviewRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "run_id", "preview_identity"],
+      "properties": {
+        "contract": {"$ref": "#/$defs/contract"},
+        "run_id": {"$ref": "#/$defs/nonempty"},
+        "preview_identity": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "retryRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "run_id",
+        "preview_identity",
+        "job_id",
+        "indeterminate_attempt_id"
+      ],
+      "properties": {
+        "contract": {"$ref": "#/$defs/contract"},
+        "run_id": {"$ref": "#/$defs/nonempty"},
+        "preview_identity": {"$ref": "#/$defs/digest"},
+        "job_id": {"$ref": "#/$defs/nonempty"},
+        "indeterminate_attempt_id": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "requests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prepare", "start", "cancel", "resume", "retry", "status"],
+      "properties": {
+        "prepare": {"$ref": "#/$defs/prepareRequest"},
+        "start": {"$ref": "#/$defs/runPreviewRequest"},
+        "cancel": {"$ref": "#/$defs/runPreviewRequest"},
+        "resume": {"$ref": "#/$defs/runPreviewRequest"},
+        "retry": {"$ref": "#/$defs/retryRequest"},
+        "status": {"$ref": "#/$defs/statusRequest"}
+      }
+    },
+    "job": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["job_id", "scope_id", "chunk_id", "critical"],
+      "properties": {
+        "job_id": {"$ref": "#/$defs/nonempty"},
+        "scope_id": {"$ref": "#/$defs/nonempty"},
+        "chunk_id": {"$ref": "#/$defs/nonempty"},
+        "critical": {"type": "boolean"}
+      }
+    },
+    "cacheHits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cloud_job_ids", "loopback_job_ids"],
+      "properties": {
+        "cloud_job_ids": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/nonempty"},
+          "uniqueItems": true
+        },
+        "loopback_job_ids": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/nonempty"},
+          "uniqueItems": true
+        }
+      }
+    },
+    "cloudProviderSetting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "model", "reasoning", "fast_mode", "mode", "adapter_version"],
+      "properties": {
+        "provider": {"$ref": "#/$defs/nonempty"},
+        "model": {"$ref": "#/$defs/nonempty"},
+        "reasoning": {"type": ["string", "null"], "minLength": 1, "maxLength": 512},
+        "fast_mode": {"type": ["boolean", "null"]},
+        "mode": {"enum": ["cloud", "loopback"]},
+        "adapter_version": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "loopbackProviderSetting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "model", "reasoning", "fast_mode", "mode", "adapter_version"],
+      "properties": {
+        "provider": {"$ref": "#/$defs/nonempty"},
+        "model": {"$ref": "#/$defs/nonempty"},
+        "reasoning": {"type": ["string", "null"], "minLength": 1, "maxLength": 512},
+        "fast_mode": {"type": ["boolean", "null"]},
+        "mode": {"const": "loopback"},
+        "adapter_version": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "derivedCloudPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "prompt_version",
+        "schema_version",
+        "provider",
+        "model",
+        "reasoning",
+        "fast_mode",
+        "mode",
+        "adapter_version"
+      ],
+      "properties": {
+        "prompt_version": {"$ref": "#/$defs/nonempty"},
+        "schema_version": {"$ref": "#/$defs/nonempty"},
+        "provider": {"$ref": "#/$defs/nonempty"},
+        "model": {"$ref": "#/$defs/nonempty"},
+        "reasoning": {"type": ["string", "null"], "minLength": 1, "maxLength": 512},
+        "fast_mode": {"type": ["boolean", "null"]},
+        "mode": {"enum": ["cloud", "loopback"]},
+        "adapter_version": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy_version",
+        "prompt_version",
+        "schema_version",
+        "cloud",
+        "loopback",
+        "allow_refusal_fallback",
+        "section_synthesis",
+        "rollup_synthesis"
+      ],
+      "properties": {
+        "policy_version": {"const": "story-map-v2-phase04-policy-v1"},
+        "prompt_version": {"$ref": "#/$defs/nonempty"},
+        "schema_version": {"$ref": "#/$defs/nonempty"},
+        "cloud": {"$ref": "#/$defs/cloudProviderSetting"},
+        "loopback": {
+          "anyOf": [
+            {"$ref": "#/$defs/loopbackProviderSetting"},
+            {"type": "null"}
+          ]
+        },
+        "allow_refusal_fallback": {"type": "boolean"},
+        "section_synthesis": {"$ref": "#/$defs/derivedCloudPolicy"},
+        "rollup_synthesis": {"$ref": "#/$defs/derivedCloudPolicy"}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "loopback": {"type": "null"},
+            "allow_refusal_fallback": {"const": false}
+          }
+        },
+        {
+          "properties": {
+            "loopback": {"$ref": "#/$defs/loopbackProviderSetting"},
+            "allow_refusal_fallback": {"const": true}
+          }
+        }
+      ]
+    },
+    "ceilings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mapping_calls",
+        "review_calls",
+        "fallback_calls",
+        "section_synthesis_calls",
+        "route_reduction_calls",
+        "route_summary_calls",
+        "whole_game_reduction_calls",
+        "final_overview_calls",
+        "rollup_synthesis_calls",
+        "input_tokens",
+        "output_tokens",
+        "elapsed_ms",
+        "submission_slots",
+        "indeterminate_retry_calls"
+      ],
+      "properties": {
+        "mapping_calls": {"type": "integer", "minimum": 1},
+        "review_calls": {"type": "integer", "minimum": 0},
+        "fallback_calls": {"type": "integer", "minimum": 0},
+        "section_synthesis_calls": {"type": "integer", "minimum": 0},
+        "route_reduction_calls": {"type": "integer", "minimum": 0},
+        "route_summary_calls": {"type": "integer", "minimum": 0},
+        "whole_game_reduction_calls": {"type": "integer", "minimum": 0},
+        "final_overview_calls": {"type": "integer", "minimum": 0, "maximum": 1},
+        "rollup_synthesis_calls": {"type": "integer", "minimum": 0},
+        "input_tokens": {"type": "integer", "minimum": 1},
+        "output_tokens": {"type": "integer", "minimum": 0},
+        "elapsed_ms": {"type": "integer", "minimum": 1},
+        "submission_slots": {"enum": [1, 6]},
+        "indeterminate_retry_calls": {"type": "integer", "minimum": 0}
+      }
+    },
+    "corridorDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["corridor_id", "route_owner", "event_slot_upper_bound", "ordinal"],
+      "properties": {
+        "corridor_id": {"$ref": "#/$defs/nonempty"},
+        "route_owner": {"$ref": "#/$defs/nullableNonempty"},
+        "event_slot_upper_bound": {"type": "integer", "minimum": 1},
+        "ordinal": {"type": "integer", "minimum": 0}
+      }
+    },
+    "routeMembership": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["route_id", "ordered_corridor_ids"],
+      "properties": {
+        "route_id": {"$ref": "#/$defs/nonempty"},
+        "ordered_corridor_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/nonempty"}
+        }
+      }
+    },
+    "derivedSemanticPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "semantic_plan_identity",
+        "story_chunk_plan_identity",
+        "authority_identity",
+        "corridors",
+        "route_memberships",
+        "fan_in",
+        "section_synthesis_calls",
+        "route_reduction_calls",
+        "route_summary_calls",
+        "whole_game_reduction_calls",
+        "final_overview_calls",
+        "rollup_synthesis_calls"
+      ],
+      "properties": {
+        "semantic_plan_identity": {"$ref": "#/$defs/digest"},
+        "story_chunk_plan_identity": {"$ref": "#/$defs/digest"},
+        "authority_identity": {"$ref": "#/$defs/nonempty"},
+        "corridors": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/corridorDescriptor"}
+        },
+        "route_memberships": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/routeMembership"}
+        },
+        "fan_in": {"const": 24},
+        "section_synthesis_calls": {"type": "integer", "minimum": 0},
+        "route_reduction_calls": {"type": "integer", "minimum": 0},
+        "route_summary_calls": {"type": "integer", "minimum": 0},
+        "whole_game_reduction_calls": {"type": "integer", "minimum": 0},
+        "final_overview_calls": {"type": "integer", "minimum": 0, "maximum": 1},
+        "rollup_synthesis_calls": {"type": "integer", "minimum": 0}
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cloud_story_content",
+        "loopback_story_content",
+        "durable_raw_requests",
+        "durable_raw_responses",
+        "durable_provider_diagnostics",
+        "durable_absolute_paths"
+      ],
+      "properties": {
+        "cloud_story_content": {"type": "boolean"},
+        "loopback_story_content": {"type": "boolean"},
+        "durable_raw_requests": {"const": false},
+        "durable_raw_responses": {"const": false},
+        "durable_provider_diagnostics": {"const": false},
+        "durable_absolute_paths": {"const": false}
+      }
+    },
+    "preview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "preview_identity",
+        "plan_id",
+        "authority_identity",
+        "jobs",
+        "derived_semantic_plan",
+        "cache_hits",
+        "policy",
+        "ceilings",
+        "privacy"
+      ],
+      "properties": {
+        "run_id": {"$ref": "#/$defs/nonempty"},
+        "preview_identity": {"$ref": "#/$defs/digest"},
+        "plan_id": {"$ref": "#/$defs/nonempty"},
+        "authority_identity": {"$ref": "#/$defs/nonempty"},
+        "jobs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/job"}
+        },
+        "derived_semantic_plan": {"$ref": "#/$defs/derivedSemanticPlan"},
+        "cache_hits": {"$ref": "#/$defs/cacheHits"},
+        "policy": {"$ref": "#/$defs/policy"},
+        "ceilings": {"$ref": "#/$defs/ceilings"},
+        "privacy": {"$ref": "#/$defs/privacy"}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "policy": {
+              "properties": {
+                "loopback": {"type": "null"},
+                "allow_refusal_fallback": {"const": false}
+              }
+            },
+            "privacy": {
+              "properties": {"loopback_story_content": {"const": false}}
+            }
+          }
+        },
+        {
+          "properties": {
+            "policy": {
+              "properties": {
+                "loopback": {"$ref": "#/$defs/loopbackProviderSetting"},
+                "allow_refusal_fallback": {"const": true}
+              }
+            },
+            "privacy": {
+              "properties": {"loopback_story_content": {"const": true}}
+            }
+          }
+        }
+      ]
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "approval_identity",
+        "preview_identity",
+        "plan_id",
+        "authority_identity"
+      ],
+      "properties": {
+        "state": {"enum": ["not_approved", "approved"]},
+        "approval_identity": {"$ref": "#/$defs/nullableDigest"},
+        "preview_identity": {"$ref": "#/$defs/nullableDigest"},
+        "plan_id": {"$ref": "#/$defs/nullableNonempty"},
+        "authority_identity": {"$ref": "#/$defs/nullableNonempty"}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "state": {"const": "not_approved"},
+            "approval_identity": {"type": "null"},
+            "preview_identity": {"type": "null"},
+            "plan_id": {"type": "null"},
+            "authority_identity": {"type": "null"}
+          }
+        },
+        {
+          "properties": {
+            "state": {"const": "approved"},
+            "approval_identity": {"$ref": "#/$defs/digest"},
+            "preview_identity": {"$ref": "#/$defs/digest"},
+            "plan_id": {"$ref": "#/$defs/nonempty"},
+            "authority_identity": {"$ref": "#/$defs/nonempty"}
+          }
+        }
+      ]
+    },
+    "accounting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["calls", "input_tokens", "output_tokens", "elapsed_ms"],
+      "properties": {
+        "calls": {"type": "integer", "minimum": 0},
+        "input_tokens": {"type": "integer", "minimum": 0},
+        "output_tokens": {"type": "integer", "minimum": 0},
+        "elapsed_ms": {"type": "integer", "minimum": 0}
+      }
+    },
+    "indeterminateRetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "job_id",
+        "attempt_id",
+        "call_kind",
+        "approval_state",
+        "retry_approval_identity",
+        "can_approve_retry"
+      ],
+      "properties": {
+        "job_id": {"$ref": "#/$defs/nonempty"},
+        "attempt_id": {"$ref": "#/$defs/nonempty"},
+        "call_kind": {
+          "enum": [
+            "mapping",
+            "replacement_review",
+            "refusal_fallback",
+            "section_synthesis",
+            "rollup_synthesis"
+          ]
+        },
+        "approval_state": {"enum": ["required", "approved"]},
+        "retry_approval_identity": {"$ref": "#/$defs/nullableDigest"},
+        "can_approve_retry": {"type": "boolean"}
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "approval_state": {"const": "required"},
+            "retry_approval_identity": {"type": "null"}
+          }
+        },
+        {
+          "properties": {
+            "approval_state": {"const": "approved"},
+            "retry_approval_identity": {"$ref": "#/$defs/digest"},
+            "can_approve_retry": {"const": false}
+          }
+        }
+      ]
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "preview_identity",
+        "approved",
+        "cancelled",
+        "pending_jobs",
+        "active_jobs",
+        "accepted_jobs",
+        "structural_fallback_jobs",
+        "resumable_jobs",
+        "indeterminate_jobs",
+        "accounting",
+        "can_approve",
+        "can_start",
+        "can_cancel",
+        "can_resume",
+        "indeterminate_retries"
+      ],
+      "properties": {
+        "run_id": {"$ref": "#/$defs/nonempty"},
+        "preview_identity": {"$ref": "#/$defs/digest"},
+        "approved": {"type": "boolean"},
+        "cancelled": {"type": "boolean"},
+        "pending_jobs": {"type": "integer", "minimum": 0},
+        "active_jobs": {"type": "integer", "minimum": 0},
+        "accepted_jobs": {"type": "integer", "minimum": 0},
+        "structural_fallback_jobs": {"type": "integer", "minimum": 0},
+        "resumable_jobs": {"type": "integer", "minimum": 0},
+        "indeterminate_jobs": {"type": "integer", "minimum": 0},
+        "accounting": {"$ref": "#/$defs/accounting"},
+        "can_approve": {"type": "boolean"},
+        "can_start": {"type": "boolean"},
+        "can_cancel": {"type": "boolean"},
+        "can_resume": {"type": "boolean"},
+        "indeterminate_retries": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/indeterminateRetry"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"cancelled": {"const": true}}},
+          "then": {
+            "properties": {
+              "can_approve": {"const": false},
+              "can_start": {"const": false},
+              "can_cancel": {"const": false},
+              "can_resume": {"const": false}
+            }
+          }
+        }
+      ]
+    },
+    "retryApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "retry_approval_identity",
+        "preview_identity",
+        "job_id",
+        "indeterminate_attempt_id"
+      ],
+      "properties": {
+        "retry_approval_identity": {"$ref": "#/$defs/digest"},
+        "preview_identity": {"$ref": "#/$defs/digest"},
+        "job_id": {"$ref": "#/$defs/nonempty"},
+        "indeterminate_attempt_id": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "successEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "command", "preview", "approval", "status", "retry_approval"],
+      "properties": {
+        "contract": {"$ref": "#/$defs/contract"},
+        "command": {"enum": ["prepare", "start", "cancel", "resume", "retry", "status"]},
+        "preview": {"$ref": "#/$defs/preview"},
+        "approval": {"$ref": "#/$defs/approval"},
+        "status": {"$ref": "#/$defs/status"},
+        "retry_approval": {
+          "anyOf": [
+            {"$ref": "#/$defs/retryApproval"},
+            {"type": "null"}
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"command": {"const": "retry"}}},
+          "then": {"properties": {"retry_approval": {"$ref": "#/$defs/retryApproval"}}},
+          "else": {"properties": {"retry_approval": {"type": "null"}}}
+        },
+        {
+          "if": {"properties": {"command": {"const": "prepare"}}},
+          "then": {
+            "properties": {
+              "approval": {
+                "properties": {"state": {"const": "not_approved"}}
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "command": {"enum": ["start", "resume", "retry"]}
+            }
+          },
+          "then": {
+            "properties": {
+              "approval": {
+                "properties": {"state": {"const": "approved"}}
+              }
+            }
+          }
+        }
+      ]
+    },
+    "successes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prepare", "start", "cancel", "resume", "retry", "status"],
+      "properties": {
+        "prepare": {"$ref": "#/$defs/fixturePrepareSuccess"},
+        "start": {"$ref": "#/$defs/fixtureStartSuccess"},
+        "cancel": {"$ref": "#/$defs/fixtureCancelSuccess"},
+        "resume": {"$ref": "#/$defs/fixtureResumeSuccess"},
+        "retry": {"$ref": "#/$defs/fixtureRetrySuccess"},
+        "status": {"$ref": "#/$defs/fixtureStatusSuccess"}
+      }
+    },
+    "fixturePreview": {
+      "allOf": [
+        {"$ref": "#/$defs/preview"},
+        {
+          "properties": {
+            "run_id": {"const": "run:fixture"},
+            "preview_identity": {
+              "const": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "plan_id": {"const": "plan:fixture"},
+            "authority_identity": {"const": "authority:fixture"},
+            "jobs": {
+              "minItems": 1,
+              "maxItems": 1,
+              "items": {
+                "properties": {"job_id": {"const": "mapping:prologue"}}
+              }
+            },
+            "derived_semantic_plan": {
+              "properties": {
+                "corridors": {
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "items": {
+                    "properties": {
+                      "corridor_id": {"const": "corridor:prologue"},
+                      "route_owner": {"type": "null"},
+                      "event_slot_upper_bound": {"const": 1},
+                      "ordinal": {"const": 0}
+                    }
+                  }
+                },
+                "route_memberships": {"const": []},
+                "fan_in": {"const": 24},
+                "section_synthesis_calls": {"const": 1},
+                "route_reduction_calls": {"const": 0},
+                "route_summary_calls": {"const": 0},
+                "whole_game_reduction_calls": {"const": 0},
+                "final_overview_calls": {"const": 1},
+                "rollup_synthesis_calls": {"const": 1}
+              }
+            },
+            "cache_hits": {
+              "properties": {
+                "cloud_job_ids": {
+                  "items": {"const": "mapping:prologue"}
+                },
+                "loopback_job_ids": {
+                  "items": {"const": "mapping:prologue"}
+                }
+              }
+            },
+            "ceilings": {
+              "properties": {
+                "section_synthesis_calls": {"const": 1},
+                "route_reduction_calls": {"const": 0},
+                "route_summary_calls": {"const": 0},
+                "whole_game_reduction_calls": {"const": 0},
+                "final_overview_calls": {"const": 1},
+                "rollup_synthesis_calls": {"const": 1}
+              }
+            }
+          }
+        }
+      ]
+    },
+    "fixtureApprovedApproval": {
+      "allOf": [
+        {"$ref": "#/$defs/approval"},
+        {
+          "properties": {
+            "state": {"const": "approved"},
+            "approval_identity": {
+              "const": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            },
+            "preview_identity": {
+              "const": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            "plan_id": {"const": "plan:fixture"},
+            "authority_identity": {"const": "authority:fixture"}
+          }
+        }
+      ]
+    },
+    "fixtureStatusBase": {
+      "allOf": [
+        {"$ref": "#/$defs/status"},
+        {
+          "properties": {
+            "run_id": {"const": "run:fixture"},
+            "preview_identity": {
+              "const": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        }
+      ]
+    },
+    "fixtureZeroIndeterminateStatus": {
+      "allOf": [
+        {"$ref": "#/$defs/fixtureStatusBase"},
+        {
+          "properties": {
+            "indeterminate_jobs": {"const": 0},
+            "indeterminate_retries": {"maxItems": 0}
+          }
+        }
+      ]
+    },
+    "fixturePrepareSuccess": {
+      "allOf": [
+        {"$ref": "#/$defs/successEnvelope"},
+        {
+          "properties": {
+            "command": {"const": "prepare"},
+            "preview": {"$ref": "#/$defs/fixturePreview"},
+            "approval": {"properties": {"state": {"const": "not_approved"}}},
+            "status": {
+              "allOf": [
+                {"$ref": "#/$defs/fixtureZeroIndeterminateStatus"},
+                {"properties": {"approved": {"const": false}}}
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "fixtureStartSuccess": {
+      "allOf": [
+        {"$ref": "#/$defs/successEnvelope"},
+        {
+          "properties": {
+            "command": {"const": "start"},
+            "preview": {"$ref": "#/$defs/fixturePreview"},
+            "approval": {"$ref": "#/$defs/fixtureApprovedApproval"},
+            "status": {
+              "allOf": [
+                {"$ref": "#/$defs/fixtureZeroIndeterminateStatus"},
+                {
+                  "properties": {
+                    "approved": {"const": true},
+                    "cancelled": {"const": false}
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "fixtureCancelSuccess": {
+      "allOf": [
+        {"$ref": "#/$defs/successEnvelope"},
+        {
+          "properties": {
+            "command": {"const": "cancel"},
+            "preview": {"$ref": "#/$defs/fixturePreview"},
+            "approval": {"$ref": "#/$defs/fixtureApprovedApproval"},
+            "status": {
+              "allOf": [
+                {"$ref": "#/$defs/fixtureZeroIndeterminateStatus"},
+                {
+                  "properties": {
+                    "cancelled": {"const": true},
+                    "can_start": {"const": false},
+                    "can_resume": {"const": false}
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "fixtureResumeSuccess": {
+      "allOf": [
+        {"$ref": "#/$defs/successEnvelope"},
+        {
+          "properties": {
+            "command": {"const": "resume"},
+            "preview": {"$ref": "#/$defs/fixturePreview"},
+            "approval": {"$ref": "#/$defs/fixtureApprovedApproval"},
+            "status": {
+              "allOf": [
+                {"$ref": "#/$defs/fixtureZeroIndeterminateStatus"},
+                {
+                  "properties": {
+                    "approved": {"const": true},
+                    "cancelled": {"const": false}
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "fixtureRetrySuccess": {
+      "allOf": [
+        {"$ref": "#/$defs/successEnvelope"},
+        {
+          "properties": {
+            "command": {"const": "retry"},
+            "preview": {"$ref": "#/$defs/fixturePreview"},
+            "approval": {"$ref": "#/$defs/fixtureApprovedApproval"},
+            "status": {"$ref": "#/$defs/fixtureZeroIndeterminateStatus"},
+            "retry_approval": {
+              "properties": {
+                "preview_identity": {
+                  "const": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                },
+                "job_id": {"const": "derived:section:prologue"},
+                "indeterminate_attempt_id": {"const": "attempt:section:1"}
+              }
+            }
+          }
+        }
+      ]
+    },
+    "fixtureStatusSuccess": {
+      "allOf": [
+        {"$ref": "#/$defs/successEnvelope"},
+        {
+          "properties": {
+            "command": {"const": "status"},
+            "preview": {"$ref": "#/$defs/fixturePreview"},
+            "approval": {"$ref": "#/$defs/fixtureApprovedApproval"},
+            "status": {
+              "allOf": [
+                {"$ref": "#/$defs/fixtureStatusBase"},
+                {
+                  "properties": {
+                    "approved": {"const": true},
+                    "indeterminate_jobs": {"const": 2},
+                    "indeterminate_retries": {"minItems": 2, "maxItems": 2}
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "staleError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "error"],
+      "properties": {
+        "contract": {"$ref": "#/$defs/contract"},
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message",
+            "sanitized_reason",
+            "current_run_id",
+            "current_preview_identity"
+          ],
+          "properties": {
+            "code": {"enum": ["stale_workflow_preview", "stale_workflow_approval"]},
+            "message": {"$ref": "#/$defs/message"},
+            "sanitized_reason": {
+              "enum": [
+                "preview_replaced",
+                "authority_changed",
+                "plan_changed",
+                "provider_policy_changed",
+                "ceilings_changed",
+                "privacy_scope_changed",
+                "cache_state_changed"
+              ]
+            },
+            "current_run_id": {"$ref": "#/$defs/nullableNonempty"},
+            "current_preview_identity": {"$ref": "#/$defs/nullableDigest"}
+          },
+          "allOf": [
+            {
+              "oneOf": [
+                {
+                  "properties": {
+                    "code": {"const": "stale_workflow_preview"},
+                    "message": {"const": "The workflow preview has changed."}
+                  }
+                },
+                {
+                  "properties": {
+                    "code": {"const": "stale_workflow_approval"},
+                    "message": {"const": "The workflow approval is stale."}
+                  }
+                }
+              ]
+            }
+          ],
+          "oneOf": [
+            {
+              "properties": {
+                "current_run_id": {"type": "null"},
+                "current_preview_identity": {"type": "null"}
+              }
+            },
+            {
+              "properties": {
+                "current_run_id": {"$ref": "#/$defs/nonempty"},
+                "current_preview_identity": {"$ref": "#/$defs/digest"}
+              }
+            }
+          ]
+        }
+      }
+    },
+    "staleErrors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stale_workflow_preview", "stale_workflow_approval"],
+      "properties": {
+        "stale_workflow_preview": {
+          "allOf": [
+            {"$ref": "#/$defs/staleError"},
+            {
+              "properties": {
+                "error": {
+                  "properties": {
+                    "code": {"const": "stale_workflow_preview"},
+                    "message": {"const": "The workflow preview has changed."}
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "stale_workflow_approval": {
+          "allOf": [
+            {"$ref": "#/$defs/staleError"},
+            {
+              "properties": {
+                "error": {
+                  "properties": {
+                    "code": {"const": "stale_workflow_approval"},
+                    "message": {"const": "The workflow approval is stale."}
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "nonStaleError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "error"],
+      "properties": {
+        "contract": {"$ref": "#/$defs/contract"},
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message", "sanitized_reason"],
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid_workflow_request",
+                "workflow_run_not_found",
+                "workflow_command_conflict",
+                "workflow_request_too_large",
+                "workflow_internal_error",
+                "workflow_unavailable"
+              ]
+            },
+            "message": {"$ref": "#/$defs/message"},
+            "sanitized_reason": {
+              "enum": [
+                "invalid_request",
+                "run_not_found",
+                "command_not_available",
+                "request_too_large",
+                "internal_error",
+                "service_unavailable"
+              ]
+            }
+          },
+          "allOf": [
+            {
+              "if": {"properties": {"code": {"const": "invalid_workflow_request"}}},
+              "then": {"properties": {
+                "message": {"const": "The workflow request is invalid."},
+                "sanitized_reason": {"const": "invalid_request"}
+              }}
+            },
+            {
+              "if": {"properties": {"code": {"const": "workflow_run_not_found"}}},
+              "then": {"properties": {
+                "message": {"const": "The workflow run is unavailable."},
+                "sanitized_reason": {"const": "run_not_found"}
+              }}
+            },
+            {
+              "if": {"properties": {"code": {"const": "workflow_command_conflict"}}},
+              "then": {"properties": {
+                "message": {"const": "The workflow command is not available."},
+                "sanitized_reason": {"const": "command_not_available"}
+              }}
+            },
+            {
+              "if": {"properties": {"code": {"const": "workflow_request_too_large"}}},
+              "then": {"properties": {
+                "message": {"const": "The workflow request is too large."},
+                "sanitized_reason": {"const": "request_too_large"}
+              }}
+            },
+            {
+              "if": {"properties": {"code": {"const": "workflow_internal_error"}}},
+              "then": {"properties": {
+                "message": {"const": "The workflow command could not be completed."},
+                "sanitized_reason": {"const": "internal_error"}
+              }}
+            },
+            {
+              "if": {"properties": {"code": {"const": "workflow_unavailable"}}},
+              "then": {"properties": {
+                "message": {"const": "The workflow service is unavailable."},
+                "sanitized_reason": {"const": "service_unavailable"}
+              }}
+            }
+          ]
+        }
+      }
+    },
+    "nonStaleErrors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "invalid_workflow_request",
+        "workflow_run_not_found",
+        "workflow_command_conflict",
+        "workflow_request_too_large",
+        "workflow_internal_error",
+        "workflow_unavailable"
+      ],
+      "properties": {
+        "invalid_workflow_request": {
+          "$ref": "#/$defs/fixtureInvalidRequestError"
+        },
+        "workflow_run_not_found": {"$ref": "#/$defs/fixtureRunNotFoundError"},
+        "workflow_command_conflict": {"$ref": "#/$defs/fixtureCommandConflictError"},
+        "workflow_request_too_large": {"$ref": "#/$defs/fixtureRequestTooLargeError"},
+        "workflow_internal_error": {"$ref": "#/$defs/fixtureInternalError"},
+        "workflow_unavailable": {"$ref": "#/$defs/fixtureUnavailableError"}
+      }
+    },
+    "fixtureInvalidRequestError": {
+      "allOf": [
+        {"$ref": "#/$defs/nonStaleError"},
+        {"properties": {"error": {"properties": {"code": {"const": "invalid_workflow_request"}}}}}
+      ]
+    },
+    "fixtureRunNotFoundError": {
+      "allOf": [
+        {"$ref": "#/$defs/nonStaleError"},
+        {"properties": {"error": {"properties": {"code": {"const": "workflow_run_not_found"}}}}}
+      ]
+    },
+    "fixtureCommandConflictError": {
+      "allOf": [
+        {"$ref": "#/$defs/nonStaleError"},
+        {"properties": {"error": {"properties": {"code": {"const": "workflow_command_conflict"}}}}}
+      ]
+    },
+    "fixtureRequestTooLargeError": {
+      "allOf": [
+        {"$ref": "#/$defs/nonStaleError"},
+        {"properties": {"error": {"properties": {"code": {"const": "workflow_request_too_large"}}}}}
+      ]
+    },
+    "fixtureInternalError": {
+      "allOf": [
+        {"$ref": "#/$defs/nonStaleError"},
+        {"properties": {"error": {"properties": {"code": {"const": "workflow_internal_error"}}}}}
+      ]
+    },
+    "fixtureUnavailableError": {
+      "allOf": [
+        {"$ref": "#/$defs/nonStaleError"},
+        {"properties": {"error": {"properties": {"code": {"const": "workflow_unavailable"}}}}}
+      ]
+    }
+  }
+}

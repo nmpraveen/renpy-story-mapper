@@ -1,0 +1,47 @@
+{
+  "schema": "story-map-v2-scale-fixture-v1",
+  "reader_schema": "story-map-v2-reader-contract-v2",
+  "seed": 404,
+  "counts": {
+    "events": 5000,
+    "choices": 5000,
+    "arms": 20300,
+    "rejoins": 2000,
+    "sections": 256
+  },
+  "features": {
+    "persistent_route_first_section": 100,
+    "persistent_route_section_count": 50,
+    "nested_choice_depth": 8,
+    "oversized_branch_choice_id": "choice:0",
+    "oversized_branch_arm_count": 304,
+    "cross_section_choice_id": "choice:19",
+    "cross_section_rejoin_section": 20,
+    "final_target_selection_id": "event:4999",
+    "final_target_section_id": "section:255",
+    "unloaded_branch_selection_id": "arm:303",
+    "unloaded_branch_id": "choice:0"
+  },
+  "profiles": [
+    {"id": "desktop-100", "width": 1440, "height": 900, "device_scale_factor": 1},
+    {"id": "desktop-200", "width": 720, "height": 450, "device_scale_factor": 2},
+    {"id": "narrow", "width": 390, "height": 844, "device_scale_factor": 1}
+  ],
+  "bounds": {
+    "manifest_cold_p95_ms": 1500,
+    "manifest_warm_p95_ms": 500,
+    "usable_overview_cold_ms": 4000,
+    "usable_overview_warm_ms": 2000,
+    "section_or_locator_p95_ms": 500,
+    "search_p95_ms": 750,
+    "cached_path_p95_ms": 1000,
+    "uncached_path_p95_ms": 5000,
+    "live_story_nodes": 600,
+    "browser_memory_bytes": 262144000,
+    "browser_memory_growth_100_jumps_bytes": 20971520,
+    "repeated_distant_jumps": 100,
+    "page_bytes": 1048576,
+    "rendered_items_per_page": 240
+  },
+  "search_query": "final target"
+}

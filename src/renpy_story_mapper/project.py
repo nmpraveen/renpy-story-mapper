@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from renpy_story_mapper.m12_persistence import M12Persistence
     from renpy_story_mapper.narrative.persistence import M13Persistence
     from renpy_story_mapper.presentation import PresentationService
+    from renpy_story_mapper.story_map_v2.durable_repository import SqliteStoryMapV2Repository
     from renpy_story_mapper.story_organization import StoryOrganizationService
 
 
@@ -167,9 +168,33 @@ class Project:
                 connection = None
                 backup = project_path.with_name(f"{project_path.name}.pre-migrate-v{version}.bak")
                 storage.make_backup(project_path, backup, allow_legacy_v4=needs_v4_extension)
-                connection = storage.connect(project_path)
-                storage.initialize_database(connection)
-                storage.validate_database(connection)
+                try:
+                    connection = storage.connect(project_path)
+                    storage.initialize_database(connection)
+                    storage.validate_database(connection)
+                except BaseException as migration_error:
+                    if connection is not None:
+                        connection.close()
+                        connection = None
+                    try:
+                        storage.make_backup(
+                            backup,
+                            project_path,
+                            allow_legacy_v4=needs_v4_extension,
+                        )
+                        restored = storage.connect(project_path)
+                        try:
+                            storage.validate_database(
+                                restored,
+                                allow_legacy_v4=needs_v4_extension,
+                            )
+                        finally:
+                            restored.close()
+                    except BaseException as restore_error:
+                        raise storage.ProjectCorruptError(
+                            "project migration failed and its verified backup could not be restored"
+                        ) from restore_error
+                    raise migration_error
             return cls(project_path, connection)
         except sqlite3.DatabaseError as exc:
             if connection is not None:
@@ -792,6 +817,15 @@ class Project:
         from renpy_story_mapper.narrative.persistence import M13Persistence
 
         return M13Persistence(self)
+
+    def story_map_v2_repository(self) -> SqliteStoryMapV2Repository:
+        """Return the indexed schema-v7 Story Map V2 repository."""
+
+        from renpy_story_mapper.story_map_v2.durable_repository import (
+            SqliteStoryMapV2Repository,
+        )
+
+        return SqliteStoryMapV2Repository(self._require_open())
 
     def authoritative_bytes(self) -> bytes:
         """Return byte-stable authoritative data, excluding lifecycle timestamps and IDs."""

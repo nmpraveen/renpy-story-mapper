@@ -234,6 +234,26 @@ one chronology. The run drawer keeps deterministic views useful with Narrative d
 provider/model, scope, fact-only or story-text mode, M12 inclusion, estimated calls and tokens, cost
 availability, and call/token/time/concurrency limits before the one manifest-bound confirmation.
 
+## Story Map V2 workflow
+
+The chronological reader enables its existing Generate/Update control only when bootstrap
+advertises `routes.story_map_v2_workflow` with contract
+`story-map-v2-workflow-http-v2`. The browser calls only the advertised local POST routes for
+prepare, start, status, cancel, and resume. Prepare sends only the contract version and makes no
+provider call. Its exact preview supplies provider/model/reasoning/fast mode, private-content
+scope, chunk/job counts, finite call ceilings, and cloud/local cache hits for the
+existing approval dialog. Start requires the user to approve that exact run and preview identity.
+
+The run bar uses the workflow status and preview to show plain completed/total progress. Cancel and
+resume are visible only when the response's authoritative `can_cancel` and `can_resume` fields
+advertise them. Workflow polling also checks the separately advertised reader status; a newly
+published generation or map revision reloads the existing lazy chronological reader. The browser
+stores only the current contract, run ID, and preview identity locally. After a project is opened,
+it re-queries the advertised status route and requires both returned identities to match before
+restoring actions. The currently open project scopes that lookup; unavailable, stale, malformed,
+cancelled, or completed bindings are discarded. The browser does not infer endpoints, send
+provider settings or story material, call retry, or create a separate approval route.
+
 ## Local shell and acceptance
 
 Bootstrap, opaque native pickers, project create/open/refresh, analysis progress/cancel, settings,

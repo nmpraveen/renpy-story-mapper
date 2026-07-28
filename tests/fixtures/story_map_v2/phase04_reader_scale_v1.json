@@ -1,0 +1,20 @@
+{
+  "schema": "story-map-v2-reader-scale-fixture-v1",
+  "seed": 1504,
+  "counts": {
+    "events": 5000,
+    "choices": 5000,
+    "arms": 20000,
+    "rejoins": 2000,
+    "sections": 256
+  },
+  "shape": {
+    "maximum_depth": 8,
+    "persistent_route_sections": 50,
+    "oversized_branch_id": "choice:00000",
+    "oversized_branch_arms": 241,
+    "cross_section_rejoin_source": "arm:00000:000",
+    "cross_section_rejoin_target": "event:00200",
+    "final_section_target": "event:04999"
+  }
+}

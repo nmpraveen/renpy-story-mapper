@@ -1,5 +1,18 @@
 # Repository workflow instructions
 
+## Product simplicity authority
+
+- **THE PRODUCT IS A QUICK, CRUDE SCRIPT-TO-STORY CHECKER, NOT A PRODUCTION-GRADE SYSTEM.**
+- The primary outcome is simple: load Ren'Py files and quickly see the rough whole story, choices,
+  branch routes, important state changes, and rejoins.
+- Build the smallest thing that makes that outcome work on the current real game. Do not add
+  enterprise durability, exhaustive proof, extreme-scale infrastructure, new protocol versions,
+  or defensive matrices unless a demonstrated current-game blocker requires them.
+- Preserve useful existing implementation, but do not finish previously planned complexity merely
+  because it already appears in an old contract or design.
+- If a proposed change does not directly improve script-to-story output, remove a demonstrated
+  blocker, or protect private read-only inputs, stop and ask the user before proceeding.
+
 ## Milestone authority
 
 - Treat `docs/MASTER_PLAN.md` as product-scope authority.
@@ -10,10 +23,30 @@
 
 ## Dispatch policy
 
-- The dispatcher must explicitly pass model `gpt-5.6-sol`, thinking `high`, and fast mode disabled for every current milestone task.
-- Use the same explicit settings for architectural or ambiguous work, integration, debugging, and security, correctness, semantic, or acceptance review.
-- A faster model is allowed only for a future task explicitly classified as mechanical and bounded, with exact inputs, outputs, affected files, and a deterministic check. Escalate to `gpt-5.6-sol` High immediately if ambiguity or design judgment appears.
+- The user selects the coordinator and worker model/reasoning settings for each phase or resumption.
+  Never inherit model settings from an earlier milestone or silently escalate them.
+- For the next Phase 04 resumption, implementation and review tasks must explicitly use
+  `gpt-5.6-sol` with Medium reasoning and fast mode disabled. If a selector is unavailable, report
+  that limitation instead of claiming the setting.
+- Use one user-visible Orchestra task to guard scope, make decisions, integrate, and report at
+  milestone checkpoints. It may dispatch at most two independent implementation tasks at once
+  unless the user explicitly approves a different topology.
+- The Orchestra must not perform continuous commentary monitoring or start speculative work while
+  another task runs. When scope, necessity, or product value is uncertain, pause the goal and ask.
 - Repository prose cannot change Codex client settings. The dispatcher, thread creator, or tool invocation must pass model, reasoning effort, and fast-mode settings explicitly. Never claim these files changed the running model; if settings cannot be selected or verified, state that limitation rather than silently downgrading.
+
+## Quota-aware testing and review
+
+- During implementation, run only tests and static checks that cover the changed files and direct
+  integration seam.
+- Run one focused integrated Story Map gate at a meaningful checkpoint. Use the repository-wide
+  sharded CI workflow only for a PR candidate or another explicitly useful integration boundary.
+- Run the full Windows Release/package gate once on the final intended PR head, not after every
+  worker, correction, commit, or push.
+- Use one early semantic review and one final integrated review by default. Add another review only
+  for a concrete unresolved correctness, privacy, or safety risk.
+- Do not spend agent quota waiting on healthy CI. Check it once after completion or when it needs
+  action.
 
 ## Completion discipline
 

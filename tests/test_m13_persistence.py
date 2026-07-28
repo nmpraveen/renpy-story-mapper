@@ -105,7 +105,7 @@ def test_collections_reuse_schema_v6_and_records_reopen_independently(tmp_path: 
         ARTIFACTS_COLLECTION,
         CACHE_COLLECTION,
     }
-    assert storage.SCHEMA_VERSION == 6
+    assert storage.SCHEMA_VERSION >= 6
     assert expected == M13_PAYLOAD_COLLECTIONS
     assert expected <= storage.PAYLOAD_COLLECTIONS
 

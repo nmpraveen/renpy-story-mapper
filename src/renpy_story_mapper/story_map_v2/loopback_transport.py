@@ -10,8 +10,10 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+import time
 from contextlib import suppress
 from http.client import HTTPMessage
+from pathlib import Path
 from typing import IO, Protocol, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import SplitResult, urlsplit
@@ -32,6 +34,14 @@ from renpy_story_mapper.story_map_v2.provider_policy import (
     MAPPER_PROMPT_VERSION,
     ProviderFailure,
 )
+from renpy_story_mapper.story_map_v2.workflow_contracts import (
+    LOOPBACK_REASONING,
+    AttemptAccounting,
+    ProviderCallResult,
+    TransmissionDisposition,
+    WorkflowFailure,
+)
+from renpy_story_mapper.story_map_v2.workflow_protocols import WorkflowProviderError
 
 DEFAULT_LOOPBACK_ENDPOINT = LOCAL_MAPPER_ENDPOINT
 DEFAULT_TIMEOUT_SECONDS = 300.0
@@ -161,6 +171,59 @@ class LoopbackLmStudioTransport:
         self._input_tokens = input_tokens
         self._output_tokens = output_tokens
         return response
+
+    def submit(self, request: bytes) -> ProviderCallResult:
+        """Submit one frozen Phase 04 mapping or derived-prose packet to loopback LM Studio."""
+
+        started = time.monotonic()
+        if not request or len(request) > DEFAULT_MAXIMUM_RESPONSE_BYTES:
+            raise _workflow_error(
+                WorkflowFailure.RESOURCE_LIMIT,
+                TransmissionDisposition.NOT_TRANSMITTED,
+                started,
+            )
+        try:
+            self._verify_loaded_model()
+        except ProviderFailure as exc:
+            raise _adapt_workflow_failure(exc, started, submitted=False) from None
+        schema_name, schema = _workflow_schema_for_request(request)
+        request_body = canonical_json(
+            {
+                "messages": [{"content": request.decode("utf-8"), "role": "user"}],
+                "model": LOCAL_MAPPER_MODEL,
+                "reasoning_effort": LOOPBACK_REASONING,
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": schema_name,
+                        "schema": schema,
+                        "strict": True,
+                    },
+                },
+                "stream": False,
+                "temperature": 0,
+            }
+        )
+        try:
+            raw = self._request("POST", "/chat/completions", body=request_body)
+            payload, input_tokens, output_tokens = _parse_workflow_completion(
+                _decode_json(raw, "The local workflow returned malformed JSON.")
+            )
+        except ProviderFailure as exc:
+            raise _adapt_workflow_failure(exc, started, submitted=True) from None
+        return ProviderCallResult(
+            payload=payload,
+            accounting=AttemptAccounting(
+                calls=1,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                elapsed_ms=_elapsed_ms(started),
+            ),
+            resolved_provider="lm-studio-loopback",
+            resolved_model=LOCAL_MAPPER_MODEL,
+            resolved_reasoning=LOOPBACK_REASONING,
+            resolved_fast_mode=None,
+        )
 
     def cancel(self) -> None:
         self._cancelled.set()
@@ -338,6 +401,111 @@ def _parse_completion(value: object) -> tuple[MapperResponse, int | None, int | 
     response = _parse_mapper_response(payload)
     input_tokens, output_tokens = _parse_usage(value.get("usage"))
     return response, input_tokens, output_tokens
+
+
+_WORKFLOW_RESPONSE_SCHEMAS = {
+    "mapping": "story_map_phase04_mapper_response_v1.schema.json",
+    "section_synthesis": "story_map_phase04_section_prose_v1.schema.json",
+    "rollup_synthesis": "story_map_phase04_rollup_prose_v1.schema.json",
+}
+
+
+def _workflow_schema_for_request(request: bytes) -> tuple[str, object]:
+    try:
+        value = json.loads(request)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        kind = "mapping"
+    else:
+        call_kind = value.get("call_kind") if isinstance(value, dict) else None
+        kind = call_kind if call_kind in _WORKFLOW_RESPONSE_SCHEMAS else "mapping"
+    name = _WORKFLOW_RESPONSE_SCHEMAS[kind]
+    path = Path(__file__).resolve().parent / "schemas" / name
+    try:
+        schema = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        raise ProviderFailure(
+            FailureKind.LOCAL_UNAVAILABLE,
+            "The local workflow response schema is unavailable.",
+        ) from None
+    return name.removesuffix(".schema.json").replace("-", "_"), schema
+
+
+def _parse_workflow_completion(value: object) -> tuple[bytes, int, int]:
+    if not isinstance(value, dict) or value.get("model") != LOCAL_MAPPER_MODEL:
+        raise ProviderFailure(FailureKind.IDENTITY, "The resolved local model did not match.")
+    choices = value.get("choices")
+    if not isinstance(choices, list) or len(choices) != 1:
+        raise ProviderFailure(
+            FailureKind.INVALID_RESPONSE, "The local workflow response was invalid."
+        )
+    choice = choices[0]
+    message = choice.get("message") if isinstance(choice, dict) else None
+    content = message.get("content") if isinstance(message, dict) else None
+    # HauhauCS models may emit a separate reasoning_content field. Only the schema-bound
+    # assistant content is product output; reasoning is neither parsed nor persisted.
+    if not isinstance(content, str) or not content.strip():
+        raise ProviderFailure(
+            FailureKind.INVALID_RESPONSE, "The local workflow content was empty."
+        )
+    payload = _decode_json(
+        content.encode("utf-8"), "The local workflow content was invalid."
+    )
+    if not isinstance(payload, dict):
+        raise ProviderFailure(
+            FailureKind.INVALID_RESPONSE, "The local workflow content was invalid."
+        )
+    input_tokens, output_tokens = _parse_usage(value.get("usage"))
+    return canonical_json(payload), input_tokens or 0, output_tokens or 0
+
+
+def _adapt_workflow_failure(
+    error: ProviderFailure,
+    started: float,
+    *,
+    submitted: bool,
+) -> WorkflowProviderError:
+    mapping = {
+        FailureKind.CONTENT_REFUSAL: WorkflowFailure.CONTENT_REFUSAL,
+        FailureKind.INVALID_RESPONSE: WorkflowFailure.INVALID_RESPONSE,
+        FailureKind.IDENTITY: WorkflowFailure.IDENTITY_MISMATCH,
+        FailureKind.CANCELLED: WorkflowFailure.CANCELLED,
+        FailureKind.LOCAL_UNAVAILABLE: WorkflowFailure.PROVIDER_UNAVAILABLE,
+    }
+    failure = mapping.get(error.kind, WorkflowFailure.PROVIDER_UNAVAILABLE)
+    if not submitted:
+        transmission = TransmissionDisposition.NOT_TRANSMITTED
+        calls = 0
+    elif error.kind in {
+        FailureKind.CONTENT_REFUSAL,
+        FailureKind.INVALID_RESPONSE,
+        FailureKind.IDENTITY,
+        FailureKind.RATE_LIMIT,
+        FailureKind.AUTHENTICATION,
+    }:
+        transmission = TransmissionDisposition.TRANSMITTED
+        calls = 1
+    else:
+        transmission = TransmissionDisposition.INDETERMINATE
+        calls = 0
+    return _workflow_error(failure, transmission, started, calls=calls)
+
+
+def _workflow_error(
+    failure: WorkflowFailure,
+    transmission: TransmissionDisposition,
+    started: float,
+    *,
+    calls: int = 0,
+) -> WorkflowProviderError:
+    return WorkflowProviderError(
+        failure,
+        transmission,
+        AttemptAccounting(calls, 0, 0, _elapsed_ms(started)),
+    )
+
+
+def _elapsed_ms(started: float) -> int:
+    return max(0, round((time.monotonic() - started) * 1000))
 
 
 def _parse_mapper_response(value: object) -> MapperResponse:

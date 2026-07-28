@@ -7,12 +7,12 @@ import secrets
 import threading
 import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Final, Protocol, cast
+from typing import Final, NoReturn, Protocol, cast
 
 from renpy_story_mapper import storage
 from renpy_story_mapper.ai_story_map import AIStoryMapQueryResult, query_ai_story_map
@@ -26,7 +26,11 @@ from renpy_story_mapper.bounded_window import (
     BoundedWindowError,
     build_bounded_narrative_window,
 )
-from renpy_story_mapper.canonical_graph_contract import CANONICAL_GRAPH_SCHEMA
+from renpy_story_mapper.canonical_graph_contract import (
+    CANONICAL_GRAPH_SCHEMA,
+    CanonicalGraph,
+    SourceEvidence,
+)
 from renpy_story_mapper.inspection_projection import INSPECTION_PROJECTION_SCHEMA
 from renpy_story_mapper.m07_model import Assembly, CheckpointStatus
 from renpy_story_mapper.m07_workflow import (
@@ -37,10 +41,12 @@ from renpy_story_mapper.m07_workflow import (
 )
 from renpy_story_mapper.m11_persistence import M11Availability
 from renpy_story_mapper.m11_scene_projection import stored_scene_model_mapping
+from renpy_story_mapper.m12_model import M12TargetUnresolvableError
 from renpy_story_mapper.m12_persistence import RouteCacheIdentity, RouteCacheState
 from renpy_story_mapper.m12_service import (
     M12PreparedSolve,
     M12RouteService,
+    canonical_graph_from_mapping,
     load_m12_authority,
 )
 from renpy_story_mapper.narrative.authority import load_narrative_authority
@@ -101,12 +107,14 @@ from renpy_story_mapper.project import (
     refresh_ingested_project,
 )
 from renpy_story_mapper.story_map_v2.contracts import StoryMapCore
+from renpy_story_mapper.story_map_v2.loopback_transport import LoopbackLmStudioTransport
 from renpy_story_mapper.story_map_v2.navigation import (
     DETAIL_SCHEMA,
     PATH_SCHEMA,
     StoryMapNavigator,
     StoryNavigationAuthorityUnavailableError,
     UnknownStorySelectionError,
+    compact_witness,
     require_current_selection,
     unresolved_navigation_page,
 )
@@ -119,6 +127,64 @@ from renpy_story_mapper.story_map_v2.presentation import (
     project_story_map,
     unavailable_story_map,
 )
+from renpy_story_mapper.story_map_v2.product_vertical import (
+    execute_product_vertical,
+    load_product_workflow,
+    project_workflow_reader_status,
+)
+from renpy_story_mapper.story_map_v2.product_workflow import (
+    FrozenProductRequestMaterializer,
+    PreparedProductWorkflow,
+    create_product_workflow_service,
+    local_lm_studio_workflow_settings,
+    persist_product_workflow_preview,
+    prepare_product_workflow_from_authority,
+)
+from renpy_story_mapper.story_map_v2.reader import (
+    DEFAULT_SEARCH_RESULTS,
+    DETAIL_PAGE_ENDPOINT,
+    MAX_LIVE_STORY_ITEMS,
+    MAX_RENDERED_ITEMS,
+    MAX_SECTION_EVENTS,
+    MAX_SERIALIZED_BYTES,
+    PATH_PAGE_ENDPOINT,
+    READER_SCHEMA,
+    InvalidStoryMapCursorError,
+    ReaderNavigation,
+    ReaderSlice,
+    StaleMapRevisionError,
+    StoryMapReader,
+    StoryMapReaderDataError,
+    StoryMapReaderError,
+    StoryMapReaderNotFoundError,
+    StoryMapReaderUnavailableError,
+)
+from renpy_story_mapper.story_map_v2.reader_compat import phase03_compatibility_source
+from renpy_story_mapper.story_map_v2.reader_store import DurableStoryMapReaderSource
+from renpy_story_mapper.story_map_v2.workflow_contracts import (
+    ProviderMode as StoryMapProviderMode,
+)
+from renpy_story_mapper.story_map_v2.workflow_contracts import (
+    WorkflowApproval,
+    WorkflowPreview,
+    WorkflowStatus,
+)
+from renpy_story_mapper.story_map_v2.workflow_http_contract import (
+    WORKFLOW_HTTP_ERROR_MESSAGES,
+)
+from renpy_story_mapper.story_map_v2.workflow_http_projection import (
+    WORKFLOW_HTTP_CONTRACT,
+    WORKFLOW_HTTP_ROUTES,
+    workflow_error_envelope,
+    workflow_success_envelope,
+)
+from renpy_story_mapper.story_map_v2.workflow_protocols import (
+    ProviderFactory as StoryMapProviderFactory,
+)
+from renpy_story_mapper.story_map_v2.workflow_repository_adapter import (
+    DurableWorkflowRepositoryAdapter,
+)
+from renpy_story_mapper.story_map_v2.workflow_service import StoryMapWorkflowService
 from renpy_story_mapper.web.contracts import (
     M07_API_ROUTES,
     M07_PREPARE_REQUEST_FIELDS,
@@ -148,8 +214,19 @@ from renpy_story_mapper.web.contracts import (
     M13_SNAPSHOT_REQUEST_FIELDS,
     M13_START_REQUEST_FIELDS,
     STORY_MAP_V2_API_ROUTES,
+    STORY_MAP_V2_BRANCH_PAGE_REQUEST_FIELDS,
+    STORY_MAP_V2_DETAIL_PAGE_REQUEST_FIELDS,
+    STORY_MAP_V2_LOCATE_REQUEST_FIELDS,
+    STORY_MAP_V2_MANIFEST_REQUEST_FIELDS,
     STORY_MAP_V2_MAP_REQUEST_FIELDS,
+    STORY_MAP_V2_PATH_PAGE_REQUEST_FIELDS,
+    STORY_MAP_V2_READER_API_ROUTES,
+    STORY_MAP_V2_SAVE_VIEW_STATE_REQUEST_FIELDS,
+    STORY_MAP_V2_SEARCH_REQUEST_FIELDS,
+    STORY_MAP_V2_SECTION_PAGE_REQUEST_FIELDS,
     STORY_MAP_V2_SELECTION_REQUEST_FIELDS,
+    STORY_MAP_V2_STATUS_REQUEST_FIELDS,
+    STORY_MAP_V2_VIEW_STATE_REQUEST_FIELDS,
     ApiErrorBody,
     JsonValue,
     SelectionResult,
@@ -213,6 +290,21 @@ LEGACY_ORGANIZATION_ROUTES: Final = frozenset(
 )
 
 
+def _phase04_full_authority_graph(
+    project: Project,
+    expected_canonical_hash: str,
+) -> CanonicalGraph:
+    """Load the exact M10 graph needed by the M11-bound Phase 04 planner."""
+
+    raw = project.payload("m10_canonical_graph", "authoritative")
+    if not isinstance(raw, Mapping):
+        raise ValueError("Phase 04 requires current M10 authority")
+    graph = canonical_graph_from_mapping(raw)
+    if graph.authority_hash != expected_canonical_hash:
+        raise ValueError("Phase 04 M10 authority changed")
+    return graph
+
+
 class ApiProblem(Exception):
     def __init__(
         self,
@@ -221,6 +313,8 @@ class ApiProblem(Exception):
         message: str,
         *,
         selection_id: str | None = None,
+        map_revision: int | None = None,
+        payload: JsonValue | None = None,
     ) -> None:
         super().__init__(message)
         if selection_id is not None and (not selection_id or len(selection_id) > 512):
@@ -229,6 +323,12 @@ class ApiProblem(Exception):
         self.code = code
         self.message = message
         self.selection_id = selection_id
+        if map_revision is not None and (
+            type(map_revision) is not int or map_revision < 0
+        ):
+            raise ValueError("API error map revision must be a non-negative integer")
+        self.map_revision = map_revision
+        self.payload = payload
 
 
 def _story_map_navigator(
@@ -241,6 +341,265 @@ def _story_map_navigator(
     except (storage.ProjectStorageError, ValueError) as exc:
         raise StoryNavigationAuthorityUnavailableError from exc
     return StoryMapNavigator(authority, M12RouteService(project), core, page)
+
+
+def _reader_api_problem(error: StoryMapReaderError) -> ApiProblem:
+    if isinstance(error, StaleMapRevisionError):
+        return ApiProblem(
+            409,
+            "stale_map_revision",
+            "The requested map revision is stale.",
+            map_revision=error.current_revision,
+        )
+    if isinstance(error, InvalidStoryMapCursorError):
+        return ApiProblem(400, "invalid_cursor", "The page cursor is invalid.")
+    if isinstance(error, StoryMapReaderNotFoundError):
+        return ApiProblem(
+            404,
+            "story_map_v2_resource_not_found",
+            "The Story Map V2 resource is unavailable.",
+        )
+    if isinstance(error, StoryMapReaderUnavailableError):
+        return ApiProblem(
+            404,
+            "story_map_v2_unavailable",
+            "Story Map V2 is unavailable for the current project.",
+        )
+    if isinstance(error, StoryMapReaderDataError):
+        return ApiProblem(
+            409,
+            "story_map_v2_reader_unavailable",
+            "The current Story Map V2 reader data is unavailable.",
+        )
+    return ApiProblem(400, "invalid_request", "The request is invalid.")
+
+
+def _reader_request_revision(body: Mapping[str, JsonValue]) -> int:
+    value = body.get("map_revision")
+    if type(value) is not int or value < 0:
+        raise ValueError("map_revision must be a non-negative integer")
+    return value
+
+
+def _reader_search_query(body: Mapping[str, JsonValue]) -> str:
+    value = body.get("query")
+    if not isinstance(value, str) or len(value) > 256:
+        raise ValueError("query must be a bounded string")
+    return value
+
+
+def _durable_source_navigation(
+    project: Project, navigation: ReaderNavigation
+) -> dict[str, object]:
+    """Validate a durable evidence locator against current M12 authority."""
+
+    try:
+        authority = load_m12_authority(project)
+    except (storage.ProjectStorageError, ValueError) as exc:
+        raise StoryMapReaderDataError(
+            "The current deterministic source authority is unavailable."
+        ) from exc
+    evidence = next(
+        (item for item in authority.graph.evidence if item.id == navigation.evidence_id),
+        None,
+    )
+    if evidence is None:
+        matches = tuple(
+            item
+            for item in authority.graph.evidence
+            if _evidence_locator(item) == _navigation_locator(navigation)
+        )
+        if len(matches) != 1:
+            raise StoryMapReaderDataError("durable navigation evidence is no longer current")
+        evidence = matches[0]
+    if _evidence_locator(evidence) != _navigation_locator(navigation):
+        raise StoryMapReaderDataError("durable navigation evidence locator is stale")
+    return {
+        "status": "available",
+        "path": navigation.relative_path,
+        "start_line": navigation.start_line,
+        "end_line": navigation.end_line,
+        "line_basis": navigation.line_basis,
+        "evidence_id": evidence.id,
+    }
+
+
+def _evidence_locator(evidence: SourceEvidence) -> tuple[object, object, object, str]:
+    source = evidence.source
+    path = source.get("path")
+    start = source.get("start")
+    end = source.get("end")
+    start_line = start.get("line") if isinstance(start, Mapping) else None
+    end_line = end.get("line") if isinstance(end, Mapping) else start_line
+    return path, start_line, end_line, evidence.line_basis or "physical"
+
+
+def _navigation_locator(navigation: ReaderNavigation) -> tuple[str, int, int, str]:
+    return (
+        navigation.relative_path,
+        navigation.start_line,
+        navigation.end_line,
+        navigation.line_basis,
+    )
+
+
+def _projection_id(family: str, selection_id: str, path: str) -> str:
+    identity = hashlib.sha256(f"{family}\0{selection_id}\0{path}".encode()).hexdigest()[:24]
+    return f"{family}:{identity}"
+
+
+def _projection_slice(
+    items: Sequence[Mapping[str, object]],
+    *,
+    family: str,
+    selection_id: str,
+    offset: int,
+    limit: int,
+) -> ReaderSlice:
+    selected = tuple(items[offset : offset + limit])
+    item_ids = [str(item["id"]) for item in items]
+    shell = {
+        "id": f"shell:{family}:{hashlib.sha256(selection_id.encode()).hexdigest()[:20]}",
+        "kind": family,
+        "item_ids": item_ids,
+        "parent_shell_id": None,
+        "route_id": None,
+        "rejoin_selection_id": None,
+    }
+    next_offset = offset + len(selected) if offset + len(selected) < len(items) else None
+    return ReaderSlice(selected, (shell,), next_offset)
+
+
+def _path_reader_slice(
+    payload: Mapping[str, object], selection_id: str, offset: int, limit: int
+) -> ReaderSlice:
+    status = payload.get("status")
+    reason = payload.get("explanation", payload.get("reason"))
+    items: list[dict[str, object]] = [
+        {
+            "id": _projection_id("path-step", selection_id, "status"),
+            "kind": "summary",
+            "order": 0,
+            "title": "Path status",
+            "text": reason if isinstance(reason, str) else str(status or "unavailable"),
+            "selection_id": selection_id,
+        }
+    ]
+    witness = payload.get("witness")
+    if isinstance(witness, Mapping):
+        field_kinds = {
+            "scene_titles": "path_step",
+            "visible_choices": "path_step",
+            "requirements": "requirement",
+            "effects": "effect",
+            "warnings": "warning",
+            "instructions": "instruction",
+        }
+        for field, kind in field_kinds.items():
+            values = witness.get(field)
+            if not isinstance(values, (tuple, list)):
+                continue
+            for index, value in enumerate(values):
+                title = value if isinstance(value, str) else field.replace("_", " ").title()
+                items.append(
+                    {
+                        "id": _projection_id("path-step", selection_id, f"{field}/{index}"),
+                        "kind": kind,
+                        "order": len(items),
+                        "title": title,
+                        "value": value,
+                        "selection_id": selection_id,
+                    }
+                )
+    return _projection_slice(
+        items,
+        family="path",
+        selection_id=selection_id,
+        offset=offset,
+        limit=limit,
+    )
+
+
+def _detail_reader_slice(
+    payload: Mapping[str, object], selection_id: str, offset: int, limit: int
+) -> ReaderSlice:
+    status = payload.get("status")
+    reason = payload.get("reason")
+    items: list[dict[str, object]] = [
+        {
+            "id": _projection_id("detail", selection_id, "envelope/status"),
+            "kind": "summary",
+            "order": 0,
+            "title": "Detail status",
+            "text": reason if isinstance(reason, str) else str(status or "unavailable"),
+        }
+    ]
+    source = payload.get("source_navigation")
+    if isinstance(source, Mapping):
+        source_item = dict(source)
+        path = source_item.pop("path", None)
+        if isinstance(path, str):
+            source_item["relative_path"] = path
+        items.append(
+            {
+                "id": _projection_id(
+                    "detail", selection_id, "envelope/source_navigation"
+                ),
+                "kind": "evidence",
+                "order": len(items),
+                "title": "Source evidence",
+                **source_item,
+            }
+        )
+    detail = payload.get("detail")
+    if isinstance(detail, Mapping):
+        stack: list[tuple[str, object]] = [
+            (str(key), value) for key, value in reversed(tuple(detail.items()))
+        ]
+        while stack:
+            path, value = stack.pop()
+            if isinstance(value, Mapping):
+                stack.extend(
+                    (f"{path}/{key}", child)
+                    for key, child in reversed(tuple(value.items()))
+                )
+                continue
+            if isinstance(value, (tuple, list)):
+                stack.extend(
+                    (f"{path}/{index}", child)
+                    for index, child in reversed(tuple(enumerate(value)))
+                )
+                continue
+            if isinstance(value, str) and len(value) > 65_536:
+                chunks: Sequence[object] = tuple(
+                    value[index : index + 65_536]
+                    for index in range(0, len(value), 65_536)
+                )
+            else:
+                chunks = (value,)
+            for part, child in enumerate(chunks):
+                leaf_path = path if len(chunks) == 1 else f"{path}/part-{part}"
+                item: dict[str, object] = {
+                    "id": _projection_id(
+                        "detail", selection_id, f"detail/{leaf_path}"
+                    ),
+                    "kind": "detail",
+                    "order": len(items),
+                    "title": path.rsplit("/", 1)[-1].replace("_", " ").title(),
+                    "path": path,
+                }
+                if isinstance(child, str):
+                    item["text"] = child
+                else:
+                    item["value"] = child
+                items.append(item)
+    return _projection_slice(
+        items,
+        family="detail",
+        selection_id=selection_id,
+        offset=offset,
+        limit=limit,
+    )
 
 
 class DialogAdapter(Protocol):
@@ -373,6 +732,8 @@ class ProjectApi:
         state_store: UserStateStore | None = None,
         m07_provider_factory: ProviderFactory | None = None,
         m13_provider_factory: M13ProviderFactory | None = None,
+        phase04_cloud_factory: StoryMapProviderFactory | None = None,
+        phase04_loopback_factory: StoryMapProviderFactory | None = None,
     ) -> None:
         self._dialogs = dialogs
         self._selections = SelectionRegistry()
@@ -405,6 +766,12 @@ class ProjectApi:
         self._m13_preview: dict[str, JsonValue] | None = None
         self._m13_active_provider: NarrativeProvider | None = None
         self._m13_result: NarrativePipelineResult | None = None
+        del phase04_cloud_factory  # The supported Phase 04 website path is loopback-only.
+        self._phase04_loopback_factory = (
+            phase04_loopback_factory or LoopbackLmStudioTransport
+        )
+        self._phase04_prepared: dict[str, PreparedProductWorkflow] = {}
+        self._phase04_futures: dict[str, Future[None]] = {}
 
     def close(self) -> None:
         self.cancel()
@@ -412,6 +779,11 @@ class ProjectApi:
         if future is not None:
             with suppress(Exception):
                 future.result(timeout=5)
+        with self._lock:
+            phase04_futures = tuple(self._phase04_futures.values())
+        for phase04_future in phase04_futures:
+            with suppress(Exception):
+                phase04_future.result(timeout=5)
         self._executor.shutdown(wait=True, cancel_futures=True)
 
     def cancel(self) -> None:
@@ -422,6 +794,329 @@ class ProjectApi:
         if provider is not None:
             with suppress(Exception):
                 provider.cancel()
+
+    def _workflow_problem(
+        self,
+        status: int,
+        code: str,
+        sanitized_reason: str,
+        *,
+        current_run_id: str | None = None,
+        current_preview_identity: str | None = None,
+    ) -> NoReturn:
+        payload = workflow_error_envelope(
+            code,
+            sanitized_reason,
+            current_run_id=current_run_id,
+            current_preview_identity=current_preview_identity,
+        )
+        raise ApiProblem(
+            status,
+            code,
+            WORKFLOW_HTTP_ERROR_MESSAGES[code],
+            payload=json_value(payload),
+        )
+
+    def _workflow_request(
+        self,
+        body: dict[str, JsonValue],
+        *,
+        allowed: tuple[str, ...],
+        required: tuple[str, ...],
+    ) -> None:
+        try:
+            exact_fields(body, allowed=allowed, required=required)
+            contract = require_string(body, "contract", maximum=128)
+        except ValueError:
+            self._workflow_problem(400, "invalid_workflow_request", "invalid_request")
+        if contract != WORKFLOW_HTTP_CONTRACT:
+            self._workflow_problem(400, "invalid_workflow_request", "invalid_request")
+
+    def _phase04_context(
+        self,
+        project: Project,
+        run_id: str,
+    ) -> tuple[
+        PreparedProductWorkflow,
+        WorkflowPreview,
+        WorkflowApproval | None,
+        WorkflowStatus,
+    ]:
+        adapter = DurableWorkflowRepositoryAdapter.from_project(project)
+        try:
+            preview = adapter.load_preview(run_id)
+        except Exception as exc:
+            self._workflow_problem(404, "workflow_run_not_found", "run_not_found")
+            raise AssertionError("unreachable") from exc
+        with self._lock:
+            prepared = self._phase04_prepared.get(run_id)
+        if prepared is None:
+            try:
+                authority = load_m12_authority(project)
+                prepared, preview, approval, status = load_product_workflow(
+                    project,
+                    run_id,
+                    authority_graph=_phase04_full_authority_graph(
+                        project, authority.canonical_hash
+                    ),
+                    scene_model=authority.scene_model,
+                )
+            except ValueError:
+                self._workflow_problem(
+                    409,
+                    "stale_workflow_approval",
+                    "authority_changed",
+                    current_run_id=run_id,
+                    current_preview_identity=preview.identity,
+                )
+            with self._lock:
+                self._phase04_prepared[run_id] = prepared
+            return prepared, preview, approval, status
+        if (
+            prepared.plan != preview.plan
+            or prepared.policy != preview.policy
+            or prepared.ceilings != preview.ceilings
+        ):
+            self._workflow_problem(
+                409,
+                "stale_workflow_approval",
+                "authority_changed",
+                current_run_id=run_id,
+                current_preview_identity=preview.identity,
+            )
+        return prepared, preview, adapter.load_approval(run_id), adapter.status(run_id)
+
+    def _phase04_service(
+        self,
+        project: Project,
+        prepared: PreparedProductWorkflow,
+    ) -> StoryMapWorkflowService:
+        if prepared.policy.cloud.mode is not StoryMapProviderMode.LOOPBACK:
+            self._workflow_problem(503, "workflow_unavailable", "service_unavailable")
+        return create_product_workflow_service(
+            project,
+            prepared,
+            loopback_factory=self._phase04_loopback_factory,
+            request_materializer=FrozenProductRequestMaterializer(prepared),
+        )
+
+    def _phase04_start_background(
+        self,
+        prepared: PreparedProductWorkflow,
+        preview_identity: str,
+    ) -> None:
+        project_path = self._project()
+        with Project.open(project_path) as project:
+            authority = load_m12_authority(project)
+            authority_graph = _phase04_full_authority_graph(
+                project, authority.canonical_hash
+            )
+        with self._lock:
+            existing = self._phase04_futures.get(prepared.run_id)
+            if existing is not None and not existing.done():
+                self._workflow_problem(
+                    409, "workflow_command_conflict", "command_not_available"
+                )
+            self._phase04_futures[prepared.run_id] = self._executor.submit(
+                execute_product_vertical,
+                project_path,
+                prepared,
+                preview_identity=preview_identity,
+                project_opener=Project.open,
+                authority_graph=authority_graph,
+                loopback_factory=self._phase04_loopback_factory,
+            )
+
+    def _story_map_v2_workflow_dispatch(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, JsonValue],
+    ) -> JsonValue:
+        if method != "POST":
+            self._workflow_problem(400, "invalid_workflow_request", "invalid_request")
+        command = next(
+            (name for name, route in WORKFLOW_HTTP_ROUTES.items() if route == path),
+            None,
+        )
+        if command is None or command == "contract":
+            self._workflow_problem(400, "invalid_workflow_request", "invalid_request")
+        if command == "prepare":
+            self._workflow_request(
+                body,
+                allowed=("contract",),
+                required=("contract",),
+            )
+            try:
+                with Project.open(self._project()) as project:
+                    authority = load_m12_authority(project)
+                    prepared = prepare_product_workflow_from_authority(
+                        _phase04_full_authority_graph(project, authority.canonical_hash),
+                        authority.scene_model,
+                        run_id=f"workflow:{uuid.uuid4().hex}",
+                        primary=local_lm_studio_workflow_settings(),
+                    )
+                    preview = persist_product_workflow_preview(project, prepared)
+                    adapter = DurableWorkflowRepositoryAdapter.from_project(project)
+                    status = adapter.status(prepared.run_id)
+            except ApiProblem:
+                raise
+            except Exception:
+                self._workflow_problem(503, "workflow_unavailable", "service_unavailable")
+            with self._lock:
+                self._phase04_prepared[prepared.run_id] = prepared
+            return json_value(
+                workflow_success_envelope("prepare", preview, status, None)
+            )
+
+        if command == "status":
+            self._workflow_request(
+                body,
+                allowed=("contract", "run_id"),
+                required=("contract", "run_id"),
+            )
+        elif command in {"start", "cancel", "resume"}:
+            self._workflow_request(
+                body,
+                allowed=("contract", "run_id", "preview_identity"),
+                required=("contract", "run_id", "preview_identity"),
+            )
+        else:
+            self._workflow_request(
+                body,
+                allowed=(
+                    "contract",
+                    "run_id",
+                    "preview_identity",
+                    "job_id",
+                    "indeterminate_attempt_id",
+                ),
+                required=(
+                    "contract",
+                    "run_id",
+                    "preview_identity",
+                    "job_id",
+                    "indeterminate_attempt_id",
+                ),
+            )
+        try:
+            run_id = require_string(body, "run_id", maximum=512)
+        except ValueError:
+            self._workflow_problem(400, "invalid_workflow_request", "invalid_request")
+        with Project.open(self._project()) as project:
+            prepared, preview, approval, status = self._phase04_context(project, run_id)
+            if command == "status":
+                return json_value(
+                    workflow_success_envelope(command, preview, status, approval)
+                )
+            try:
+                preview_identity = require_string(
+                    body, "preview_identity", maximum=128
+                )
+            except ValueError:
+                self._workflow_problem(400, "invalid_workflow_request", "invalid_request")
+            if preview_identity != preview.identity:
+                self._workflow_problem(
+                    409,
+                    "stale_workflow_preview",
+                    "preview_replaced",
+                    current_run_id=run_id,
+                    current_preview_identity=preview.identity,
+                )
+            service = self._phase04_service(project, prepared)
+            if command == "start":
+                if approval is not None or status.cancelled:
+                    self._workflow_problem(
+                        409, "workflow_command_conflict", "command_not_available"
+                    )
+                approval = service.approve(run_id, preview_identity)
+                self._phase04_start_background(prepared, preview_identity)
+            elif command == "cancel":
+                service.cancel(run_id)
+            elif command == "resume":
+                if approval is None or status.cancelled:
+                    self._workflow_problem(
+                        409, "workflow_command_conflict", "command_not_available"
+                    )
+                repository = project.story_map_v2_repository()
+                current = repository.generation_pointers().current_complete_generation
+                generation = None if current is None else repository.load_generation(current)
+                if (
+                    generation is not None
+                    and isinstance(generation.descriptor, Mapping)
+                    and generation.descriptor.get("workflow_run_id") == run_id
+                ):
+                    self._workflow_problem(
+                        409, "workflow_command_conflict", "command_not_available"
+                    )
+                service.recover(run_id)
+                self._phase04_start_background(prepared, preview_identity)
+            else:
+                try:
+                    job_id = require_string(body, "job_id", maximum=512)
+                    attempt_id = require_string(
+                        body, "indeterminate_attempt_id", maximum=512
+                    )
+                except ValueError:
+                    self._workflow_problem(
+                        400, "invalid_workflow_request", "invalid_request"
+                    )
+                retry_approval = service.approve_indeterminate_retry(
+                    run_id,
+                    preview_identity=preview_identity,
+                    job_id=job_id,
+                    indeterminate_attempt_id=attempt_id,
+                )
+                adapter = DurableWorkflowRepositoryAdapter.from_project(project)
+                return json_value(
+                    workflow_success_envelope(
+                        command,
+                        preview,
+                        adapter.status(run_id),
+                        approval,
+                        retry_approval=retry_approval,
+                    )
+                )
+            adapter = DurableWorkflowRepositoryAdapter.from_project(project)
+            return json_value(
+                workflow_success_envelope(
+                    command,
+                    preview,
+                    adapter.status(run_id),
+                    adapter.load_approval(run_id),
+                )
+            )
+
+    def _story_map_reader(self, project: Project) -> StoryMapReader:
+        repository = project.story_map_v2_repository()
+        durable_source = DurableStoryMapReaderSource(
+            repository,
+            workflow_status=project_workflow_reader_status,
+        )
+        if durable_source.snapshot() is not None:
+            return StoryMapReader(durable_source)
+        stored = load_story_map_v2_for_current_project(project)
+        if stored is None:
+            return StoryMapReader(durable_source)
+        projected_page = project_story_map(stored.core, stored.synthesis)
+        try:
+            projected_page = _story_map_navigator(
+                project, stored.core, projected_page
+            ).bound_page()
+        except StoryNavigationAuthorityUnavailableError:
+            projected_page = unresolved_navigation_page(projected_page)
+        return StoryMapReader(
+            phase03_compatibility_source(stored, projected_page, repository)
+        )
+
+    def _reader_call(
+        self, operation: Callable[[StoryMapReader, Project], object]
+    ) -> JsonValue:
+        try:
+            with Project.open(self._project()) as project:
+                return json_value(operation(self._story_map_reader(project), project))
+        except StoryMapReaderError as exc:
+            raise _reader_api_problem(exc) from exc
 
     def dispatch(self, method: str, path: str, body: dict[str, JsonValue]) -> JsonValue:
         if method == "GET" and path == "/api/v1/bootstrap":
@@ -454,6 +1149,18 @@ class ProjectApi:
                     "m12": dict(M12_API_ROUTES),
                     "m13": dict(M13_API_ROUTES),
                     "story_map_v2": dict(STORY_MAP_V2_API_ROUTES),
+                    "story_map_v2_reader": {
+                        "schema": READER_SCHEMA,
+                        "routes": dict(STORY_MAP_V2_READER_API_ROUTES),
+                        "limits": {
+                            "events_per_section_page": MAX_SECTION_EVENTS,
+                            "rendered_items_per_page": MAX_RENDERED_ITEMS,
+                            "serialized_bytes_per_page": MAX_SERIALIZED_BYTES,
+                            "search_results_per_page": DEFAULT_SEARCH_RESULTS,
+                            "live_story_items": MAX_LIVE_STORY_ITEMS,
+                        },
+                    },
+                    "story_map_v2_workflow": dict(WORKFLOW_HTTP_ROUTES),
                 },
             }
         if path in LEGACY_ORGANIZATION_ROUTES:
@@ -510,6 +1217,178 @@ class ProjectApi:
         if method == "POST" and path == "/api/v1/analysis/cancel":
             self.cancel()
             return {"state": "cancelling"}
+        if path in WORKFLOW_HTTP_ROUTES.values():
+            return self._story_map_v2_workflow_dispatch(method, path, body)
+        if method == "POST" and path == STORY_MAP_V2_READER_API_ROUTES["manifest"]:
+            exact_fields(body, allowed=STORY_MAP_V2_MANIFEST_REQUEST_FIELDS)
+            return self._reader_call(lambda reader, _project: reader.manifest())
+        if method == "POST" and path == STORY_MAP_V2_READER_API_ROUTES["status"]:
+            exact_fields(body, allowed=STORY_MAP_V2_STATUS_REQUEST_FIELDS)
+            return self._reader_call(lambda reader, _project: reader.status())
+        if method == "POST" and path == STORY_MAP_V2_READER_API_ROUTES["section_page"]:
+            exact_fields(
+                body,
+                allowed=STORY_MAP_V2_SECTION_PAGE_REQUEST_FIELDS,
+                required=("map_revision", "section_id"),
+            )
+            revision = _reader_request_revision(body)
+            section_id = require_string(body, "section_id", maximum=512)
+            limit = bounded_int(
+                body,
+                "limit",
+                default=MAX_SECTION_EVENTS,
+                minimum=1,
+                maximum=MAX_SECTION_EVENTS,
+            )
+            cursor = optional_string(body, "cursor", maximum=4_096)
+            return self._reader_call(
+                lambda reader, _project: reader.section_page(
+                    map_revision=revision,
+                    section_id=section_id,
+                    limit=limit,
+                    cursor=cursor,
+                )
+            )
+        if method == "POST" and path == STORY_MAP_V2_READER_API_ROUTES["branch_page"]:
+            exact_fields(
+                body,
+                allowed=STORY_MAP_V2_BRANCH_PAGE_REQUEST_FIELDS,
+                required=("map_revision", "branch_id"),
+            )
+            revision = _reader_request_revision(body)
+            branch_id = require_string(body, "branch_id", maximum=512)
+            limit = bounded_int(
+                body,
+                "limit",
+                default=MAX_RENDERED_ITEMS,
+                minimum=1,
+                maximum=MAX_RENDERED_ITEMS,
+            )
+            cursor = optional_string(body, "cursor", maximum=4_096)
+            return self._reader_call(
+                lambda reader, _project: reader.branch_page(
+                    map_revision=revision,
+                    branch_id=branch_id,
+                    limit=limit,
+                    cursor=cursor,
+                )
+            )
+        if method == "POST" and path == STORY_MAP_V2_READER_API_ROUTES["locate"]:
+            exact_fields(
+                body,
+                allowed=STORY_MAP_V2_LOCATE_REQUEST_FIELDS,
+                required=STORY_MAP_V2_LOCATE_REQUEST_FIELDS,
+            )
+            revision = _reader_request_revision(body)
+            selection_id = require_string(body, "selection_id", maximum=512)
+            return self._reader_call(
+                lambda reader, _project: reader.locate(
+                    map_revision=revision, selection_id=selection_id
+                )
+            )
+        if method == "POST" and path == STORY_MAP_V2_READER_API_ROUTES["search"]:
+            exact_fields(
+                body,
+                allowed=STORY_MAP_V2_SEARCH_REQUEST_FIELDS,
+                required=("map_revision", "query"),
+            )
+            revision = _reader_request_revision(body)
+            query = _reader_search_query(body)
+            limit = bounded_int(
+                body,
+                "limit",
+                default=DEFAULT_SEARCH_RESULTS,
+                minimum=1,
+                maximum=100,
+            )
+            cursor = optional_string(body, "cursor", maximum=4_096)
+            return self._reader_call(
+                lambda reader, _project: reader.search(
+                    map_revision=revision,
+                    query=query,
+                    limit=limit,
+                    cursor=cursor,
+                )
+            )
+        if method == "POST" and path == STORY_MAP_V2_READER_API_ROUTES["path_page"]:
+            exact_fields(
+                body,
+                allowed=STORY_MAP_V2_PATH_PAGE_REQUEST_FIELDS,
+                required=("map_revision", "selection_id"),
+            )
+            revision = _reader_request_revision(body)
+            selection_id = require_string(body, "selection_id", maximum=512)
+            limit = bounded_int(
+                body,
+                "limit",
+                default=MAX_RENDERED_ITEMS,
+                minimum=1,
+                maximum=MAX_RENDERED_ITEMS,
+            )
+            cursor = optional_string(body, "cursor", maximum=4_096)
+            return self._reader_call(
+                lambda reader, project: self._story_map_v2_path_page(
+                    reader,
+                    project,
+                    map_revision=revision,
+                    selection_id=selection_id,
+                    limit=limit,
+                    cursor=cursor,
+                )
+            )
+        if method == "POST" and path == STORY_MAP_V2_READER_API_ROUTES["detail_page"]:
+            exact_fields(
+                body,
+                allowed=STORY_MAP_V2_DETAIL_PAGE_REQUEST_FIELDS,
+                required=("map_revision", "selection_id"),
+            )
+            revision = _reader_request_revision(body)
+            selection_id = require_string(body, "selection_id", maximum=512)
+            limit = bounded_int(
+                body,
+                "limit",
+                default=MAX_RENDERED_ITEMS,
+                minimum=1,
+                maximum=MAX_RENDERED_ITEMS,
+            )
+            cursor = optional_string(body, "cursor", maximum=4_096)
+            return self._reader_call(
+                lambda reader, project: self._story_map_v2_detail_page(
+                    reader,
+                    project,
+                    map_revision=revision,
+                    selection_id=selection_id,
+                    limit=limit,
+                    cursor=cursor,
+                )
+            )
+        if method == "POST" and path == STORY_MAP_V2_READER_API_ROUTES["view_state"]:
+            exact_fields(
+                body,
+                allowed=STORY_MAP_V2_VIEW_STATE_REQUEST_FIELDS,
+                required=STORY_MAP_V2_VIEW_STATE_REQUEST_FIELDS,
+            )
+            revision = _reader_request_revision(body)
+            view_key = require_string(body, "view_key", maximum=512)
+            return self._reader_call(
+                lambda reader, _project: reader.view_state(
+                    map_revision=revision, view_key=view_key
+                )
+            )
+        if method == "POST" and path == STORY_MAP_V2_READER_API_ROUTES["save_view_state"]:
+            exact_fields(
+                body,
+                allowed=STORY_MAP_V2_SAVE_VIEW_STATE_REQUEST_FIELDS,
+                required=STORY_MAP_V2_SAVE_VIEW_STATE_REQUEST_FIELDS,
+            )
+            revision = _reader_request_revision(body)
+            view_key = require_string(body, "view_key", maximum=512)
+            state = object_value(body, "state")
+            return self._reader_call(
+                lambda reader, _project: reader.save_view_state(
+                    map_revision=revision, view_key=view_key, state=state
+                )
+            )
         if method == "POST" and path == STORY_MAP_V2_API_ROUTES["map"]:
             exact_fields(body, allowed=STORY_MAP_V2_MAP_REQUEST_FIELDS)
             try:
@@ -2376,6 +3255,199 @@ class ProjectApi:
         self._m13_preview = None
         self._m13_active_provider = None
         self._m13_result = None
+
+    def _story_map_v2_path_page(
+        self,
+        reader: StoryMapReader,
+        project: Project,
+        *,
+        map_revision: int,
+        selection_id: str,
+        limit: int,
+        cursor: str | None,
+    ) -> dict[str, object]:
+        navigation = reader.selection_navigation(
+            map_revision=map_revision,
+            selection_id=selection_id,
+        )
+        if navigation is not None:
+            service = M12RouteService(project)
+
+            def supply_durable(offset: int, effective_limit: int) -> ReaderSlice:
+                try:
+                    prepared = service.prepare(
+                        navigation.destination_kind,
+                        navigation.target_id,
+                    )
+                    outcome = service.solve(prepared)
+                except M12TargetUnresolvableError:
+                    outcome = None
+                if outcome is None or outcome.result is None:
+                    witness, _explanation = compact_witness(
+                        {"complete": False, "recommended": {}},
+                        selection_effects=navigation.effects,
+                    )
+                    value: Mapping[str, object] = {
+                        "status": "unresolved",
+                        "explanation": (
+                            "The deterministic target has no verified route entry or witness."
+                        ),
+                        "witness": witness,
+                    }
+                else:
+                    witness, explanation = compact_witness(
+                        outcome.result,
+                        selection_effects=navigation.effects,
+                    )
+                    value = {
+                        "status": "available",
+                        "explanation": explanation,
+                        "witness": witness,
+                    }
+                return _path_reader_slice(
+                    value,
+                    selection_id,
+                    offset,
+                    effective_limit,
+                )
+
+            return reader.projection_page(
+                map_revision=map_revision,
+                endpoint=PATH_PAGE_ENDPOINT,
+                selection_id=selection_id,
+                limit=limit,
+                cursor=cursor,
+                supplier=supply_durable,
+            )
+        try:
+            stored = load_story_map_v2_for_current_project(project)
+            if stored is None:
+                raise StoryMapReaderNotFoundError(
+                    "The Story Map V2 path selection is unavailable."
+                )
+            require_current_selection(stored.core, selection_id)
+            navigator = _story_map_navigator(
+                project,
+                stored.core,
+                project_story_map(stored.core, stored.synthesis),
+            )
+        except UnknownStorySelectionError as exc:
+            raise StoryMapReaderNotFoundError(
+                "The Story Map V2 path selection is unavailable."
+            ) from exc
+        except (StoryMapV2PersistenceError, StoryNavigationAuthorityUnavailableError) as exc:
+            raise StoryMapReaderDataError(
+                "The current deterministic path authority is unavailable."
+            ) from exc
+
+        def supply(offset: int, effective_limit: int) -> ReaderSlice:
+            value = json_value(navigator.path(selection_id))
+            if not isinstance(value, dict):
+                raise StoryMapReaderDataError("Phase 03 path projection is not an object")
+            return _path_reader_slice(value, selection_id, offset, effective_limit)
+
+        return reader.projection_page(
+            map_revision=map_revision,
+            endpoint=PATH_PAGE_ENDPOINT,
+            selection_id=selection_id,
+            limit=limit,
+            cursor=cursor,
+            supplier=supply,
+        )
+
+    def _story_map_v2_detail_page(
+        self,
+        reader: StoryMapReader,
+        project: Project,
+        *,
+        map_revision: int,
+        selection_id: str,
+        limit: int,
+        cursor: str | None,
+    ) -> dict[str, object]:
+        navigation = reader.selection_navigation(
+            map_revision=map_revision,
+            selection_id=selection_id,
+        )
+        payload = (
+            self._story_map_v2_durable_detail(project, selection_id, navigation)
+            if navigation is not None
+            else self._story_map_v2_detail(selection_id)
+        )
+        return reader.projection_page(
+            map_revision=map_revision,
+            endpoint=DETAIL_PAGE_ENDPOINT,
+            selection_id=selection_id,
+            limit=limit,
+            cursor=cursor,
+            supplier=lambda offset, effective_limit: _detail_reader_slice(
+                payload,
+                selection_id,
+                offset,
+                effective_limit,
+            ),
+        )
+
+    def _story_map_v2_durable_detail(
+        self,
+        project: Project,
+        selection_id: str,
+        navigation: ReaderNavigation,
+    ) -> dict[str, object]:
+        source_navigation = _durable_source_navigation(project, navigation)
+        binding = {
+            "selection_id": selection_id,
+            "destination_kind": navigation.destination_kind,
+            "target_id": navigation.target_id,
+            "detail_service_kind": navigation.detail_service_kind,
+            "detail_service_id": navigation.detail_service_id,
+        }
+        try:
+            if navigation.detail_service_kind == "m10_canonical":
+                projection, canonical, analysis_state, projection_reason = self._m10_payloads()
+                detail = inspection_detail(
+                    projection,
+                    canonical,
+                    analysis_state,
+                    view="canonical",
+                    element_id=navigation.detail_service_id,
+                    projection_unavailable_reason=projection_reason,
+                )
+            else:
+                scene_model_value, presentation, canonical, generation, canonical_hash, reason = (
+                    self._m11_payloads(include_canonical=True)
+                )
+                detail = scene_detail(
+                    scene_model_value,
+                    presentation,
+                    canonical,
+                    current_source_generation=generation,
+                    current_canonical_hash=canonical_hash,
+                    element_id=navigation.detail_service_id,
+                )
+                if detail.get("status") == "unavailable":
+                    detail["reason"] = reason or detail.get("reason")
+        except (KeyError, storage.ProjectStorageError, ValueError):
+            detail = {"status": "unavailable"}
+        if detail.get("status") != "available":
+            return {
+                "schema": DETAIL_SCHEMA,
+                "semantic_level": "detail_evidence",
+                "status": "unresolved",
+                "selection_id": selection_id,
+                "binding": binding,
+                "source_navigation": source_navigation,
+                "reason": "The current deterministic detail target is unresolved.",
+            }
+        return {
+            "schema": DETAIL_SCHEMA,
+            "semantic_level": "detail_evidence",
+            "status": "available",
+            "selection_id": selection_id,
+            "binding": binding,
+            "source_navigation": source_navigation,
+            "detail": detail,
+        }
 
     def _story_map_v2_detail(self, selection_id: str) -> dict[str, object]:
         try:

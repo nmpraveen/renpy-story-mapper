@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Final
 
 APPLICATION_ID: Final = 0x52534D50  # "RSMP"
-SCHEMA_VERSION: Final = 6
+SCHEMA_VERSION: Final = 7
 
 PAYLOAD_COLLECTIONS: Final = frozenset(
     {
@@ -142,6 +142,8 @@ def initialize_database(
                 _migrate_to_v5(connection)
             elif next_version == 6:
                 _migrate_to_v6(connection)
+            elif next_version == 7:
+                _migrate_to_v7(connection)
             connection.execute(f"PRAGMA application_id = {APPLICATION_ID}")
             connection.execute(f"PRAGMA user_version = {next_version}")
             current = next_version
@@ -1139,6 +1141,8 @@ def _validate_schema_shape(
             }
             if actual_foreign_keys != expected_fk:
                 raise ProjectCorruptError(f"project M07 table {table!r} has invalid foreign keys")
+    if version >= 7:
+        _validate_v7_schema(connection, indexes)
 
 
 @contextmanager
@@ -1707,6 +1711,665 @@ def _migrate_to_v6(connection: sqlite3.Connection) -> None:
         "INSERT OR REPLACE INTO schema_migrations(version, applied_utc) VALUES (?, ?)",
         (6, utc_now()),
     )
+
+
+def _migrate_to_v7(connection: sqlite3.Connection) -> None:
+    """Add the indexed Story Map V2 durability and publication store."""
+
+    statements = (
+        """CREATE TABLE IF NOT EXISTS story_map_v2_previews (
+            preview_id TEXT PRIMARY KEY NOT NULL,
+            plan_id TEXT NOT NULL,
+            authority_identity TEXT NOT NULL,
+            preview_json BLOB NOT NULL,
+            preview_identity TEXT NOT NULL,
+            created_utc TEXT NOT NULL,
+            CHECK (length(trim(preview_id)) > 0),
+            CHECK (length(trim(plan_id)) > 0),
+            CHECK (length(authority_identity) = 64),
+            CHECK (length(preview_identity) = 64)
+        ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS story_map_v2_runs (
+            run_id TEXT PRIMARY KEY NOT NULL,
+            plan_id TEXT NOT NULL,
+            authority_identity TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN (
+                'prepared','running','cancelling','cancelled','completed','indeterminate','failed'
+            )),
+            cancel_requested INTEGER NOT NULL CHECK (cancel_requested IN (0,1)),
+            created_utc TEXT NOT NULL,
+            updated_utc TEXT NOT NULL,
+            CHECK (length(trim(run_id)) > 0),
+            CHECK (length(trim(plan_id)) > 0),
+            CHECK (length(authority_identity) = 64)
+        ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS story_map_v2_jobs (
+            job_id TEXT PRIMARY KEY NOT NULL,
+            run_id TEXT NOT NULL,
+            plan_id TEXT NOT NULL,
+            scope_id TEXT NOT NULL,
+            chunk_id TEXT NOT NULL,
+            authority_identity TEXT NOT NULL,
+            serialized_request_identity TEXT NOT NULL,
+            cache_identity TEXT NOT NULL,
+            ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+            status TEXT NOT NULL CHECK (status IN (
+                'pending','claimed','reserved','submitting','returned','validated',
+                'cache_stored','finalized','published','cached','succeeded','failed',
+                'cancelled','indeterminate'
+            )),
+            lease_owner TEXT,
+            lease_token TEXT,
+            lease_expires_utc TEXT,
+            next_attempt_ordinal INTEGER NOT NULL CHECK (next_attempt_ordinal >= 1),
+            validated_result_json BLOB,
+            normalized_result_identity TEXT,
+            validated_cache_identity TEXT,
+            continuation_kind TEXT NOT NULL CHECK (continuation_kind IN (
+                'mapping','replacement_review','refusal_fallback','complete'
+            )),
+            continuation_attempt_id TEXT,
+            continuation_result_identity TEXT,
+            resolution TEXT CHECK (resolution IS NULL OR resolution IN (
+                'accepted','structural','resumable','indeterminate','cancelled'
+            )),
+            updated_utc TEXT NOT NULL,
+            FOREIGN KEY (run_id) REFERENCES story_map_v2_runs(run_id) ON DELETE CASCADE,
+            UNIQUE (run_id, ordinal),
+            UNIQUE (run_id, scope_id, chunk_id),
+            CHECK (length(trim(job_id)) > 0),
+            CHECK (length(trim(plan_id)) > 0),
+            CHECK (length(trim(scope_id)) > 0),
+            CHECK (length(trim(chunk_id)) > 0),
+            CHECK (length(authority_identity) = 64),
+            CHECK (length(serialized_request_identity) = 64),
+            CHECK (length(cache_identity) = 64),
+            CHECK (
+                normalized_result_identity IS NULL OR length(normalized_result_identity) = 64
+            ),
+            CHECK (
+                validated_cache_identity IS NULL OR length(validated_cache_identity) = 64
+            ),
+            CHECK (
+                continuation_result_identity IS NULL OR length(continuation_result_identity) = 64
+            ),
+            CHECK (
+                (lease_owner IS NULL AND lease_token IS NULL AND lease_expires_utc IS NULL)
+                OR
+                (lease_owner IS NOT NULL AND lease_token IS NOT NULL
+                    AND lease_expires_utc IS NOT NULL)
+            )
+        ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS story_map_v2_attempts (
+            attempt_id TEXT PRIMARY KEY NOT NULL,
+            job_id TEXT NOT NULL,
+            ordinal INTEGER NOT NULL CHECK (ordinal >= 1),
+            call_kind TEXT NOT NULL,
+            provider_input_identity TEXT NOT NULL,
+            ceilings_identity TEXT NOT NULL,
+            retry_of_attempt_id TEXT,
+            uses_supplemental_retry_capacity INTEGER NOT NULL DEFAULT 0
+                CHECK (uses_supplemental_retry_capacity IN (0,1)),
+            status TEXT NOT NULL CHECK (status IN (
+                'reserved','transmitting','returned','succeeded','not_transmitted','failed',
+                'cancelled','indeterminate'
+            )),
+            transmission_disposition TEXT NOT NULL CHECK (transmission_disposition IN (
+                'not_started','definitely_not_transmitted','transmitted','indeterminate'
+            )),
+            reserved_utc TEXT NOT NULL,
+            transmission_utc TEXT,
+            finalized_utc TEXT,
+            response_identity TEXT,
+            normalized_result_identity TEXT,
+            calls INTEGER NOT NULL CHECK (calls >= 0),
+            input_tokens INTEGER NOT NULL CHECK (input_tokens >= 0),
+            output_tokens INTEGER NOT NULL CHECK (output_tokens >= 0),
+            elapsed_ms INTEGER NOT NULL CHECK (elapsed_ms >= 0),
+            failure_kind TEXT,
+            sanitized_failure TEXT,
+            FOREIGN KEY (job_id) REFERENCES story_map_v2_jobs(job_id) ON DELETE CASCADE,
+            FOREIGN KEY (retry_of_attempt_id)
+                REFERENCES story_map_v2_attempts(attempt_id) ON DELETE CASCADE,
+            UNIQUE (job_id, ordinal),
+            CHECK (length(trim(attempt_id)) > 0),
+            CHECK (length(trim(call_kind)) > 0),
+            CHECK (length(provider_input_identity) = 64),
+            CHECK (length(ceilings_identity) = 64),
+            CHECK (retry_of_attempt_id IS NULL OR retry_of_attempt_id != attempt_id),
+            CHECK (
+                uses_supplemental_retry_capacity = 0 OR retry_of_attempt_id IS NOT NULL
+            ),
+            CHECK (response_identity IS NULL OR length(response_identity) = 64),
+            CHECK (
+                normalized_result_identity IS NULL OR length(normalized_result_identity) = 64
+            )
+        ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS story_map_v2_run_approvals (
+            approval_id TEXT PRIMARY KEY NOT NULL,
+            run_id TEXT NOT NULL UNIQUE,
+            preview_id TEXT NOT NULL,
+            execution_identity TEXT NOT NULL,
+            approval_json BLOB NOT NULL,
+            approval_identity TEXT NOT NULL,
+            created_utc TEXT NOT NULL,
+            FOREIGN KEY (run_id) REFERENCES story_map_v2_runs(run_id) ON DELETE CASCADE,
+            FOREIGN KEY (preview_id)
+                REFERENCES story_map_v2_previews(preview_id) ON DELETE RESTRICT,
+            CHECK (length(trim(approval_id)) > 0),
+            CHECK (length(execution_identity) = 64),
+            CHECK (length(approval_identity) = 64)
+        ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS story_map_v2_retry_approvals (
+            retry_approval_id TEXT PRIMARY KEY NOT NULL,
+            job_id TEXT NOT NULL,
+            attempt_ordinal INTEGER NOT NULL CHECK (attempt_ordinal >= 1),
+            approval_json BLOB NOT NULL,
+            approval_identity TEXT NOT NULL,
+            created_utc TEXT NOT NULL,
+            consumed_utc TEXT,
+            FOREIGN KEY (job_id) REFERENCES story_map_v2_jobs(job_id) ON DELETE CASCADE,
+            UNIQUE (job_id, attempt_ordinal),
+            CHECK (length(trim(retry_approval_id)) > 0),
+            CHECK (length(approval_identity) = 64)
+        ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS story_map_v2_cache (
+            cache_identity TEXT PRIMARY KEY NOT NULL,
+            authority_identity TEXT NOT NULL,
+            serialized_request_identity TEXT NOT NULL,
+            normalized_result_json BLOB NOT NULL,
+            normalized_result_identity TEXT NOT NULL,
+            created_utc TEXT NOT NULL,
+            CHECK (length(cache_identity) = 64),
+            CHECK (length(authority_identity) = 64),
+            CHECK (length(serialized_request_identity) = 64),
+            CHECK (length(normalized_result_identity) = 64)
+        ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS story_map_v2_validated_results (
+            attempt_id TEXT PRIMARY KEY NOT NULL,
+            job_id TEXT NOT NULL,
+            result_json BLOB NOT NULL,
+            result_identity TEXT NOT NULL,
+            validated_utc TEXT NOT NULL,
+            FOREIGN KEY (attempt_id)
+                REFERENCES story_map_v2_attempts(attempt_id) ON DELETE CASCADE,
+            FOREIGN KEY (job_id) REFERENCES story_map_v2_jobs(job_id) ON DELETE CASCADE,
+            CHECK (length(result_identity) = 64)
+        ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS story_map_v2_published_results (
+            job_id TEXT PRIMARY KEY NOT NULL,
+            run_id TEXT NOT NULL,
+            result_json BLOB NOT NULL,
+            result_identity TEXT NOT NULL,
+            published_utc TEXT NOT NULL,
+            FOREIGN KEY (job_id) REFERENCES story_map_v2_jobs(job_id) ON DELETE CASCADE,
+            FOREIGN KEY (run_id) REFERENCES story_map_v2_runs(run_id) ON DELETE CASCADE,
+            CHECK (length(result_identity) = 64)
+        ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS story_map_v2_generations (
+            generation_id TEXT PRIMARY KEY NOT NULL,
+            run_id TEXT NOT NULL,
+            plan_id TEXT NOT NULL,
+            authority_identity TEXT NOT NULL,
+            generation_kind TEXT NOT NULL CHECK (generation_kind IN (
+                'structural','candidate','complete'
+            )),
+            descriptor_json BLOB NOT NULL,
+            descriptor_identity TEXT NOT NULL,
+            created_utc TEXT NOT NULL,
+            FOREIGN KEY (run_id) REFERENCES story_map_v2_runs(run_id) ON DELETE RESTRICT,
+            CHECK (length(trim(generation_id)) > 0),
+            CHECK (length(trim(plan_id)) > 0),
+            CHECK (length(authority_identity) = 64),
+            CHECK (length(descriptor_identity) = 64)
+        ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS story_map_v2_generation_pointers (
+            singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+            current_complete_generation TEXT,
+            active_build_generation TEXT,
+            map_revision INTEGER NOT NULL CHECK (map_revision >= 0),
+            updated_utc TEXT NOT NULL,
+            FOREIGN KEY (current_complete_generation)
+                REFERENCES story_map_v2_generations(generation_id) ON DELETE RESTRICT,
+            FOREIGN KEY (active_build_generation)
+                REFERENCES story_map_v2_generations(generation_id) ON DELETE RESTRICT
+        ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS story_map_v2_section_pages (
+            generation_id TEXT NOT NULL,
+            section_id TEXT NOT NULL,
+            page_ordinal INTEGER NOT NULL CHECK (page_ordinal >= 0),
+            item_count INTEGER NOT NULL CHECK (item_count >= 0),
+            page_json BLOB NOT NULL,
+            page_identity TEXT NOT NULL,
+            PRIMARY KEY (generation_id, section_id, page_ordinal),
+            FOREIGN KEY (generation_id)
+                REFERENCES story_map_v2_generations(generation_id) ON DELETE CASCADE,
+            CHECK (length(trim(section_id)) > 0),
+            CHECK (length(page_identity) = 64)
+        ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS story_map_v2_selection_index (
+            generation_id TEXT NOT NULL,
+            selection_id TEXT NOT NULL,
+            section_id TEXT NOT NULL,
+            page_ordinal INTEGER NOT NULL CHECK (page_ordinal >= 0),
+            item_ordinal INTEGER NOT NULL CHECK (item_ordinal >= 0),
+            selection_kind TEXT NOT NULL,
+            PRIMARY KEY (generation_id, selection_id),
+            FOREIGN KEY (generation_id, section_id, page_ordinal)
+                REFERENCES story_map_v2_section_pages(generation_id, section_id, page_ordinal)
+                ON DELETE CASCADE,
+            CHECK (length(trim(selection_id)) > 0),
+            CHECK (length(trim(selection_kind)) > 0)
+        ) STRICT""",
+        """CREATE TABLE IF NOT EXISTS story_map_v2_view_state (
+            view_key TEXT PRIMARY KEY NOT NULL,
+            generation_id TEXT,
+            map_revision INTEGER NOT NULL CHECK (map_revision >= 0),
+            selection_id TEXT,
+            section_id TEXT,
+            state_json BLOB NOT NULL,
+            state_identity TEXT NOT NULL,
+            updated_utc TEXT NOT NULL,
+            FOREIGN KEY (generation_id)
+                REFERENCES story_map_v2_generations(generation_id) ON DELETE SET NULL,
+            CHECK (length(trim(view_key)) > 0),
+            CHECK (length(state_identity) = 64)
+        ) STRICT""",
+        "CREATE INDEX IF NOT EXISTS story_map_v2_runs_status_idx "
+        "ON story_map_v2_runs(status, updated_utc, run_id)",
+        "CREATE INDEX IF NOT EXISTS story_map_v2_previews_plan_idx "
+        "ON story_map_v2_previews(plan_id, authority_identity, created_utc)",
+        "CREATE INDEX IF NOT EXISTS story_map_v2_run_approvals_preview_idx "
+        "ON story_map_v2_run_approvals(preview_id, run_id)",
+        "CREATE INDEX IF NOT EXISTS story_map_v2_retry_approvals_job_idx "
+        "ON story_map_v2_retry_approvals(job_id, attempt_ordinal)",
+        "CREATE INDEX IF NOT EXISTS story_map_v2_jobs_claim_idx "
+        "ON story_map_v2_jobs(status, lease_expires_utc, ordinal, job_id)",
+        "CREATE INDEX IF NOT EXISTS story_map_v2_jobs_run_idx "
+        "ON story_map_v2_jobs(run_id, ordinal, job_id)",
+        "CREATE INDEX IF NOT EXISTS story_map_v2_jobs_cache_idx "
+        "ON story_map_v2_jobs(cache_identity, status)",
+        "CREATE INDEX IF NOT EXISTS story_map_v2_attempts_job_idx "
+        "ON story_map_v2_attempts(job_id, ordinal)",
+        "CREATE INDEX IF NOT EXISTS story_map_v2_attempts_retry_idx "
+        "ON story_map_v2_attempts(job_id, retry_of_attempt_id, "
+        "uses_supplemental_retry_capacity, transmission_disposition)",
+        "CREATE INDEX IF NOT EXISTS story_map_v2_cache_request_idx "
+        "ON story_map_v2_cache(serialized_request_identity, authority_identity)",
+        "CREATE INDEX IF NOT EXISTS story_map_v2_validated_results_job_idx "
+        "ON story_map_v2_validated_results(job_id, validated_utc, attempt_id)",
+        "CREATE INDEX IF NOT EXISTS story_map_v2_published_results_run_idx "
+        "ON story_map_v2_published_results(run_id, job_id)",
+        "CREATE INDEX IF NOT EXISTS story_map_v2_generations_run_idx "
+        "ON story_map_v2_generations(run_id, created_utc, generation_id)",
+        "CREATE INDEX IF NOT EXISTS story_map_v2_section_pages_order_idx "
+        "ON story_map_v2_section_pages(generation_id, section_id, page_ordinal)",
+        "CREATE INDEX IF NOT EXISTS story_map_v2_selection_locator_idx "
+        "ON story_map_v2_selection_index("
+        "generation_id, section_id, page_ordinal, item_ordinal)",
+        "CREATE INDEX IF NOT EXISTS story_map_v2_view_state_generation_idx "
+        "ON story_map_v2_view_state(generation_id, updated_utc)",
+    )
+    for statement in statements:
+        connection.execute(statement)
+    connection.execute(
+        """INSERT OR IGNORE INTO story_map_v2_generation_pointers(
+            singleton, current_complete_generation, active_build_generation, map_revision,
+            updated_utc
+        ) VALUES (1, NULL, NULL, 0, ?)""",
+        (utc_now(),),
+    )
+    connection.execute(
+        "INSERT OR REPLACE INTO schema_migrations(version, applied_utc) VALUES (?, ?)",
+        (7, utc_now()),
+    )
+
+
+def _validate_v7_schema(connection: sqlite3.Connection, indexes: set[str]) -> None:
+    """Validate the exact indexed Story Map V2 schema shape."""
+
+    specs: dict[
+        str,
+        tuple[tuple[tuple[str, str, bool], ...], tuple[str, ...]],
+    ] = {
+        "story_map_v2_previews": (
+            (
+                ("preview_id", "TEXT", False),
+                ("plan_id", "TEXT", False),
+                ("authority_identity", "TEXT", False),
+                ("preview_json", "BLOB", False),
+                ("preview_identity", "TEXT", False),
+                ("created_utc", "TEXT", False),
+            ),
+            ("preview_id",),
+        ),
+        "story_map_v2_runs": (
+            (
+                ("run_id", "TEXT", False),
+                ("plan_id", "TEXT", False),
+                ("authority_identity", "TEXT", False),
+                ("status", "TEXT", False),
+                ("cancel_requested", "INTEGER", False),
+                ("created_utc", "TEXT", False),
+                ("updated_utc", "TEXT", False),
+            ),
+            ("run_id",),
+        ),
+        "story_map_v2_jobs": (
+            (
+                ("job_id", "TEXT", False),
+                ("run_id", "TEXT", False),
+                ("plan_id", "TEXT", False),
+                ("scope_id", "TEXT", False),
+                ("chunk_id", "TEXT", False),
+                ("authority_identity", "TEXT", False),
+                ("serialized_request_identity", "TEXT", False),
+                ("cache_identity", "TEXT", False),
+                ("ordinal", "INTEGER", False),
+                ("status", "TEXT", False),
+                ("lease_owner", "TEXT", True),
+                ("lease_token", "TEXT", True),
+                ("lease_expires_utc", "TEXT", True),
+                ("next_attempt_ordinal", "INTEGER", False),
+                ("validated_result_json", "BLOB", True),
+                ("normalized_result_identity", "TEXT", True),
+                ("validated_cache_identity", "TEXT", True),
+                ("continuation_kind", "TEXT", False),
+                ("continuation_attempt_id", "TEXT", True),
+                ("continuation_result_identity", "TEXT", True),
+                ("resolution", "TEXT", True),
+                ("updated_utc", "TEXT", False),
+            ),
+            ("job_id",),
+        ),
+        "story_map_v2_attempts": (
+            (
+                ("attempt_id", "TEXT", False),
+                ("job_id", "TEXT", False),
+                ("ordinal", "INTEGER", False),
+                ("call_kind", "TEXT", False),
+                ("provider_input_identity", "TEXT", False),
+                ("ceilings_identity", "TEXT", False),
+                ("retry_of_attempt_id", "TEXT", True),
+                ("uses_supplemental_retry_capacity", "INTEGER", False),
+                ("status", "TEXT", False),
+                ("transmission_disposition", "TEXT", False),
+                ("reserved_utc", "TEXT", False),
+                ("transmission_utc", "TEXT", True),
+                ("finalized_utc", "TEXT", True),
+                ("response_identity", "TEXT", True),
+                ("normalized_result_identity", "TEXT", True),
+                ("calls", "INTEGER", False),
+                ("input_tokens", "INTEGER", False),
+                ("output_tokens", "INTEGER", False),
+                ("elapsed_ms", "INTEGER", False),
+                ("failure_kind", "TEXT", True),
+                ("sanitized_failure", "TEXT", True),
+            ),
+            ("attempt_id",),
+        ),
+        "story_map_v2_run_approvals": (
+            (
+                ("approval_id", "TEXT", False),
+                ("run_id", "TEXT", False),
+                ("preview_id", "TEXT", False),
+                ("execution_identity", "TEXT", False),
+                ("approval_json", "BLOB", False),
+                ("approval_identity", "TEXT", False),
+                ("created_utc", "TEXT", False),
+            ),
+            ("approval_id",),
+        ),
+        "story_map_v2_retry_approvals": (
+            (
+                ("retry_approval_id", "TEXT", False),
+                ("job_id", "TEXT", False),
+                ("attempt_ordinal", "INTEGER", False),
+                ("approval_json", "BLOB", False),
+                ("approval_identity", "TEXT", False),
+                ("created_utc", "TEXT", False),
+                ("consumed_utc", "TEXT", True),
+            ),
+            ("retry_approval_id",),
+        ),
+        "story_map_v2_cache": (
+            (
+                ("cache_identity", "TEXT", False),
+                ("authority_identity", "TEXT", False),
+                ("serialized_request_identity", "TEXT", False),
+                ("normalized_result_json", "BLOB", False),
+                ("normalized_result_identity", "TEXT", False),
+                ("created_utc", "TEXT", False),
+            ),
+            ("cache_identity",),
+        ),
+        "story_map_v2_validated_results": (
+            (
+                ("attempt_id", "TEXT", False),
+                ("job_id", "TEXT", False),
+                ("result_json", "BLOB", False),
+                ("result_identity", "TEXT", False),
+                ("validated_utc", "TEXT", False),
+            ),
+            ("attempt_id",),
+        ),
+        "story_map_v2_published_results": (
+            (
+                ("job_id", "TEXT", False),
+                ("run_id", "TEXT", False),
+                ("result_json", "BLOB", False),
+                ("result_identity", "TEXT", False),
+                ("published_utc", "TEXT", False),
+            ),
+            ("job_id",),
+        ),
+        "story_map_v2_generations": (
+            (
+                ("generation_id", "TEXT", False),
+                ("run_id", "TEXT", False),
+                ("plan_id", "TEXT", False),
+                ("authority_identity", "TEXT", False),
+                ("generation_kind", "TEXT", False),
+                ("descriptor_json", "BLOB", False),
+                ("descriptor_identity", "TEXT", False),
+                ("created_utc", "TEXT", False),
+            ),
+            ("generation_id",),
+        ),
+        "story_map_v2_generation_pointers": (
+            (
+                ("singleton", "INTEGER", False),
+                ("current_complete_generation", "TEXT", True),
+                ("active_build_generation", "TEXT", True),
+                ("map_revision", "INTEGER", False),
+                ("updated_utc", "TEXT", False),
+            ),
+            ("singleton",),
+        ),
+        "story_map_v2_section_pages": (
+            (
+                ("generation_id", "TEXT", False),
+                ("section_id", "TEXT", False),
+                ("page_ordinal", "INTEGER", False),
+                ("item_count", "INTEGER", False),
+                ("page_json", "BLOB", False),
+                ("page_identity", "TEXT", False),
+            ),
+            ("generation_id", "section_id", "page_ordinal"),
+        ),
+        "story_map_v2_selection_index": (
+            (
+                ("generation_id", "TEXT", False),
+                ("selection_id", "TEXT", False),
+                ("section_id", "TEXT", False),
+                ("page_ordinal", "INTEGER", False),
+                ("item_ordinal", "INTEGER", False),
+                ("selection_kind", "TEXT", False),
+            ),
+            ("generation_id", "selection_id"),
+        ),
+        "story_map_v2_view_state": (
+            (
+                ("view_key", "TEXT", False),
+                ("generation_id", "TEXT", True),
+                ("map_revision", "INTEGER", False),
+                ("selection_id", "TEXT", True),
+                ("section_id", "TEXT", True),
+                ("state_json", "BLOB", False),
+                ("state_identity", "TEXT", False),
+                ("updated_utc", "TEXT", False),
+            ),
+            ("view_key",),
+        ),
+    }
+    try:
+        strict_tables = {
+            str(row[1]): int(row[5])
+            for row in connection.execute("PRAGMA table_list")
+            if str(row[2]) == "table"
+        }
+        for table, (columns, primary_key) in specs.items():
+            rows = connection.execute(f'PRAGMA table_info("{table}")').fetchall()
+            if not rows:
+                raise ProjectCorruptError(f"project is missing required table {table!r}")
+            if strict_tables.get(table) != 1:
+                raise ProjectCorruptError(f"project table {table!r} must be STRICT")
+            expected_names = tuple(column[0] for column in columns)
+            actual_names = tuple(str(row[1]) for row in rows)
+            if actual_names != expected_names:
+                raise ProjectCorruptError(f"project table {table!r} has an invalid column layout")
+            expected_by_name = {name: (kind, nullable) for name, kind, nullable in columns}
+            for row in rows:
+                name = str(row[1])
+                expected_type, nullable = expected_by_name[name]
+                if str(row[2]).upper() != expected_type:
+                    raise ProjectCorruptError(
+                        f"project column {table}.{name} must use type {expected_type}"
+                    )
+                if not nullable and int(row[3]) != 1:
+                    raise ProjectCorruptError(f"project column {table}.{name} must be NOT NULL")
+            actual_primary_key = tuple(
+                str(row[1])
+                for row in sorted(rows, key=lambda item: int(item[5]))
+                if int(row[5]) > 0
+            )
+            if actual_primary_key != primary_key:
+                raise ProjectCorruptError(f"project table {table!r} has an invalid primary key")
+    except sqlite3.DatabaseError as exc:
+        raise ProjectCorruptError("project Story Map V2 schema could not be validated") from exc
+
+    expected_indexes = {
+        "story_map_v2_previews_plan_idx": ("plan_id", "authority_identity", "created_utc"),
+        "story_map_v2_runs_status_idx": ("status", "updated_utc", "run_id"),
+        "story_map_v2_run_approvals_preview_idx": ("preview_id", "run_id"),
+        "story_map_v2_retry_approvals_job_idx": ("job_id", "attempt_ordinal"),
+        "story_map_v2_jobs_claim_idx": ("status", "lease_expires_utc", "ordinal", "job_id"),
+        "story_map_v2_jobs_run_idx": ("run_id", "ordinal", "job_id"),
+        "story_map_v2_jobs_cache_idx": ("cache_identity", "status"),
+        "story_map_v2_attempts_job_idx": ("job_id", "ordinal"),
+        "story_map_v2_attempts_retry_idx": (
+            "job_id",
+            "retry_of_attempt_id",
+            "uses_supplemental_retry_capacity",
+            "transmission_disposition",
+        ),
+        "story_map_v2_cache_request_idx": (
+            "serialized_request_identity",
+            "authority_identity",
+        ),
+        "story_map_v2_validated_results_job_idx": (
+            "job_id",
+            "validated_utc",
+            "attempt_id",
+        ),
+        "story_map_v2_published_results_run_idx": ("run_id", "job_id"),
+        "story_map_v2_generations_run_idx": ("run_id", "created_utc", "generation_id"),
+        "story_map_v2_section_pages_order_idx": (
+            "generation_id",
+            "section_id",
+            "page_ordinal",
+        ),
+        "story_map_v2_selection_locator_idx": (
+            "generation_id",
+            "section_id",
+            "page_ordinal",
+            "item_ordinal",
+        ),
+        "story_map_v2_view_state_generation_idx": ("generation_id", "updated_utc"),
+    }
+    for name, expected in expected_indexes.items():
+        if name not in indexes:
+            raise ProjectCorruptError(f"project is missing Story Map V2 index {name!r}")
+        actual = tuple(str(row[2]) for row in connection.execute(f'PRAGMA index_info("{name}")'))
+        if actual != expected:
+            raise ProjectCorruptError(f"project Story Map V2 index {name!r} has invalid columns")
+
+    expected_foreign_keys = {
+        "story_map_v2_jobs": {
+            ("story_map_v2_runs", "run_id", "run_id", "CASCADE"),
+        },
+        "story_map_v2_attempts": {
+            ("story_map_v2_jobs", "job_id", "job_id", "CASCADE"),
+            (
+                "story_map_v2_attempts",
+                "retry_of_attempt_id",
+                "attempt_id",
+                "CASCADE",
+            ),
+        },
+        "story_map_v2_run_approvals": {
+            ("story_map_v2_runs", "run_id", "run_id", "CASCADE"),
+            ("story_map_v2_previews", "preview_id", "preview_id", "RESTRICT"),
+        },
+        "story_map_v2_retry_approvals": {
+            ("story_map_v2_jobs", "job_id", "job_id", "CASCADE"),
+        },
+        "story_map_v2_published_results": {
+            ("story_map_v2_jobs", "job_id", "job_id", "CASCADE"),
+            ("story_map_v2_runs", "run_id", "run_id", "CASCADE"),
+        },
+        "story_map_v2_validated_results": {
+            ("story_map_v2_attempts", "attempt_id", "attempt_id", "CASCADE"),
+            ("story_map_v2_jobs", "job_id", "job_id", "CASCADE"),
+        },
+        "story_map_v2_generations": {
+            ("story_map_v2_runs", "run_id", "run_id", "RESTRICT"),
+        },
+        "story_map_v2_generation_pointers": {
+            (
+                "story_map_v2_generations",
+                "current_complete_generation",
+                "generation_id",
+                "RESTRICT",
+            ),
+            (
+                "story_map_v2_generations",
+                "active_build_generation",
+                "generation_id",
+                "RESTRICT",
+            ),
+        },
+        "story_map_v2_section_pages": {
+            ("story_map_v2_generations", "generation_id", "generation_id", "CASCADE"),
+        },
+        "story_map_v2_selection_index": {
+            ("story_map_v2_section_pages", "generation_id", "generation_id", "CASCADE"),
+            ("story_map_v2_section_pages", "section_id", "section_id", "CASCADE"),
+            ("story_map_v2_section_pages", "page_ordinal", "page_ordinal", "CASCADE"),
+        },
+        "story_map_v2_view_state": {
+            ("story_map_v2_generations", "generation_id", "generation_id", "SET NULL"),
+        },
+    }
+    for table, expected_foreign_key in expected_foreign_keys.items():
+        actual_foreign_key = {
+            (str(row[2]), str(row[3]), str(row[4]), str(row[6]).upper())
+            for row in connection.execute(f'PRAGMA foreign_key_list("{table}")')
+        }
+        if actual_foreign_key != expected_foreign_key:
+            raise ProjectCorruptError(
+                f"project Story Map V2 table {table!r} has invalid foreign keys"
+            )
 
 
 def _pragma_int(connection: sqlite3.Connection, name: str) -> int:

@@ -1,29 +1,97 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-26 (M15.1 Phase 03 complete; PR #28 merged normally at `27035cb`; no Phase 04/05
-implementation contract is active)
+Updated: 2026-07-27 (Phase 04 partial functional checkpoint is being sent to PR #30)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
-## Current contract
+## Current contract after the simplicity reset
 
-- Active milestone: none. M15.1 Phase 03 is the most recently completed contract; Phase 04 and
-  Phase 05 have not started.
-- Completed contract: [`docs/milestones/M15/GOAL.md`](milestones/M15/GOAL.md).
-- Completed handoff: [`docs/handoffs/M15_PHASE_03_STORY_BROWSER.md`](handoffs/M15_PHASE_03_STORY_BROWSER.md).
-- Integration baseline: clean merged Phase 01/02 `main` and `origin/main` at
-  `e81523fe2cc42f1bc3d8dcb1a839bfd28876dfe9`.
-- Completed integration branch: `codex/m15-phase03-story-browser`; historical PR #26 and
-  `codex/m15-msday1-narrative-map` remain backup only.
-- Status: Complete.
-- Merge state: PR #28 merged normally at `27035cb` after the completed PR-ready gate.
-- Semantic review: [`PASS`](milestones/M15/SEMANTIC_REVIEW.md), amended for the approved
-  presentation-only refinement before product edits.
-- Shared design: [`PHASE_03_DESIGN.md`](milestones/M15/PHASE_03_DESIGN.md).
-- Native Codex goal: after the user removed the prior goal instance and authorized an updated
-  self-goal, renewed Phase 03 goal/task `019f9c53-6ef8-7a00-9ec0-f06c5e9dcdb0` was created from the
-  amended exact done condition. It closed successfully at PR readiness after final exact-head
-  GitHub run `30213028297`, while PR #28 was still open and unmerged as required by the contract.
+- **Product rule:** quick, crude Ren'Py script-to-story conversion for personal checking, not a
+  production-grade system.
+- Active milestone: M15.1 Phase 04 lean full-game story map.
+- Active contract: [`docs/milestones/M15_PHASE_04/GOAL.md`](milestones/M15_PHASE_04/GOAL.md).
+- Active design: [`docs/milestones/M15_PHASE_04/PHASE_04_DESIGN.md`](milestones/M15_PHASE_04/PHASE_04_DESIGN.md).
+- Future-phase planning rules: [`docs/MILESTONE_PLANNING_RULES.md`](MILESTONE_PLANNING_RULES.md).
+- Integration branch: `codex/m15-phase04-full-game`.
+- Safe product checkpoint: `f25e8c0`.
+- Pull request: PR #30, open and unmerged; current branch update and ready transition are the final operations.
+- Status: PR preparation. Active generation `cf5f7daa…f3a6` contains 425 accepted local-model
+  summaries with 0 failed jobs and 0 structural placeholders while preserving the deterministic
+  choices, routes, state, rejoins, endings, Path, and Detail/Evidence. No cloud AI was used. The
+  website restores a 425-row query/result table after refresh, uses accepted event prose for its
+  overview and section labels, and bounds the long section index. The user accepted this functional
+  checkpoint for Phase 04 closeout while explicitly deferring the mock-level semantic hierarchy/UI
+  redesign to a separately scoped follow-up.
+- Semantic review: fresh exact-head `PASS` at `2bcdd02` by visible task
+  `019fa18a-816a-77b2-99b1-1717ef117a54`; the prior production-grade review remains historical.
+- Native Codex goal: previously recorded on Orchestra task
+  `019fa176-8277-7920-8558-b816cf168a9f`; the closeout query returned `goal: null`, and no duplicate
+  goal was created.
+- Completed workers: backend/API task `019fa18f-e895-71d3-ac9e-49e81ef77c7b` at `3723da9` and
+  website task `019fa18f-f055-7411-ac72-acbddf2b4f8d` at `cdfd37a` plus `b4572aa`, all from
+  semantic-gate commit `21d80d2`. They integrated as `29f4378`, `b8bf018`, and `2776b99`.
+- Useful integrated foundation: occurrence-aware planning/chunking, durable workflow storage,
+  mapping execution, semantic/reader/browser components, workflow composition work, durable section
+  jobs, and repository-wide timing-balanced CI shards (`8e502e4`).
+- Remaining lean path: push the closeout checkpoint, mark PR #30 ready, inspect its checks once, and
+  leave it open and unmerged. The semantic grouping/UI redesign is a future milestone, not Phase 04.
+- Current resumption settings: workers and reviewers use explicit `gpt-5.6-sol` and Medium
+  reasoning. The user-visible task API exposes no fast-mode selector; the user authorized dispatch
+  with fast mode reported as unavailable/unverified. The Orchestra chat was selected separately by
+  the user for Ultra planning.
+- Orchestration: one user-visible Orchestra, at most two concurrent implementation workers, one
+  lightweight semantic reviewer, and one final integrated reviewer. Pause and ask on scope doubt.
+- Testing: affected checks while editing, one focused integrated gate, sharded CI once for the PR
+  candidate, and one final Windows Release/package gate. Do not continuously monitor healthy CI.
+- Integrated verification passed 123 focused tests in 44.41 seconds plus Ruff, strict mypy over six
+  changed source files, JavaScript syntax, and whitespace. No provider construction/call, private
+  input access, push, PR mutation, or merge occurred through this integration checkpoint.
+- The current local-summary product head passed 147 focused tests plus Ruff, strict mypy,
+  JavaScript syntax,
+  and whitespace. It changes no HTTP/schema/database contract and makes no cloud summary call.
+- The supported real full-game project exposed one first-generation blocker: the Generate action
+  was hidden without an existing reader manifest. The existing action now moves into the technical
+  fallback masthead and remains hidden off-workspace through `4a85a79`; 14 focused browser/asset
+  tests pass at normal and effective-200 profiles.
+- Historical preview `9d449b95…a3a2c1` disclosed Codex CLI `gpt-5.6-terra`, High reasoning,
+  fast off, private cloud story content, 425 chunks/jobs, 2,927 maximum cloud calls, zero local
+  calls, and zero cache hits. Its consent checkpoint had zero calls/tokens and an unchanged
+  protected-input aggregate SHA-256. After the user's exact approval, the website stored approval
+  and started this identity once. The durable stopping state is 425 calls, 0 accepted, 19
+  structural, 406 indeterminate, zero tokens, no generation, and `map_revision=0`.
+- The user's `Approved proceed` response resumed the same native goal at `Integration`; no duplicate
+  goal was created. That historical provider-execution block was later resolved first by honest
+  structural publication and then by the user-authorized local-only summary path.
+- Provider-free in-memory assembly over that exact frozen run proves the current semantic and
+  derived assemblers can already form 425 structural chunks, 1,770 ordered events, 693 choices,
+  425 structural sections, and a structural overview with zero provider calls. The smallest
+  demonstrated correction was to let `product_vertical` publish those existing fallbacks after a
+  terminal indeterminate mapping pass; that bounded correction is complete.
+
+## Historical Phase 04 production-grade record (superseded)
+
+The record below is preserved as implementation history only. Its former extreme scale, recovery,
+protocol, review-tree, and repeated-gate requirements are not current acceptance authority.
+
+- Historical active milestone: M15.1 Phase 04 full-game scaling, persistence, recovery, and product workflow.
+- Active contract: [`docs/milestones/M15_PHASE_04/GOAL.md`](milestones/M15_PHASE_04/GOAL.md).
+- Active design: [`docs/milestones/M15_PHASE_04/PHASE_04_DESIGN.md`](milestones/M15_PHASE_04/PHASE_04_DESIGN.md).
+- Integration baseline: synchronized `main`/`origin/main` at Phase 03 closeout merge
+  `e715d8ae80dd1188c729a447cfabf3c45b3b7286`.
+- Integration branch: `codex/m15-phase04-full-game`.
+- Current integrated A/B checkpoint: `24e6ea8` (Track PRs #31 and #32 merged normally into the
+  Phase 04 integration branch). A/B interfaces are frozen for Tracks C and D.
+- Status: In progress.
+- Merge state: Phase 03 PR #28 and closeout PR #29 are merged. Draft Phase 04
+  [PR #30](https://github.com/nmpraveen/renpy-story-mapper/pull/30) is open against `main` and
+  intentionally unmerged.
+- Semantic review: repeated exact-head `PASS` at corrected checkpoint
+  `eb1d2672b76d1445a2dbbb770b1d2cd152d45bf2` in
+  [`SEMANTIC_REVIEW.md`](milestones/M15_PHASE_04/SEMANTIC_REVIEW.md). The document preserves the
+  initial `REVISE` and its corrected consent conflict; current P0=P1=P2=0.
+- Native Codex goal: active on coordinator task `019f7fe2-eeaa-7622-b3eb-f53d5bd5f749`, created
+  from the exact `GOAL.md` done condition after repeated semantic `PASS`. Keep it active through
+  integration, verification, review, and genuine PR readiness.
 - Accepted private input:
   `C:/Users/prave/Documents/Codex/Renpy/output/m15-story-map-v2-phase-02-20260724-2135/`.
   The package is complete 1/1 with 12 events, four choices, eight outcomes, zero validation
@@ -31,6 +99,85 @@ implementation contract is active)
   full-history checkpoint `a42e8a0` passed its final GitHub run before the clean Phase 03 baseline.
 - Visible task settings: every track/reviewer must explicitly use `gpt-5.6-sol` with High
   reasoning. The task API has no fast-mode field, so task fast mode is unavailable/unverified.
+- Phase 04 Track A Coordinator: visible task `019fa00d-1e55-79e0-95b0-c88f8fd89919`, worktree
+  `C:/Users/prave/.codex/worktrees/6321/Renpy`, dispatched from exact integration checkpoint
+  `9e5088ea54dcd227e933fb14884d408596ff979b` with explicit `gpt-5.6-sol` High. Worker A1 is task
+  `019fa00e-c8e5-7141-8c83-d043b27d9d34` in `C:/Users/prave/.codex/worktrees/9f93/Renpy`;
+  Worker A2 is task `019fa00e-c8e9-7422-bce8-adc0b692ff40` in
+  `C:/Users/prave/.codex/worktrees/fe82/Renpy`; the independent reviewer is task
+  `019fa00e-c967-7e71-a7e4-151e1cfcb498` in `C:/Users/prave/.codex/worktrees/ad4a/Renpy`.
+- Phase 04 Track A completion: exact pushed head
+  `c03222c329b23f05b574fc4c91b7e30a04d46fc1` passed independent review with
+  P0=P1=P2=P3=0 and GitHub deterministic checks in 18m49s. Track
+  [PR #31](https://github.com/nmpraveen/renpy-story-mapper/pull/31) merged normally into the
+  Phase 04 integration branch at `b18ab4d`; a post-merge focused gate passed 25 tests. Track A is
+  complete.
+- Phase 04 Track B Coordinator: visible task `019fa00d-1e77-7fd3-93d5-ee9761a5f662`, worktree
+  `C:/Users/prave/.codex/worktrees/bcc8/Renpy`, dispatched from the same exact checkpoint with
+  explicit `gpt-5.6-sol` High. Worker B1 is task `019fa00f-8e20-7382-8dc9-2c1ce5d39975` in
+  `C:/Users/prave/.codex/worktrees/d46a/Renpy`; Worker B2 is task
+  `019fa00f-b94c-7af1-9b10-1b67c64ea6fb` in `C:/Users/prave/.codex/worktrees/f258/Renpy`;
+  the independent reviewer is task `019fa00f-dad0-7b13-9454-9c9b44a0d098` in
+  `C:/Users/prave/.codex/worktrees/70a9/Renpy`. Both coordinators report fast-mode selection as
+  unavailable/unverified.
+- Phase 04 Track B completion: the initial integrated candidate `0942ea8` was rejected with two
+  P1 durable-authority findings. Corrected product head
+  `948994e3a13c77982cb356692e1fe15b5f079147` passed independent exact-head review with
+  P0=P1=P2=P3=0. A one-line stale schema-version test then caused the first PR run
+  `30223104080` to fail with `1 failed, 1568 passed, 16 deselected`; exact test-only head
+  `edf8b4fc95ff90803982b94b726ee810a6c67d25` independently passed review and GitHub run
+  `30224335123` / job `89851989571` in 17m22s. Track
+  [PR #32](https://github.com/nmpraveen/renpy-story-mapper/pull/32) merged normally into the
+  integration branch at `24e6ea8`. The post-merge A/B seam gate passed 151 tests, Ruff, strict
+  mypy over 118 source files, `pip check`, and diff hygiene.
+- Repository-wide CI acceleration: visible coordinator task
+  `019fa0a1-e213-7f62-8ca9-ea0e6e1de032`, branch `codex/m15-p4-ci-shards`, worktree
+  `C:/Users/prave/.codex/worktrees/d42f/Renpy`, explicit `gpt-5.6-sol` High with fast-mode
+  unavailable/unverified. It is replacing the serial Windows pytest bottleneck with complete,
+  timing-balanced required shards and a stable aggregate check without dropping tests. This is a
+  shared workflow improvement for all future repository PRs and `main` pushes, not a Phase 04-only
+  exception. Current action: freeze and independently review that correction while Tracks C and D
+  proceed from the frozen A/B product seam, then make C/D consume the accepted workflow before
+  their exact pushed-head gates.
+- Phase 04 Track C Coordinator: visible task `019fa0bd-d099-7453-94ba-35ba6c2aaab9`, worktree
+  `C:/Users/prave/.codex/worktrees/b98c/Renpy`, branch `codex/m15-p4-track-c`, dispatched from
+  exact integration head `e73abf35c76283fe69aa7172ef999464995f2fe7` with explicit
+  `gpt-5.6-sol` High; fast-mode selection is unavailable/unverified. The smallest C/D read seam is
+  frozen first at `cea5cf03145a2395be6571f9f8a91c7a6020c504` as the preserved
+  `story-map-v2-reader-contract-v1` base, with its schema, public synthetic fixture,
+  revision/cursor rules, bounded page shells, locate/search/path/detail/view-state envelopes, and
+  typed stale 409 recorded in `TRACK_C_READER_CONTRACT.md`. Before product UI edits, D1 proved that
+  v1's opaque locate result could not identify the required unloaded branch-page resource. The
+  additive effective `story-map-v2-reader-contract-v2` correction at
+  `44a41cca1fcb02264a0981dbd39aa7691bf9cbf7` preserves v1 and requires
+  `location.branch_id`, with its cursor bound to that exact branch resource or null for
+  section-only targets. C2, D1, D2, both coordinators, both reviewers, and the Phase Coordinator
+  received the exact v2 paths/checkpoint before production assumptions.
+- Phase 04 Track C workers: C1 semantic assembly/publication is visible task
+  `019fa0c3-689c-7151-82bc-410d7959c992` in
+  `C:/Users/prave/.codex/worktrees/bf83/Renpy`; C2 scalable reader/API is visible task
+  `019fa0c3-689c-7151-82bc-40cbed4c2045` in
+  `C:/Users/prave/.codex/worktrees/6314/Renpy`. Independent exact-head reviewer task
+  `019fa0c3-689c-7151-82bc-40eea50f1d48` is isolated in
+  `C:/Users/prave/.codex/worktrees/425a/Renpy` and may prepare a matrix only until the coordinator
+  freezes one integrated head. Every task uses explicit `gpt-5.6-sol` High; fast mode is
+  unavailable/unverified. C1/C2 use provider fakes only and may not access private source.
+- The reader contract deliberately does not invent browser mutation routes for Track B's
+  Prepare/approval/cancel/resume/job-specific indeterminate retry service. D1 identified this
+  separate command-routing gap without changing reader v1; the exact requested envelope was sent
+  to the Phase Coordinator and Track B coordinator for an ownership-correct frozen seam. Track D
+  keeps those controls unavailable until bootstrap advertises that separate contract.
+- A later cross-track audit found that Track B's frozen mapping/review/fallback ceilings did not
+  yet disclose C1's separately finite section and whole-game synthesis work. Preliminary
+  coordinator seam `9657c6e` assumed exact derived child/request identities could be frozen at
+  Prepare; C1's dependency analysis rejected that assumption before product hard-coding. The
+  preserved preliminary document now points to effective
+  `story-map-v2-derived-semantic-workflow-v2` at
+  `db50539a8616bb29b6735b95a60ff401ce0f10d2`. V2 freezes `section_synthesis` and
+  `rollup_synthesis`, a fan-in-24 upper-bound plan and component ceiling formula at Prepare, then
+  immutable exact-input jobs only after dependencies publish. Track B paused its v1 work and is
+  freezing its separate HTTP/domain contract against this corrected seam; C2 owns only later web
+  composition in its already assigned web files. Reader contract v2 remains unchanged.
 - Pull request: [#28](https://github.com/nmpraveen/renpy-story-mapper/pull/28), merged normally
   after separate explicit user approval on 2026-07-26 at
   `27035cba5c55585ea5dbeb48e6dd1cd026c44941`. Reviewed PR head was
@@ -198,9 +345,10 @@ implementation contract is active)
   `27035cba5c55585ea5dbeb48e6dd1cd026c44941`; its merge tree exactly matches reviewed head
   `1dd55ff`. Local `main` and `origin/main` both resolve to `27035cb`; preserved untracked
   user/private paths remain untouched.
-- Current action: none for Phase 03. Do not begin Phase 04/05 or M14 under this completed contract.
-  When separately authorized, create and semantically review a new bounded Phase 04 contract
-  before implementation.
+- Current action: the Phase Coordinator creates and records the exact Phase 04 native goal, then
+  advances to `In progress` before product-code changes and dispatches Track A/Track B from the
+  reviewed contract checkpoint. Provider work, private acceptance, Phase 05, M14, and historical
+  Stage H/E work remain unauthorized at `Ready`.
 
 ## M13 historical lifecycle
 

@@ -1,0 +1,367 @@
+{
+  "contract": "story-map-v2-workflow-http-v1",
+  "routes": {
+    "story_map_v2_workflow": {
+      "contract": "story-map-v2-workflow-http-v1",
+      "prepare": "/api/v1/story-map-v2/workflow/prepare",
+      "start": "/api/v1/story-map-v2/workflow/start",
+      "cancel": "/api/v1/story-map-v2/workflow/cancel",
+      "resume": "/api/v1/story-map-v2/workflow/resume",
+      "retry": "/api/v1/story-map-v2/workflow/retry",
+      "status": "/api/v1/story-map-v2/workflow/status"
+    }
+  },
+  "examples": {
+    "requests": {
+      "prepare": {
+        "contract": "story-map-v2-workflow-http-v1"
+      },
+      "start": {
+        "contract": "story-map-v2-workflow-http-v1",
+        "run_id": "run:fixture",
+        "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "cancel": {
+        "contract": "story-map-v2-workflow-http-v1",
+        "run_id": "run:fixture",
+        "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "resume": {
+        "contract": "story-map-v2-workflow-http-v1",
+        "run_id": "run:fixture",
+        "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "retry": {
+        "contract": "story-map-v2-workflow-http-v1",
+        "run_id": "run:fixture",
+        "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "job_id": "derived:section:prologue",
+        "indeterminate_attempt_id": "attempt:section:1"
+      },
+      "status": {
+        "contract": "story-map-v2-workflow-http-v1",
+        "run_id": "run:fixture"
+      }
+    },
+    "successes": {
+      "prepare": {
+        "contract": "story-map-v2-workflow-http-v1",
+        "command": "prepare",
+        "preview": {
+          "run_id": "run:fixture",
+          "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "plan_id": "plan:fixture",
+          "authority_identity": "authority:fixture",
+          "jobs": [
+            {
+              "job_id": "mapping:prologue",
+              "scope_id": "scope:prologue",
+              "chunk_id": "chunk:prologue",
+              "critical": true
+            }
+          ],
+          "derived_semantic_plan": {
+            "semantic_plan_identity": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "story_chunk_plan_identity": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "authority_identity": "authority:fixture",
+            "corridors": [
+              {
+                "corridor_id": "corridor:prologue",
+                "route_owner": null,
+                "event_slot_upper_bound": 1,
+                "ordinal": 0
+              }
+            ],
+            "route_memberships": [],
+            "fan_in": 24,
+            "section_synthesis_calls": 1,
+            "route_reduction_calls": 0,
+            "route_summary_calls": 0,
+            "whole_game_reduction_calls": 0,
+            "final_overview_calls": 1,
+            "rollup_synthesis_calls": 1
+          },
+          "cache_hits": {
+            "cloud_job_ids": [],
+            "loopback_job_ids": []
+          },
+          "policy": {
+            "policy_version": "story-map-v2-phase04-policy-v1",
+            "prompt_version": "mapping-prompt-v1",
+            "schema_version": "story-map-mapper-v2",
+            "cloud": {
+              "provider": "codex-cli",
+              "model": "gpt-5.6-terra",
+              "reasoning": "high",
+              "fast_mode": false,
+              "mode": "cloud",
+              "adapter_version": "mapping-adapter-v1"
+            },
+            "loopback": {
+              "provider": "loopback-fixture",
+              "model": "qwen-fixture",
+              "reasoning": null,
+              "fast_mode": null,
+              "mode": "loopback",
+              "adapter_version": "loopback-adapter-v1"
+            },
+            "allow_refusal_fallback": true,
+            "section_synthesis": {
+              "prompt_version": "section-prompt-v1",
+              "schema_version": "section-schema-v1",
+              "provider": "codex-cli",
+              "model": "gpt-5.6-terra",
+              "reasoning": "high",
+              "fast_mode": false,
+              "mode": "cloud",
+              "adapter_version": "section-adapter-v1"
+            },
+            "rollup_synthesis": {
+              "prompt_version": "rollup-prompt-v1",
+              "schema_version": "rollup-schema-v1",
+              "provider": "codex-cli",
+              "model": "gpt-5.6-terra",
+              "reasoning": "high",
+              "fast_mode": false,
+              "mode": "cloud",
+              "adapter_version": "rollup-adapter-v1"
+            }
+          },
+          "ceilings": {
+            "mapping_calls": 1,
+            "review_calls": 1,
+            "fallback_calls": 1,
+            "section_synthesis_calls": 1,
+            "route_reduction_calls": 0,
+            "route_summary_calls": 0,
+            "whole_game_reduction_calls": 0,
+            "final_overview_calls": 1,
+            "rollup_synthesis_calls": 1,
+            "input_tokens": 12000,
+            "output_tokens": 4000,
+            "elapsed_ms": 120000,
+            "submission_slots": 6,
+            "indeterminate_retry_calls": 1
+          },
+          "privacy": {
+            "cloud_story_content": true,
+            "loopback_story_content": true,
+            "durable_raw_requests": false,
+            "durable_raw_responses": false,
+            "durable_provider_diagnostics": false,
+            "durable_absolute_paths": false
+          }
+        },
+        "approval": {
+          "state": "not_approved",
+          "approval_identity": null,
+          "preview_identity": null,
+          "plan_id": null,
+          "authority_identity": null
+        },
+        "status": {
+          "run_id": "run:fixture",
+          "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "approved": false,
+          "cancelled": false,
+          "pending_jobs": 1,
+          "active_jobs": 0,
+          "accepted_jobs": 0,
+          "structural_fallback_jobs": 0,
+          "resumable_jobs": 0,
+          "indeterminate_jobs": 0,
+          "accounting": {"calls": 0, "input_tokens": 0, "output_tokens": 0, "elapsed_ms": 0},
+          "can_approve": true,
+          "can_start": true,
+          "can_cancel": true,
+          "can_resume": false,
+          "indeterminate_retries": []
+        },
+        "retry_approval": null
+      },
+      "start": {
+        "contract": "story-map-v2-workflow-http-v1",
+        "command": "start",
+        "preview": {
+          "run_id": "run:fixture",
+          "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "plan_id": "plan:fixture",
+          "authority_identity": "authority:fixture",
+          "jobs": [{"job_id": "mapping:prologue", "scope_id": "scope:prologue", "chunk_id": "chunk:prologue", "critical": true}],
+          "derived_semantic_plan": {
+            "semantic_plan_identity": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "story_chunk_plan_identity": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "authority_identity": "authority:fixture",
+            "corridors": [{"corridor_id": "corridor:prologue", "route_owner": null, "event_slot_upper_bound": 1, "ordinal": 0}],
+            "route_memberships": [],
+            "fan_in": 24,
+            "section_synthesis_calls": 1,
+            "route_reduction_calls": 0,
+            "route_summary_calls": 0,
+            "whole_game_reduction_calls": 0,
+            "final_overview_calls": 1,
+            "rollup_synthesis_calls": 1
+          },
+          "cache_hits": {"cloud_job_ids": [], "loopback_job_ids": []},
+          "policy": {
+            "policy_version": "story-map-v2-phase04-policy-v1",
+            "prompt_version": "mapping-prompt-v1",
+            "schema_version": "story-map-mapper-v2",
+            "cloud": {"provider": "codex-cli", "model": "gpt-5.6-terra", "reasoning": "high", "fast_mode": false, "mode": "cloud", "adapter_version": "mapping-adapter-v1"},
+            "loopback": {"provider": "loopback-fixture", "model": "qwen-fixture", "reasoning": null, "fast_mode": null, "mode": "loopback", "adapter_version": "loopback-adapter-v1"},
+            "allow_refusal_fallback": true,
+            "section_synthesis": {"prompt_version": "section-prompt-v1", "schema_version": "section-schema-v1", "provider": "codex-cli", "model": "gpt-5.6-terra", "reasoning": "high", "fast_mode": false, "mode": "cloud", "adapter_version": "section-adapter-v1"},
+            "rollup_synthesis": {"prompt_version": "rollup-prompt-v1", "schema_version": "rollup-schema-v1", "provider": "codex-cli", "model": "gpt-5.6-terra", "reasoning": "high", "fast_mode": false, "mode": "cloud", "adapter_version": "rollup-adapter-v1"}
+          },
+          "ceilings": {"mapping_calls": 1, "review_calls": 1, "fallback_calls": 1, "section_synthesis_calls": 1, "route_reduction_calls": 0, "route_summary_calls": 0, "whole_game_reduction_calls": 0, "final_overview_calls": 1, "rollup_synthesis_calls": 1, "input_tokens": 12000, "output_tokens": 4000, "elapsed_ms": 120000, "submission_slots": 6, "indeterminate_retry_calls": 1},
+          "privacy": {"cloud_story_content": true, "loopback_story_content": true, "durable_raw_requests": false, "durable_raw_responses": false, "durable_provider_diagnostics": false, "durable_absolute_paths": false}
+        },
+        "approval": {
+          "state": "approved",
+          "approval_identity": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "plan_id": "plan:fixture",
+          "authority_identity": "authority:fixture"
+        },
+        "status": {
+          "run_id": "run:fixture",
+          "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "approved": true,
+          "cancelled": false,
+          "pending_jobs": 0,
+          "active_jobs": 1,
+          "accepted_jobs": 0,
+          "structural_fallback_jobs": 0,
+          "resumable_jobs": 0,
+          "indeterminate_jobs": 0,
+          "accounting": {"calls": 0, "input_tokens": 0, "output_tokens": 0, "elapsed_ms": 0},
+          "can_approve": false,
+          "can_start": false,
+          "can_cancel": true,
+          "can_resume": false,
+          "indeterminate_retries": []
+        },
+        "retry_approval": null
+      },
+      "cancel": {
+        "contract": "story-map-v2-workflow-http-v1",
+        "command": "cancel",
+        "preview": {
+          "run_id": "run:fixture",
+          "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "plan_id": "plan:fixture",
+          "authority_identity": "authority:fixture",
+          "jobs": [{"job_id": "mapping:prologue", "scope_id": "scope:prologue", "chunk_id": "chunk:prologue", "critical": true}],
+          "derived_semantic_plan": {"semantic_plan_identity": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "story_chunk_plan_identity": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "authority_identity": "authority:fixture", "corridors": [{"corridor_id": "corridor:prologue", "route_owner": null, "event_slot_upper_bound": 1, "ordinal": 0}], "route_memberships": [], "fan_in": 24, "section_synthesis_calls": 1, "route_reduction_calls": 0, "route_summary_calls": 0, "whole_game_reduction_calls": 0, "final_overview_calls": 1, "rollup_synthesis_calls": 1},
+          "cache_hits": {"cloud_job_ids": [], "loopback_job_ids": []},
+          "policy": {
+            "policy_version": "story-map-v2-phase04-policy-v1", "prompt_version": "mapping-prompt-v1", "schema_version": "story-map-mapper-v2",
+            "cloud": {"provider": "codex-cli", "model": "gpt-5.6-terra", "reasoning": "high", "fast_mode": false, "mode": "cloud", "adapter_version": "mapping-adapter-v1"},
+            "loopback": {"provider": "loopback-fixture", "model": "qwen-fixture", "reasoning": null, "fast_mode": null, "mode": "loopback", "adapter_version": "loopback-adapter-v1"},
+            "allow_refusal_fallback": true,
+            "section_synthesis": {"prompt_version": "section-prompt-v1", "schema_version": "section-schema-v1", "provider": "codex-cli", "model": "gpt-5.6-terra", "reasoning": "high", "fast_mode": false, "mode": "cloud", "adapter_version": "section-adapter-v1"},
+            "rollup_synthesis": {"prompt_version": "rollup-prompt-v1", "schema_version": "rollup-schema-v1", "provider": "codex-cli", "model": "gpt-5.6-terra", "reasoning": "high", "fast_mode": false, "mode": "cloud", "adapter_version": "rollup-adapter-v1"}
+          },
+          "ceilings": {"mapping_calls": 1, "review_calls": 1, "fallback_calls": 1, "section_synthesis_calls": 1, "route_reduction_calls": 0, "route_summary_calls": 0, "whole_game_reduction_calls": 0, "final_overview_calls": 1, "rollup_synthesis_calls": 1, "input_tokens": 12000, "output_tokens": 4000, "elapsed_ms": 120000, "submission_slots": 6, "indeterminate_retry_calls": 1},
+          "privacy": {"cloud_story_content": true, "loopback_story_content": true, "durable_raw_requests": false, "durable_raw_responses": false, "durable_provider_diagnostics": false, "durable_absolute_paths": false}
+        },
+        "approval": {"state": "approved", "approval_identity": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "plan_id": "plan:fixture", "authority_identity": "authority:fixture"},
+        "status": {
+          "run_id": "run:fixture", "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "approved": true, "cancelled": true,
+          "pending_jobs": 0, "active_jobs": 0, "accepted_jobs": 0, "structural_fallback_jobs": 0, "resumable_jobs": 0, "indeterminate_jobs": 0,
+          "accounting": {"calls": 0, "input_tokens": 0, "output_tokens": 0, "elapsed_ms": 0},
+          "can_approve": false, "can_start": false, "can_cancel": false, "can_resume": false,
+          "indeterminate_retries": []
+        },
+        "retry_approval": null
+      },
+      "resume": {
+        "contract": "story-map-v2-workflow-http-v1",
+        "command": "resume",
+        "preview": {
+          "run_id": "run:fixture", "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "plan_id": "plan:fixture", "authority_identity": "authority:fixture",
+          "jobs": [{"job_id": "mapping:prologue", "scope_id": "scope:prologue", "chunk_id": "chunk:prologue", "critical": true}],
+          "derived_semantic_plan": {"semantic_plan_identity": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "story_chunk_plan_identity": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "authority_identity": "authority:fixture", "corridors": [{"corridor_id": "corridor:prologue", "route_owner": null, "event_slot_upper_bound": 1, "ordinal": 0}], "route_memberships": [], "fan_in": 24, "section_synthesis_calls": 1, "route_reduction_calls": 0, "route_summary_calls": 0, "whole_game_reduction_calls": 0, "final_overview_calls": 1, "rollup_synthesis_calls": 1},
+          "cache_hits": {"cloud_job_ids": [], "loopback_job_ids": []},
+          "policy": {"policy_version": "story-map-v2-phase04-policy-v1", "prompt_version": "mapping-prompt-v1", "schema_version": "story-map-mapper-v2", "cloud": {"provider": "codex-cli", "model": "gpt-5.6-terra", "reasoning": "high", "fast_mode": false, "mode": "cloud", "adapter_version": "mapping-adapter-v1"}, "loopback": {"provider": "loopback-fixture", "model": "qwen-fixture", "reasoning": null, "fast_mode": null, "mode": "loopback", "adapter_version": "loopback-adapter-v1"}, "allow_refusal_fallback": true, "section_synthesis": {"prompt_version": "section-prompt-v1", "schema_version": "section-schema-v1", "provider": "codex-cli", "model": "gpt-5.6-terra", "reasoning": "high", "fast_mode": false, "mode": "cloud", "adapter_version": "section-adapter-v1"}, "rollup_synthesis": {"prompt_version": "rollup-prompt-v1", "schema_version": "rollup-schema-v1", "provider": "codex-cli", "model": "gpt-5.6-terra", "reasoning": "high", "fast_mode": false, "mode": "cloud", "adapter_version": "rollup-adapter-v1"}},
+          "ceilings": {"mapping_calls": 1, "review_calls": 1, "fallback_calls": 1, "section_synthesis_calls": 1, "route_reduction_calls": 0, "route_summary_calls": 0, "whole_game_reduction_calls": 0, "final_overview_calls": 1, "rollup_synthesis_calls": 1, "input_tokens": 12000, "output_tokens": 4000, "elapsed_ms": 120000, "submission_slots": 6, "indeterminate_retry_calls": 1},
+          "privacy": {"cloud_story_content": true, "loopback_story_content": true, "durable_raw_requests": false, "durable_raw_responses": false, "durable_provider_diagnostics": false, "durable_absolute_paths": false}
+        },
+        "approval": {"state": "approved", "approval_identity": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "plan_id": "plan:fixture", "authority_identity": "authority:fixture"},
+        "status": {"run_id": "run:fixture", "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "approved": true, "cancelled": false, "pending_jobs": 0, "active_jobs": 1, "accepted_jobs": 0, "structural_fallback_jobs": 0, "resumable_jobs": 0, "indeterminate_jobs": 0, "accounting": {"calls": 0, "input_tokens": 0, "output_tokens": 0, "elapsed_ms": 0}, "can_approve": false, "can_start": false, "can_cancel": true, "can_resume": false, "indeterminate_retries": []},
+        "retry_approval": null
+      },
+      "retry": {
+        "contract": "story-map-v2-workflow-http-v1",
+        "command": "retry",
+        "preview": {
+          "run_id": "run:fixture", "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "plan_id": "plan:fixture", "authority_identity": "authority:fixture",
+          "jobs": [{"job_id": "mapping:prologue", "scope_id": "scope:prologue", "chunk_id": "chunk:prologue", "critical": true}],
+          "derived_semantic_plan": {"semantic_plan_identity": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "story_chunk_plan_identity": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "authority_identity": "authority:fixture", "corridors": [{"corridor_id": "corridor:prologue", "route_owner": null, "event_slot_upper_bound": 1, "ordinal": 0}], "route_memberships": [], "fan_in": 24, "section_synthesis_calls": 1, "route_reduction_calls": 0, "route_summary_calls": 0, "whole_game_reduction_calls": 0, "final_overview_calls": 1, "rollup_synthesis_calls": 1},
+          "cache_hits": {"cloud_job_ids": [], "loopback_job_ids": []},
+          "policy": {"policy_version": "story-map-v2-phase04-policy-v1", "prompt_version": "mapping-prompt-v1", "schema_version": "story-map-mapper-v2", "cloud": {"provider": "codex-cli", "model": "gpt-5.6-terra", "reasoning": "high", "fast_mode": false, "mode": "cloud", "adapter_version": "mapping-adapter-v1"}, "loopback": {"provider": "loopback-fixture", "model": "qwen-fixture", "reasoning": null, "fast_mode": null, "mode": "loopback", "adapter_version": "loopback-adapter-v1"}, "allow_refusal_fallback": true, "section_synthesis": {"prompt_version": "section-prompt-v1", "schema_version": "section-schema-v1", "provider": "codex-cli", "model": "gpt-5.6-terra", "reasoning": "high", "fast_mode": false, "mode": "cloud", "adapter_version": "section-adapter-v1"}, "rollup_synthesis": {"prompt_version": "rollup-prompt-v1", "schema_version": "rollup-schema-v1", "provider": "codex-cli", "model": "gpt-5.6-terra", "reasoning": "high", "fast_mode": false, "mode": "cloud", "adapter_version": "rollup-adapter-v1"}},
+          "ceilings": {"mapping_calls": 1, "review_calls": 1, "fallback_calls": 1, "section_synthesis_calls": 1, "route_reduction_calls": 0, "route_summary_calls": 0, "whole_game_reduction_calls": 0, "final_overview_calls": 1, "rollup_synthesis_calls": 1, "input_tokens": 12000, "output_tokens": 4000, "elapsed_ms": 120000, "submission_slots": 6, "indeterminate_retry_calls": 1},
+          "privacy": {"cloud_story_content": true, "loopback_story_content": true, "durable_raw_requests": false, "durable_raw_responses": false, "durable_provider_diagnostics": false, "durable_absolute_paths": false}
+        },
+        "approval": {"state": "approved", "approval_identity": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "plan_id": "plan:fixture", "authority_identity": "authority:fixture"},
+        "status": {"run_id": "run:fixture", "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "approved": true, "cancelled": false, "pending_jobs": 0, "active_jobs": 1, "accepted_jobs": 0, "structural_fallback_jobs": 0, "resumable_jobs": 0, "indeterminate_jobs": 0, "accounting": {"calls": 0, "input_tokens": 0, "output_tokens": 0, "elapsed_ms": 0}, "can_approve": false, "can_start": false, "can_cancel": true, "can_resume": false, "indeterminate_retries": []},
+        "retry_approval": {"retry_approval_identity": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "job_id": "derived:section:prologue", "indeterminate_attempt_id": "attempt:section:1"}
+      },
+      "status": {
+        "contract": "story-map-v2-workflow-http-v1",
+        "command": "status",
+        "preview": {
+          "run_id": "run:fixture", "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "plan_id": "plan:fixture", "authority_identity": "authority:fixture",
+          "jobs": [{"job_id": "mapping:prologue", "scope_id": "scope:prologue", "chunk_id": "chunk:prologue", "critical": true}],
+          "derived_semantic_plan": {"semantic_plan_identity": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "story_chunk_plan_identity": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "authority_identity": "authority:fixture", "corridors": [{"corridor_id": "corridor:prologue", "route_owner": null, "event_slot_upper_bound": 1, "ordinal": 0}], "route_memberships": [], "fan_in": 24, "section_synthesis_calls": 1, "route_reduction_calls": 0, "route_summary_calls": 0, "whole_game_reduction_calls": 0, "final_overview_calls": 1, "rollup_synthesis_calls": 1},
+          "cache_hits": {"cloud_job_ids": [], "loopback_job_ids": []},
+          "policy": {"policy_version": "story-map-v2-phase04-policy-v1", "prompt_version": "mapping-prompt-v1", "schema_version": "story-map-mapper-v2", "cloud": {"provider": "codex-cli", "model": "gpt-5.6-terra", "reasoning": "high", "fast_mode": false, "mode": "cloud", "adapter_version": "mapping-adapter-v1"}, "loopback": {"provider": "loopback-fixture", "model": "qwen-fixture", "reasoning": null, "fast_mode": null, "mode": "loopback", "adapter_version": "loopback-adapter-v1"}, "allow_refusal_fallback": true, "section_synthesis": {"prompt_version": "section-prompt-v1", "schema_version": "section-schema-v1", "provider": "codex-cli", "model": "gpt-5.6-terra", "reasoning": "high", "fast_mode": false, "mode": "cloud", "adapter_version": "section-adapter-v1"}, "rollup_synthesis": {"prompt_version": "rollup-prompt-v1", "schema_version": "rollup-schema-v1", "provider": "codex-cli", "model": "gpt-5.6-terra", "reasoning": "high", "fast_mode": false, "mode": "cloud", "adapter_version": "rollup-adapter-v1"}},
+          "ceilings": {"mapping_calls": 1, "review_calls": 1, "fallback_calls": 1, "section_synthesis_calls": 1, "route_reduction_calls": 0, "route_summary_calls": 0, "whole_game_reduction_calls": 0, "final_overview_calls": 1, "rollup_synthesis_calls": 1, "input_tokens": 12000, "output_tokens": 4000, "elapsed_ms": 120000, "submission_slots": 6, "indeterminate_retry_calls": 1},
+          "privacy": {"cloud_story_content": true, "loopback_story_content": true, "durable_raw_requests": false, "durable_raw_responses": false, "durable_provider_diagnostics": false, "durable_absolute_paths": false}
+        },
+        "approval": {"state": "approved", "approval_identity": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "plan_id": "plan:fixture", "authority_identity": "authority:fixture"},
+        "status": {
+          "run_id": "run:fixture", "preview_identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "approved": true, "cancelled": false,
+          "pending_jobs": 0, "active_jobs": 0, "accepted_jobs": 1, "structural_fallback_jobs": 0, "resumable_jobs": 0, "indeterminate_jobs": 2,
+          "accounting": {"calls": 3, "input_tokens": 2500, "output_tokens": 600, "elapsed_ms": 1500},
+          "can_approve": false, "can_start": false, "can_cancel": true, "can_resume": false,
+          "indeterminate_retries": [
+            {"job_id": "derived:section:prologue", "attempt_id": "attempt:section:1", "call_kind": "section_synthesis", "approval_state": "required", "retry_approval_identity": null, "can_approve_retry": true},
+            {"job_id": "derived:overview:root", "attempt_id": "attempt:overview:1", "call_kind": "rollup_synthesis", "approval_state": "approved", "retry_approval_identity": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "can_approve_retry": false}
+          ]
+        },
+        "retry_approval": null
+      }
+    },
+    "stale_errors": {
+      "stale_workflow_preview": {
+        "contract": "story-map-v2-workflow-http-v1",
+        "error": {
+          "code": "stale_workflow_preview",
+          "message": "The workflow preview has changed.",
+          "sanitized_reason": "authority_changed",
+          "current_run_id": "run:replacement",
+          "current_preview_identity": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      },
+      "stale_workflow_approval": {
+        "contract": "story-map-v2-workflow-http-v1",
+        "error": {
+          "code": "stale_workflow_approval",
+          "message": "The workflow approval is stale.",
+          "sanitized_reason": "preview_replaced",
+          "current_run_id": null,
+          "current_preview_identity": null
+        }
+      }
+    },
+    "non_stale_errors": {
+      "invalid_workflow_request": {"contract": "story-map-v2-workflow-http-v1", "error": {"code": "invalid_workflow_request", "message": "The workflow request is invalid.", "sanitized_reason": "invalid_request"}},
+      "workflow_run_not_found": {"contract": "story-map-v2-workflow-http-v1", "error": {"code": "workflow_run_not_found", "message": "The workflow run is unavailable.", "sanitized_reason": "run_not_found"}},
+      "workflow_command_conflict": {"contract": "story-map-v2-workflow-http-v1", "error": {"code": "workflow_command_conflict", "message": "The workflow command is not available.", "sanitized_reason": "command_not_available"}},
+      "workflow_request_too_large": {"contract": "story-map-v2-workflow-http-v1", "error": {"code": "workflow_request_too_large", "message": "The workflow request is too large.", "sanitized_reason": "request_too_large"}},
+      "workflow_internal_error": {"contract": "story-map-v2-workflow-http-v1", "error": {"code": "workflow_internal_error", "message": "The workflow command could not be completed.", "sanitized_reason": "internal_error"}},
+      "workflow_unavailable": {"contract": "story-map-v2-workflow-http-v1", "error": {"code": "workflow_unavailable", "message": "The workflow service is unavailable.", "sanitized_reason": "service_unavailable"}}
+    }
+  }
+}

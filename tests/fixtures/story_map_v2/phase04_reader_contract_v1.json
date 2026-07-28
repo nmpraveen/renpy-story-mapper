@@ -1,0 +1,199 @@
+{
+  "schema": "story-map-v2-reader-contract-v1",
+  "routes": {
+    "manifest": "/api/v1/story-map-v2/manifest",
+    "status": "/api/v1/story-map-v2/status",
+    "section_page": "/api/v1/story-map-v2/section-page",
+    "branch_page": "/api/v1/story-map-v2/branch-page",
+    "locate": "/api/v1/story-map-v2/locate",
+    "search": "/api/v1/story-map-v2/search",
+    "path_page": "/api/v1/story-map-v2/path-page",
+    "detail_page": "/api/v1/story-map-v2/detail-page",
+    "view_state": "/api/v1/story-map-v2/view-state",
+    "save_view_state": "/api/v1/story-map-v2/view-state/save"
+  },
+  "limits": {
+    "events_per_section_page": 30,
+    "rendered_items_per_page": 240,
+    "serialized_bytes_per_page": 1048576,
+    "search_results_per_page": 50,
+    "live_story_items": 600
+  },
+  "examples": {
+    "requests": {
+      "manifest": {},
+      "status": {},
+      "section_page": {"map_revision": 7, "section_id": "section:prologue", "limit": 30},
+      "branch_page": {"map_revision": 7, "branch_id": "choice:first", "limit": 240},
+      "locate": {"map_revision": 7, "selection_id": "event:route-a"},
+      "search": {"map_revision": 7, "query": "route", "limit": 50},
+      "path_page": {"map_revision": 7, "selection_id": "event:route-a", "limit": 240},
+      "detail_page": {"map_revision": 7, "selection_id": "event:route-a", "limit": 240},
+      "view_state": {"map_revision": 7, "view_key": "route-map"},
+      "save_view_state": {
+        "map_revision": 7,
+        "view_key": "route-map",
+        "state": {
+          "section_id": "section:prologue",
+          "selection_id": "event:route-a",
+          "focus_id": "event:route-a",
+          "viewport": {"scroll_top": 320, "zoom": 1.0},
+          "hide_new": false
+        }
+      }
+    },
+    "manifest": {
+      "schema": "story-map-v2-reader-contract-v1",
+      "map_revision": 7,
+      "generation_id": "generation:complete:7",
+      "freshness": "current",
+      "status": "complete",
+      "overview": {"title": "A Small Story", "summary": "Two routes split and later rejoin."},
+      "counts": {"sections": 2, "events": 4, "choices": 1, "arms": 2, "endings": 1},
+      "sections": [
+        {
+          "id": "section:prologue",
+          "order": 0,
+          "title": "Prologue",
+          "summary": "The first decision opens two routes.",
+          "route_id": null,
+          "status": "complete",
+          "event_count": 3,
+          "is_new": false,
+          "new_facts": []
+        },
+        {
+          "id": "section:ending",
+          "order": 1,
+          "title": "Ending",
+          "summary": "Both routes reach the same ending.",
+          "route_id": null,
+          "status": "complete",
+          "event_count": 1,
+          "is_new": true,
+          "new_facts": [{"kind": "ending", "fact_id": "ending:shared"}]
+        }
+      ],
+      "landmarks": [
+        {"kind": "route", "id": "route:a", "section_id": "section:prologue", "selection_id": "event:route-a", "title": "Route A"},
+        {"kind": "ending", "id": "ending:shared", "section_id": "section:ending", "selection_id": "event:ending", "title": "Shared Ending"}
+      ],
+      "new_facts": {
+        "baseline_generation_id": "generation:complete:6",
+        "facts": [{"kind": "ending", "fact_id": "ending:shared", "section_ids": ["section:ending"]}]
+      }
+    },
+    "status": {
+      "schema": "story-map-v2-reader-contract-v1",
+      "map_revision": 7,
+      "generation_id": "generation:complete:7",
+      "run_id": "run:fixture",
+      "freshness": "current",
+      "state": "complete",
+      "coverage": {"completed_chunks": 2, "total_chunks": 2, "event_fraction": 1.0},
+      "progress": {"completed_jobs": 2, "total_jobs": 2, "failed_jobs": 0, "indeterminate_jobs": 0},
+      "actions": {"can_cancel": false, "can_resume": false, "retry_approval_required": false},
+      "current_complete_generation": "generation:complete:7",
+      "active_build_generation": null
+    },
+    "section_page": {
+      "schema": "story-map-v2-reader-contract-v1",
+      "map_revision": 7,
+      "generation_id": "generation:complete:7",
+      "resource_id": "section:prologue",
+      "items": [
+        {"id": "event:intro", "kind": "event", "order": 0, "title": "Arrival", "summary": "The story begins.", "selection_id": "event:intro", "is_new": false, "new_facts": []},
+        {"id": "choice:first", "kind": "choice", "order": 1, "title": "Choose a route", "summary": "Pick Route A or Route B.", "selection_id": "choice:first", "is_new": false, "new_facts": []},
+        {"id": "event:rejoin", "kind": "rejoin", "order": 2, "title": "Routes Rejoin", "summary": "The alternatives return to common chronology.", "selection_id": "event:rejoin", "is_new": false, "new_facts": []}
+      ],
+      "shells": [
+        {
+          "id": "shell:prologue",
+          "kind": "timeline",
+          "item_ids": ["event:intro", "choice:first", "event:rejoin"],
+          "parent_shell_id": null,
+          "route_id": null,
+          "rejoin_selection_id": "event:rejoin"
+        }
+      ],
+      "rendered_item_count": 3,
+      "next_cursor": null
+    },
+    "branch_page": {
+      "schema": "story-map-v2-reader-contract-v1",
+      "map_revision": 7,
+      "generation_id": "generation:complete:7",
+      "resource_id": "choice:first",
+      "items": [
+        {"id": "arm:a", "kind": "arm", "order": 0, "title": "Take Route A", "selection_id": "arm:a", "condition": null, "effects": ["route_a = true"], "is_new": false, "new_facts": []},
+        {"id": "arm:b", "kind": "arm", "order": 1, "title": "Take Route B", "selection_id": "arm:b", "condition": "courage > 0", "effects": [], "is_new": true, "new_facts": [{"kind": "arm", "fact_id": "arm:b"}]}
+      ],
+      "shells": [
+        {"id": "shell:branch:a", "kind": "branch", "item_ids": ["arm:a"], "parent_shell_id": "shell:prologue", "route_id": "route:a", "rejoin_selection_id": "event:rejoin"},
+        {"id": "shell:branch:b", "kind": "branch", "item_ids": ["arm:b"], "parent_shell_id": "shell:prologue", "route_id": "route:b", "rejoin_selection_id": "event:rejoin"}
+      ],
+      "rendered_item_count": 2,
+      "next_cursor": null
+    },
+    "locate": {
+      "schema": "story-map-v2-reader-contract-v1",
+      "map_revision": 7,
+      "generation_id": "generation:complete:7",
+      "selection_id": "event:route-a",
+      "location": {"section_id": "section:prologue", "page_cursor": null, "shell_id": "shell:branch:a", "item_id": "arm:a"}
+    },
+    "search": {
+      "schema": "story-map-v2-reader-contract-v1",
+      "map_revision": 7,
+      "generation_id": "generation:complete:7",
+      "query": "route",
+      "results": [
+        {"selection_id": "event:route-a", "kind": "event", "title": "Route A", "snippet": "Follow Route A.", "section_id": "section:prologue", "is_loaded": false}
+      ],
+      "next_cursor": null
+    },
+    "path_page": {
+      "schema": "story-map-v2-reader-contract-v1",
+      "map_revision": 7,
+      "generation_id": "generation:complete:7",
+      "resource_id": "event:route-a",
+      "items": [
+        {"id": "path-step:intro", "kind": "path_step", "order": 0, "title": "Arrival", "selection_id": "event:intro"},
+        {"id": "path-step:arm-a", "kind": "path_step", "order": 1, "title": "Take Route A", "selection_id": "arm:a"}
+      ],
+      "shells": [{"id": "shell:path", "kind": "path", "item_ids": ["path-step:intro", "path-step:arm-a"], "parent_shell_id": null, "route_id": "route:a", "rejoin_selection_id": null}],
+      "rendered_item_count": 2,
+      "next_cursor": null
+    },
+    "detail_page": {
+      "schema": "story-map-v2-reader-contract-v1",
+      "map_revision": 7,
+      "generation_id": "generation:complete:7",
+      "resource_id": "event:route-a",
+      "items": [
+        {"id": "detail:summary", "kind": "summary", "title": "Route A", "text": "The protagonist follows Route A."},
+        {"id": "detail:evidence", "kind": "evidence", "title": "Evidence", "relative_path": "game/story.rpy", "start_line": 12, "end_line": 14, "line_basis": "physical"}
+      ],
+      "shells": [{"id": "shell:detail", "kind": "detail", "item_ids": ["detail:summary", "detail:evidence"], "parent_shell_id": null, "route_id": "route:a", "rejoin_selection_id": null}],
+      "rendered_item_count": 2,
+      "next_cursor": null
+    },
+    "view_state": {
+      "schema": "story-map-v2-reader-contract-v1",
+      "map_revision": 7,
+      "generation_id": "generation:complete:7",
+      "view_key": "route-map",
+      "state": {
+        "section_id": "section:prologue",
+        "selection_id": "event:route-a",
+        "focus_id": "event:route-a",
+        "viewport": {"scroll_top": 320, "zoom": 1.0},
+        "hide_new": false
+      }
+    },
+    "stale_error": {
+      "error": {"code": "stale_map_revision", "message": "The requested map revision is stale."},
+      "map_revision": 8
+    }
+  }
+}

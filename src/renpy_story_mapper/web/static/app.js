@@ -1,11 +1,12 @@
 import { DEFAULT_NARRATIVE_BATCH_LIMITS, DEFAULT_NARRATIVE_LIMITS, LocalApi, stableRouteJson } from "./api.js";
-import { ROUTE_EDGE_PAGE_SIZE, ROUTE_PAGE_SIZE } from "./contract.js";
+import { ROUTE_EDGE_PAGE_SIZE, ROUTE_PAGE_SIZE, STORY_WORKFLOW_CONTRACT } from "./contract.js";
 import { RouteGraph } from "./graph.js";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const api = new LocalApi();
 const CURSOR_HISTORY_LIMIT = 12;
+const STORY_WORKFLOW_STORAGE_KEY = "rsm.story-map-v2.workflow.v2";
 
 const state = {
   project: null, page: null, scenePage: null, aiPage: null, technicalPage: null, inspectionPage: null, canonicalPage: null, sceneReason: null, aiReason: null, mode: "scenes",
@@ -17,6 +18,13 @@ const state = {
   organization: null, prepared: null, assemblyId: null, windowResolution: null,
   route: { sourceItem: null, sourceId: null, activeSourceId: null, destination: null, requestIdentity: null, result: null, phase: "idle", cached: false, stale: false, error: null, runToken: 0 },
   storyPage: null, storyItems: new Map(), storySelectionId: null, storySelectionItem: null, storySelectionControl: null, storySelectionScrollY: 0, storySelectionWindowY: 0, storySelectionViewportTop: 0, storyPath: null, storyPathToken: 0, storyDetailToken: 0,
+  storyReader: {
+    contract: null, manifest: null, status: null, mapRevision: null, generationId: null,
+    currentSectionId: null, currentPage: null, sectionCache: new Map(), branchCache: new Map(),
+    requestToken: 0, locateToken: 0, searchToken: 0, statusToken: 0, viewToken: 0, saveTimer: null,
+    hideNew: false, restored: false, prefetchedSectionId: null,
+  },
+  storyWorkflow: { response: null, pollToken: 0, busy: false },
   settings: { theme: "system", include_technical: true, include_unresolved: true },
 };
 
@@ -618,6 +626,7 @@ function showPrimary(name) {
   $("#welcomeView").hidden = name !== "welcome";
   $("#progressView").hidden = name !== "progress";
   $("#workspaceView").hidden = name !== "workspace";
+  $("#storyPrepareAction").hidden = name !== "workspace";
   $("#projectIdentity").hidden = name === "welcome";
   $("#refreshProject").hidden = name !== "workspace";
 }
@@ -658,6 +667,7 @@ async function choose(kind) {
 
 async function openSelection(selection, notify = false) {
   try {
+    state.storyWorkflow.pollToken += 1; state.storyWorkflow.response = null; state.storyWorkflow.busy = false;
     const opened = await api.open(selection.selection_id || selection.id);
     state.project = opened.project || { name: selection.display_name || "Story", organization: "Technical Structure" };
     if (state.project.name === "Opening") state.project.name = selection.display_name || "Story";
@@ -833,6 +843,12 @@ async function resetRoutePaging() {
 
 function showStorySurface(visible) {
   if (!visible) invalidateStoryDetail();
+  const prepare = $("#storyPrepareAction");
+  if (visible) $(".story-hero-meta").insertBefore(prepare, $("#openCompatibilityMap"));
+  else if (api.storyWorkflowRoutes) {
+    $(".masthead-actions").insertBefore(prepare, $("#refreshProject"));
+    prepare.textContent = "Generate"; prepare.disabled = state.storyWorkflow.busy;
+  }
   $("#storyBrowser").hidden = !visible;
   for (const selector of [".commandbar", "#fallbackNotice", "#analysisFailureBanner", "#partialAnalysisPanel", "#mapLayout", "#organizationPanel"]) {
     const node = $(selector);
@@ -972,6 +988,587 @@ function renderStoryEvent(event, ordinal) {
   return article;
 }
 
+function storyReaderContractFromBootstrap(bootstrap) {
+  const candidates = [
+    bootstrap?.story_reader,
+    bootstrap?.story_map_v2_reader,
+    ...Object.values(bootstrap?.contracts || {}),
+    ...Object.values(bootstrap?.routes || {}),
+  ];
+  return candidates.find((candidate) => candidate?.schema === "story-map-v2-reader-contract-v2" && candidate.routes && candidate.limits) || null;
+}
+
+function storyReaderActive() {
+  return Boolean(state.storyReader.manifest && api.storyReaderRoutes);
+}
+
+function appendStoryReaderNew(host, item) {
+  if (!item?.is_new || state.storyReader.hideNew) return;
+  const mark = element("span", "story-new", "NEW");
+  const facts = (item.new_facts || []).map((fact) => `${fact.kind}: ${fact.fact_id}`);
+  if (facts.length) mark.title = facts.join("\n");
+  host.append(mark);
+}
+
+function readerItemControl(item, ordinal) {
+  const control = element("button", "story-event-select"); control.type = "button";
+  control.dataset.storySelectionId = item.selection_id;
+  control.setAttribute("aria-selected", "false");
+  const title = element("strong", "", storyItemTitle(item)); appendStoryReaderNew(title, item);
+  control.append(title, element("span", "", item.summary || item.text || ""));
+  control.setAttribute("aria-label", `${ordinal ? `Story moment ${ordinal}: ` : ""}${storyItemTitle(item)}`);
+  control.addEventListener("click", () => selectStoryReaderItem(item, control));
+  return control;
+}
+
+function renderStoryReaderItem(item, ordinal) {
+  const article = element("li", `story-event story-reader-item story-kind-${item.kind}`);
+  article.dataset.readerItemId = item.id;
+  if (item.selection_id) article.dataset.storySelectionId = item.selection_id;
+  const number = element("span", "story-event-number", String(ordinal).padStart(2, "0"));
+  number.setAttribute("aria-label", `Story moment ${ordinal}`); article.append(number);
+  const head = element("div", "story-event-head");
+  if (item.selection_id) {
+    state.storyItems.set(item.selection_id, item);
+    const control = readerItemControl(item, ordinal);
+    const detail = element("button", "story-detail-button", "Detail / Evidence"); detail.type = "button";
+    detail.addEventListener("click", async () => { if (state.storySelectionId !== item.selection_id) activateStoryItem(item, control); await openStoryReaderDetail(item.selection_id); });
+    head.append(control, detail);
+  } else {
+    const copy = element("div", "story-event-select");
+    const title = element("strong", "", storyItemTitle(item)); appendStoryReaderNew(title, item);
+    copy.append(title, element("span", "", item.summary || item.text || "")); head.append(copy);
+  }
+  article.append(head); appendStoryBadges(article, item);
+  if (item.kind === "choice") {
+    const button = element("button", "quiet-button story-branch-action", "View choices"); button.type = "button";
+    button.setAttribute("aria-expanded", "false");
+    const branchHost = element("div", "story-branch-page"); branchHost.dataset.branchFor = item.id; branchHost.hidden = true;
+    button.addEventListener("click", () => {
+      if (button.getAttribute("aria-expanded") === "true") { branchHost.hidden = true; button.setAttribute("aria-expanded", "false"); button.textContent = "View choices"; return; }
+      loadStoryReaderBranch(item.id, branchHost, null, false, button);
+    });
+    article.append(button, branchHost);
+  }
+  return article;
+}
+
+function storyReaderShell(page, shell, ordinalStart) {
+  const byId = new Map(page.items.map((item) => [item.id, item]));
+  const host = element("section", "story-shell"); host.dataset.shellId = shell.id; host.dataset.shellKind = shell.kind;
+  if (shell.route_id) host.append(element("p", "story-shell-route", shell.route_id));
+  const list = element("ol", "story-events"); let ordinal = ordinalStart;
+  for (const id of shell.item_ids) { const item = byId.get(id); if (item) list.append(renderStoryReaderItem(item, ++ordinal)); }
+  host.append(list);
+  if (shell.rejoin_selection_id) {
+    const rejoin = element("div", "story-rejoin");
+    const button = element("button", "quiet-button", "Rejoin"); button.type = "button";
+    button.addEventListener("click", () => locateStoryReaderSelection(shell.rejoin_selection_id));
+    rejoin.append(button); host.append(rejoin);
+  }
+  return { host, ordinal };
+}
+
+function combinedReaderPage(left, right) {
+  if (!left) return right;
+  return {
+    ...right,
+    items: [...left.items, ...right.items],
+    shells: [...left.shells, ...right.shells],
+    rendered_item_count: left.rendered_item_count + right.rendered_item_count,
+  };
+}
+
+function storyProjectionCounts() {
+  return {
+    section: $$("#storySections [data-reader-item-id]").length,
+    search: Number($("#storySearchResults").dataset.storyRecords || 0),
+    path: Number($("#storyPathPanel").dataset.storyRecords || 0),
+    detail: Number($("#detailView").dataset.storyRecords || 0),
+  };
+}
+
+function reserveStoryProjection(kind, incoming) {
+  const counts = storyProjectionCounts(); const total = Object.values(counts).reduce((sum, value) => sum + value, 0) - counts[kind] + incoming;
+  if (total > state.storyReader.contract.limits.live_story_items) throw new RangeError("This view would exceed the live story-record limit");
+  return total;
+}
+
+function recordStoryProjection(kind, count) {
+  const hosts = { search: $("#storySearchResults"), path: $("#storyPathPanel"), detail: $("#detailView") };
+  if (hosts[kind]) hosts[kind].dataset.storyRecords = String(count);
+  const total = Object.values(storyProjectionCounts()).reduce((sum, value) => sum + value, 0);
+  $("#storyBrowser").dataset.liveStoryItems = String(total);
+}
+
+function renderStoryReaderSection(page, section) {
+  reserveStoryProjection("section", page.rendered_item_count);
+  state.storyItems = new Map();
+  const sections = $("#storySections"); sections.replaceChildren();
+  const card = element("section", "story-section"); card.dataset.status = "ready"; card.dataset.freshness = state.storyReader.manifest.freshness;
+  const header = element("header", "story-section-header");
+  const title = element("h2", "", section.title); appendStoryReaderNew(title, section);
+  header.append(title, element("p", "story-section-summary", section.summary)); card.append(header);
+  let ordinal = 0; const rendered = new Set();
+  for (const shell of page.shells) {
+    const result = storyReaderShell(page, shell, ordinal); ordinal = result.ordinal;
+    shell.item_ids.forEach((id) => rendered.add(id)); card.append(result.host);
+  }
+  const missing = page.items.filter((item) => !rendered.has(item.id));
+  if (missing.length) card.append(element("p", "story-empty", `${missing.length} item${missing.length === 1 ? "" : "s"} withheld because no server-authored shell was supplied.`));
+  sections.append(card);
+  const live = sections.querySelectorAll("[data-reader-item-id]").length;
+  recordStoryProjection("section", live);
+  $("#storyLoadMore").hidden = !page.next_cursor || page.rendered_item_count >= state.storyReader.contract.limits.live_story_items;
+  $("#storyLoadMore").disabled = false;
+  $("#storyLoadMore").dataset.cursor = page.next_cursor || "";
+  for (const button of $$("#storySectionIndex button")) button.setAttribute("aria-current", String(button.dataset.sectionId === section.id));
+}
+
+function storyReaderCacheKey(kind, resourceId, cursor) { return `${kind}:${resourceId}:${cursor || "first"}`; }
+
+async function storyReaderPage(kind, resourceId, cursor = null) {
+  const key = storyReaderCacheKey(kind, resourceId, cursor);
+  const cache = kind === "section_page" ? state.storyReader.sectionCache : state.storyReader.branchCache;
+  if (cache.has(key)) return cache.get(key);
+  const options = { cursor };
+  if (kind === "section_page") options.limit = state.storyReader.contract.limits.events_per_section_page;
+  else options.limit = state.storyReader.contract.limits.rendered_items_per_page;
+  const page = await api.storyReaderPage(kind, state.storyReader.mapRevision, resourceId, options);
+  cache.set(key, page); return page;
+}
+
+async function prefetchStoryReaderNeighbor(sectionId) {
+  const sections = state.storyReader.manifest?.sections || [];
+  const index = sections.findIndex((section) => section.id === sectionId);
+  const neighbor = sections[index + 1];
+  if (!neighbor || state.storyReader.prefetchedSectionId === neighbor.id) return;
+  state.storyReader.prefetchedSectionId = neighbor.id;
+  try { await storyReaderPage("section_page", neighbor.id, null); } catch (error) { if (error.code === "stale_map_revision") refreshStoryReaderForRevision(error.mapRevision); }
+}
+
+async function loadStoryReaderSection(sectionId, { cursor = null, append = false, focusId = null, locateToken = null } = {}) {
+  if (locateToken === null) state.storyReader.locateToken += 1;
+  const section = state.storyReader.manifest?.sections.find((candidate) => candidate.id === sectionId);
+  if (!section) throw new Error("The requested story section is unavailable");
+  const token = ++state.storyReader.requestToken;
+  if (!append) {
+    state.storyReader.currentSectionId = sectionId; state.storyReader.currentPage = null;
+    $("#storySections").replaceChildren();
+    const loading = element("section", "story-section"); loading.dataset.status = "loading"; loading.append(element("p", "eyebrow", "Loading section"), element("h2", "", section.title)); $("#storySections").append(loading);
+  }
+  try {
+    const page = await storyReaderPage("section_page", sectionId, cursor);
+    if (token !== state.storyReader.requestToken || state.storyReader.currentSectionId !== sectionId || (locateToken !== null && locateToken !== state.storyReader.locateToken)) return;
+    const combined = append ? combinedReaderPage(state.storyReader.currentPage, page) : page;
+    if (combined.rendered_item_count > state.storyReader.contract.limits.live_story_items) throw new RangeError("Continue would exceed the live story-item limit");
+    state.storyReader.currentPage = combined; renderStoryReaderSection(combined, section); scheduleStoryReaderViewSave();
+    if (focusId) focusStoryReaderItem(focusId);
+    prefetchStoryReaderNeighbor(sectionId);
+  } catch (error) { if (await handleStoryReaderError(error)) return; if (token === state.storyReader.requestToken) $("#storySections").replaceChildren(element("p", "story-empty", error.message)); }
+}
+
+function renderStoryReaderBranchPage(page, host) {
+  host.replaceChildren(); let ordinal = 0;
+  for (const shell of page.shells) { const result = storyReaderShell(page, shell, ordinal); ordinal = result.ordinal; host.append(result.host); }
+  if (page.next_cursor) {
+    const more = element("button", "quiet-button story-branch-action", "More choices"); more.type = "button";
+    more.addEventListener("click", () => loadStoryReaderBranch(page.resource_id, host, page.next_cursor, true, more)); host.append(more);
+  }
+  host.hidden = false;
+  if ($$("#storySections [data-reader-item-id]").length > state.storyReader.contract.limits.live_story_items) throw new RangeError("Branch hydration exceeds the live story-item limit");
+}
+
+async function loadStoryReaderBranch(branchId, host, cursor = null, append = false, button = null) {
+  const label = button?.textContent; const restoreFocus = button && document.activeElement === button;
+  if (button) { button.disabled = true; button.textContent = "Loading…"; }
+  const token = state.storyReader.requestToken;
+  try {
+    const page = await storyReaderPage("branch_page", branchId, cursor);
+    if (token !== state.storyReader.requestToken || !host.isConnected) return;
+    const currentSection = $$("#storySections [data-reader-item-id]").length;
+    const replacedLive = append ? 0 : host.querySelectorAll("[data-reader-item-id]").length;
+    reserveStoryProjection("section", currentSection - replacedLive + page.rendered_item_count);
+    if (append) {
+      const wrapper = element("div", "story-branch-page"); renderStoryReaderBranchPage(page, wrapper);
+      host.querySelector(".story-branch-action:last-child")?.remove(); while (wrapper.firstChild) host.append(wrapper.firstChild);
+    } else {
+      for (const current of $$(".story-branch-page:not([hidden])")) if (current !== host) { const trigger = current.previousElementSibling; current.replaceChildren(); current.hidden = true; if (trigger?.classList.contains("story-branch-action")) { trigger.hidden = false; trigger.disabled = false; trigger.textContent = "View choices"; trigger.setAttribute("aria-expanded", "false"); } }
+      renderStoryReaderBranchPage(page, host);
+    }
+    recordStoryProjection("section", $$("#storySections [data-reader-item-id]").length);
+    if (button) {
+      button.disabled = false;
+      if (append) { button.hidden = true; if (restoreFocus) host.querySelector("[data-story-selection-id]")?.focus(); }
+      else { button.hidden = false; button.textContent = "Hide choices"; button.setAttribute("aria-expanded", "true"); if (restoreFocus) button.focus(); }
+    }
+  } catch (error) { if (!(await handleStoryReaderError(error))) toast(error.message); if (button) { button.disabled = false; button.textContent = label; if (restoreFocus) button.focus(); } }
+}
+
+function renderStoryReaderManifest(manifest) {
+  const previousRevision = state.storyReader.mapRevision;
+  state.storyReader.manifest = manifest; state.storyReader.mapRevision = manifest.map_revision; state.storyReader.generationId = manifest.generation_id;
+  $("#storyBrowser").dataset.mapRevision = String(manifest.map_revision); $("#storyBrowser").dataset.generationId = manifest.generation_id;
+  state.storyPage = { reader: true, map_revision: manifest.map_revision };
+  if (previousRevision !== manifest.map_revision) { state.storyReader.sectionCache = new Map(); state.storyReader.branchCache = new Map(); state.storyReader.currentPage = null; }
+  $("#storyTitle").textContent = manifest.overview.title; $("#storyOverview").textContent = manifest.overview.summary;
+  $("#storyMapStatus").textContent = manifest.freshness === "stale" ? "Stale map" : manifest.freshness === "building" ? "Building" : manifest.freshness === "phase03_compatible" ? "Compatible map" : "Current map";
+  $("#storyPrepareAction").textContent = manifest.freshness === "phase03_compatible" || !manifest.generation_id ? "Generate" : "Update";
+  $("#storyPrepareAction").disabled = !api.storyWorkflowRoutes || state.storyWorkflow.busy;
+  const index = $("#storySectionIndex"); index.replaceChildren();
+  for (const section of [...manifest.sections].sort((a, b) => a.order - b.order)) {
+    const button = element("button", "", section.title); button.type = "button"; button.dataset.sectionId = section.id;
+    if (section.is_new && !state.storyReader.hideNew) appendStoryReaderNew(button, section);
+    button.addEventListener("click", () => loadStoryReaderSection(section.id)); index.append(button);
+  }
+  index.hidden = !manifest.sections.length;
+  $("#storyAnalysisNotes").hidden = true; $("#storyPathPanel").hidden = true; clearStoryPathWitness();
+  $("#storyBrowser").classList.toggle("hide-new", state.storyReader.hideNew); showStorySurface(true);
+}
+
+function renderStoryReaderStatus(status) {
+  state.storyReader.status = status;
+  if (state.storyWorkflow.response) { renderStoryWorkflow(state.storyWorkflow.response); return; }
+  const progress = status.progress; const percent = progress.total_jobs ? Math.round((progress.completed_jobs / progress.total_jobs) * 100) : Math.round(status.coverage.event_fraction * 100);
+  $("#storyRunDetails").hidden = !(api.storyWorkflowRoutes && status.run_id && progress.total_jobs);
+  $("#storyRunState").textContent = String(status.state).replaceAll("_", " ");
+  $("#storyRunProgress").textContent = `${progress.completed_jobs}/${progress.total_jobs} jobs · ${progress.failed_jobs} failed · ${progress.indeterminate_jobs} indeterminate`;
+  $("#storyRunProgressBar").style.width = `${Math.max(0, Math.min(100, percent))}%`;
+  $(".story-run-track").setAttribute("aria-valuenow", String(percent));
+  if (!state.storyWorkflow.response) {
+    $("#storyCancelRun").hidden = true; $("#storyResumeRun").hidden = true; $("#storyRetryRun").hidden = true;
+  }
+}
+
+function storyWorkflowTotal(status) {
+  return status.pending_jobs + status.active_jobs + status.accepted_jobs + status.structural_fallback_jobs + status.resumable_jobs + status.indeterminate_jobs;
+}
+
+function storyWorkflowMaximumCalls(preview) {
+  const ceilings = preview.ceilings;
+  return ceilings.mapping_calls + ceilings.review_calls + ceilings.fallback_calls + ceilings.section_synthesis_calls + ceilings.rollup_synthesis_calls + ceilings.indeterminate_retry_calls;
+}
+
+function clearStoredStoryWorkflow() {
+  try { localStorage.removeItem(STORY_WORKFLOW_STORAGE_KEY); } catch (_error) { /* Storage is optional. */ }
+}
+
+function storedStoryWorkflow() {
+  try {
+    const value = JSON.parse(localStorage.getItem(STORY_WORKFLOW_STORAGE_KEY) || "null");
+    const keys = value && typeof value === "object" && !Array.isArray(value) ? Object.keys(value) : [];
+    if (keys.length !== 3 || !["contract", "run_id", "preview_identity"].every((key) => keys.includes(key))) throw new TypeError("Stored story workflow binding is invalid");
+    if (value.contract !== STORY_WORKFLOW_CONTRACT || typeof value.run_id !== "string" || !value.run_id || value.run_id.length > 1024 || typeof value.preview_identity !== "string" || !value.preview_identity || value.preview_identity.length > 1024) throw new TypeError("Stored story workflow binding is invalid");
+    return value;
+  } catch (_error) { clearStoredStoryWorkflow(); return null; }
+}
+
+function persistStoryWorkflow(response) {
+  const status = response.status;
+  const unfinished = status.pending_jobs + status.active_jobs + status.resumable_jobs + status.indeterminate_jobs;
+  if (status.cancelled || unfinished === 0) { clearStoredStoryWorkflow(); return; }
+  const binding = { contract: STORY_WORKFLOW_CONTRACT, run_id: response.preview.run_id, preview_identity: response.preview.preview_identity };
+  try { localStorage.setItem(STORY_WORKFLOW_STORAGE_KEY, JSON.stringify(binding)); } catch (_error) { /* The current page still works without persistence. */ }
+}
+
+function renderStoryWorkflowDetails(response) {
+  const details = $("#storyRunDetails"); const body = $("#storyRunRows");
+  const jobs = response.preview.jobs || []; const status = response.status;
+  body.replaceChildren(); details.hidden = !jobs.length;
+  if (!jobs.length) return;
+  const completed = Math.min(jobs.length, status.accepted_jobs + status.structural_fallback_jobs);
+  const activeEnd = Math.min(jobs.length, completed + status.active_jobs);
+  const allAccepted = completed > 0 && status.accepted_jobs === completed;
+  const allStructural = completed > 0 && status.structural_fallback_jobs === completed;
+  const cacheHits = new Set([...(response.preview.cache_hits?.cloud_job_ids || []), ...(response.preview.cache_hits?.loopback_job_ids || [])]);
+  const scopes = new Map(); const parts = new Map();
+  for (const [index, job] of jobs.entries()) {
+    if (!scopes.has(job.scope_id)) scopes.set(job.scope_id, scopes.size + 1);
+    const part = (parts.get(job.scope_id) || 0) + 1; parts.set(job.scope_id, part);
+    let ai = "Waiting"; let summary = "Pending"; let comment = "Queued for the local model.";
+    if (index < completed) {
+      if (allAccepted) {
+        ai = cacheHits.has(job.job_id) ? "Cached" : "Passed"; summary = "Added";
+        comment = cacheHits.has(job.job_id) ? "Accepted summary reused." : "AI summary accepted.";
+      } else if (allStructural) {
+        ai = "Rejected"; summary = "Placeholder"; comment = "See the private local transcript for the validator comment.";
+      } else {
+        ai = "Finished"; summary = "See totals"; comment = `${status.accepted_jobs} accepted, ${status.structural_fallback_jobs} placeholders; exact results are in the transcript.`;
+      }
+    } else if (index < activeEnd) {
+      ai = "Running"; summary = "Pending"; comment = "Waiting for the local model response.";
+    }
+    const row = element("tr"); row.dataset.workflowJobId = job.job_id;
+    row.append(
+      element("td", "", `Query ${index + 1}: story section ${scopes.get(job.scope_id)}, part ${part}`),
+      element("td", "", ai), element("td", "", summary), element("td", "", comment),
+    );
+    body.append(row);
+  }
+}
+
+function renderStoryWorkflow(response) {
+  state.storyWorkflow.response = response;
+  persistStoryWorkflow(response);
+  const status = response.status; const total = storyWorkflowTotal(status);
+  const completed = Math.min(total, status.accepted_jobs + status.structural_fallback_jobs);
+  const percent = total ? Math.round((completed / total) * 100) : 100;
+  $("#storyRunState").textContent = status.cancelled ? "Cancelled" : status.active_jobs ? "Generating" : status.resumable_jobs ? "Paused" : completed >= total ? "Complete" : status.approved ? "Waiting" : "Ready";
+  $("#storyRunProgress").textContent = `${completed} of ${total} jobs completed`;
+  $("#storyRunProgressBar").style.width = `${percent}%`;
+  $(".story-run-track").setAttribute("aria-valuenow", String(percent));
+  $("#storyCancelRun").hidden = !status.can_cancel;
+  $("#storyResumeRun").hidden = !status.can_resume;
+  $("#storyRetryRun").hidden = true;
+  $("#storyPrepareAction").disabled = !api.storyWorkflowRoutes || state.storyWorkflow.busy;
+  renderStoryWorkflowDetails(response);
+}
+
+async function restoreStoryWorkflow() {
+  if (!api.storyWorkflowRoutes) return false;
+  const binding = storedStoryWorkflow(); if (!binding) return false;
+  try {
+    const response = await api.storyWorkflowStatus(binding);
+    if (response.preview.run_id !== binding.run_id || response.preview.preview_identity !== binding.preview_identity) throw new TypeError("Stored story workflow binding is stale");
+    renderStoryWorkflow(response); await refreshReaderIfPublished();
+    if (response.status.pending_jobs || response.status.active_jobs) pollStoryWorkflow();
+    return true;
+  } catch (error) {
+    if (error instanceof TypeError || ["invalid_workflow_request", "workflow_run_not_found", "stale_workflow_preview", "stale_workflow_approval"].includes(error?.code)) clearStoredStoryWorkflow();
+    return false;
+  }
+}
+
+async function loadPublishedStoryWorkflowDetails() {
+  const details = $("#storyRunDetails"); const runId = state.storyReader.status?.run_id;
+  if (!details.open || state.storyWorkflow.response || state.storyWorkflow.busy || !api.storyWorkflowRoutes || typeof runId !== "string" || !runId) return;
+  state.storyWorkflow.busy = true;
+  try {
+    const response = await api.storyWorkflowStatus({ run_id: runId });
+    if (response.preview.run_id !== runId) throw new TypeError("Published story workflow binding is stale");
+    renderStoryWorkflow(response);
+  } catch (error) { details.open = false; toast(error.message); }
+  finally { state.storyWorkflow.busy = false; }
+}
+
+function storyWorkflowFacts(preview) {
+  const primary = preview.policy.cloud ?? preview.policy.loopback; const cacheHits = preview.cache_hits.cloud_job_ids.length + preview.cache_hits.loopback_job_ids.length;
+  const privacy = preview.privacy; const chunks = preview.jobs.length;
+  const disclosure = [
+    privacy.cloud_story_content ? "Private story text may be sent to the cloud provider." : "No private story text is sent to the cloud provider.",
+    privacy.loopback_story_content ? "Private story text may be sent to the configured local provider." : "No private story text is sent to a local provider.",
+  ].join(" ");
+  return [
+    ["Provider", primary.provider], ["Model", primary.model], ["Reasoning", primary.reasoning ?? "Not specified"], ["Fast mode", primary.fast_mode === null ? "Not specified" : `${primary.fast_mode} (${primary.fast_mode ? "on" : "off"})`],
+    ["Private content", disclosure], ["Work", `${chunks} ${chunks === 1 ? "chunk" : "chunks"} · ${chunks} ${chunks === 1 ? "job" : "jobs"}`],
+    ["Maximum calls", String(storyWorkflowMaximumCalls(preview))], ["Cache hits", String(cacheHits)],
+  ];
+}
+
+function showStoryWorkflowApproval(response) {
+  renderStoryWorkflow(response); const facts = $("#storyApprovalFacts"); facts.replaceChildren();
+  for (const [label, value] of storyWorkflowFacts(response.preview)) facts.append(element("dt", "", label), element("dd", "", value));
+  $("#storyApprovalState").textContent = "Starting requires explicit approval for this preview.";
+  $("#approveStoryGeneration").disabled = !response.status.can_start;
+  $("#storyApprovalDialog").showModal();
+}
+
+async function prepareStoryWorkflow() {
+  if (!api.storyWorkflowRoutes || state.storyWorkflow.busy) return;
+  state.storyWorkflow.busy = true; $("#storyPrepareAction").disabled = true;
+  try { showStoryWorkflowApproval(await api.prepareStoryWorkflow()); }
+  catch (error) { toast(error.message); }
+  finally { state.storyWorkflow.busy = false; $("#storyPrepareAction").disabled = !api.storyWorkflowRoutes; }
+}
+
+async function refreshReaderIfPublished() {
+  if (!api.storyReaderRoutes || !state.storyReader.manifest) return;
+  const status = await api.storyReaderStatus();
+  if (status.map_revision !== state.storyReader.mapRevision || status.current_complete_generation !== state.storyReader.generationId) await refreshStoryReaderForRevision();
+}
+
+async function pollStoryWorkflow() {
+  const initial = state.storyWorkflow.response; if (!initial) return;
+  const token = ++state.storyWorkflow.pollToken;
+  const poll = async () => {
+    try {
+      const response = await api.storyWorkflowStatus(state.storyWorkflow.response.preview);
+      if (token !== state.storyWorkflow.pollToken) return;
+      renderStoryWorkflow(response); await refreshReaderIfPublished();
+      if (response.status.pending_jobs || response.status.active_jobs) setTimeout(poll, 900);
+    } catch (error) { if (token === state.storyWorkflow.pollToken) $("#storyRunProgress").textContent = error.message; }
+  };
+  await poll();
+}
+
+async function runStoryWorkflow(command) {
+  const binding = state.storyWorkflow.response?.preview; if (!binding || state.storyWorkflow.busy) return;
+  state.storyWorkflow.busy = true;
+  try {
+    const response = await (command === "start" ? api.startStoryWorkflow(binding) : command === "cancel" ? api.cancelStoryWorkflow(binding) : api.resumeStoryWorkflow(binding));
+    renderStoryWorkflow(response); $("#storyApprovalDialog").close(); await refreshReaderIfPublished();
+    if (command !== "cancel") pollStoryWorkflow();
+  } catch (error) { toast(error.message); }
+  finally { state.storyWorkflow.busy = false; $("#storyPrepareAction").disabled = !api.storyWorkflowRoutes; }
+}
+
+async function pollStoryReaderStatus() {
+  const token = ++state.storyReader.statusToken;
+  const poll = async () => {
+    try {
+      const status = await api.storyReaderStatus(); if (token !== state.storyReader.statusToken) return;
+      if (status.map_revision !== state.storyReader.mapRevision) { await refreshStoryReaderForRevision(status.map_revision); return; }
+      renderStoryReaderStatus(status);
+      if (status.active_build_generation || ["running", "starting", "cancelling", "queued", "building"].includes(status.state)) setTimeout(poll, 900);
+    } catch (error) { if (!(await handleStoryReaderError(error)) && token === state.storyReader.statusToken) $("#storyRunProgress").textContent = error.message; }
+  };
+  await poll();
+}
+
+async function refreshStoryReaderForRevision() {
+  state.storyReader.requestToken += 1; state.storyReader.locateToken += 1; state.storyReader.searchToken += 1; state.storyPathToken += 1; invalidateStoryDetail();
+  const manifest = await api.storyReaderManifest(); renderStoryReaderManifest(manifest);
+  const first = manifest.sections[0]; if (first) await loadStoryReaderSection(first.id);
+  toast("The story map changed. The current revision is shown."); pollStoryReaderStatus();
+}
+
+async function handleStoryReaderError(error) {
+  if (error?.code !== "stale_map_revision") return false;
+  try { await refreshStoryReaderForRevision(error.mapRevision); } catch (refreshError) { toast(refreshError.message); }
+  return true;
+}
+
+function focusStoryReaderItem(itemId) {
+  const node = $(`[data-reader-item-id="${CSS.escape(itemId)}"]`); const control = node?.querySelector("[data-story-selection-id]");
+  if (!control) return false;
+  control.scrollIntoView({ block: "center", inline: "nearest" }); control.focus({ preventScroll: true }); return true;
+}
+
+async function locateStoryReaderSelection(selectionId, { activate = true } = {}) {
+  const token = ++state.storyReader.locateToken;
+  try {
+    const located = await api.storyReaderLocate(state.storyReader.mapRevision, selectionId); if (token !== state.storyReader.locateToken) return;
+    const location = located.location;
+    await loadStoryReaderSection(location.section_id, { cursor: location.branch_id === null ? location.page_cursor : null, locateToken: token });
+    if (token !== state.storyReader.locateToken) return;
+    if (location.branch_id !== null) {
+      const host = $(`[data-branch-for="${CSS.escape(location.branch_id)}"]`);
+      if (!host) throw new Error("The server-located branch parent is not present in its section page");
+      await loadStoryReaderBranch(location.branch_id, host, location.page_cursor, false, null);
+    }
+    if (token !== state.storyReader.locateToken) return;
+    if (!focusStoryReaderItem(location.item_id)) throw new Error("The located story item is not available in the returned page");
+    const control = $(`[data-reader-item-id="${CSS.escape(location.item_id)}"] [data-story-selection-id]`);
+    const item = state.storyItems.get(selectionId); if (activate && control && item) activateStoryItem(item, control);
+  } catch (error) { if (!(await handleStoryReaderError(error))) toast(error.message); }
+}
+
+async function searchStoryReader(query, { cursor = null, append = false } = {}) {
+  const token = ++state.storyReader.searchToken; const host = $("#storySearchResults");
+  if (!query) { host.hidden = true; host.replaceChildren(); recordStoryProjection("search", 0); return; }
+  try {
+    const response = await api.storyReaderSearch(state.storyReader.mapRevision, query, { cursor, limit: state.storyReader.contract.limits.search_results_per_page });
+    if (token !== state.storyReader.searchToken || $("#storySearchInput").value !== query) return;
+    const currentResults = append ? host.querySelectorAll(".story-search-result").length : 0;
+    reserveStoryProjection("search", currentResults + response.results.length);
+    if (!append) host.replaceChildren(); else host.querySelector(".story-search-more")?.remove();
+    for (const result of response.results) {
+      const button = element("button", "story-search-result"); button.type = "button";
+      button.append(element("strong", "", result.title), element("span", "", result.snippet));
+      button.addEventListener("click", () => { host.hidden = true; host.replaceChildren(); recordStoryProjection("search", 0); locateStoryReaderSelection(result.selection_id); }); host.append(button);
+    }
+    if (response.next_cursor) {
+      const more = element("button", "quiet-button story-search-more", "More results"); more.type = "button";
+      more.addEventListener("click", () => { more.disabled = true; searchStoryReader(query, { cursor: response.next_cursor, append: true }); }); host.append(more);
+    }
+    if (!host.children.length) host.append(element("p", "story-empty", "No matching story moments.")); host.hidden = false; recordStoryProjection("search", host.querySelectorAll(".story-search-result").length);
+  } catch (error) { if (!(await handleStoryReaderError(error)) && token === state.storyReader.searchToken) toast(error.message); }
+}
+
+function renderStoryReaderPath(page) {
+  reserveStoryProjection("path", page.rendered_item_count);
+  state.storyPath = page; const item = state.storySelectionItem || {};
+  $("#storyPathTitle").textContent = storyItemTitle(item); $("#storyPathSummary").textContent = "Deterministic path to this moment.";
+  clearStoryPathWitness(); const steps = $("#storyPathSteps");
+  for (const value of page.items) { const step = element("li", "story-path-step"); step.append(element("strong", "", value.title || String(value.kind).replaceAll("_", " ")), element("span", "", value.text || value.summary || "")); steps.append(step); }
+  if (page.next_cursor) { const more = element("button", "quiet-button story-path-more", "Continue path"); more.type = "button"; more.addEventListener("click", async () => { more.disabled = true; const token = state.storyPathToken; try { const next = await api.storyReaderPathPage(state.storyReader.mapRevision, page.resource_id, { cursor: page.next_cursor, limit: state.storyReader.contract.limits.rendered_items_per_page }); const combined = combinedReaderPage(page, next); if (combined.rendered_item_count > state.storyReader.contract.limits.live_story_items) throw new RangeError("Path would exceed the live story-item limit"); if (token === state.storyPathToken && state.storySelectionId === page.resource_id) renderStoryReaderPath(combined); } catch (error) { if (!(await handleStoryReaderError(error))) toast(error.message); } }); steps.after(more); }
+  recordStoryProjection("path", page.rendered_item_count); $("#storyDetailAction").disabled = false; $("#storyPathPanel").hidden = false;
+}
+
+async function selectStoryReaderItem(item, control) {
+  activateStoryItem(item, control); clearStoryPathWitness(); $("#storyDetailAction").disabled = true; $("#storyPathPanel").hidden = false;
+  $("#storyPathTitle").textContent = storyItemTitle(item); $("#storyPathSummary").textContent = "Finding the path…"; scheduleStoryReaderViewSave();
+  const token = ++state.storyPathToken;
+  try { const page = await api.storyReaderPathPage(state.storyReader.mapRevision, item.selection_id, { limit: state.storyReader.contract.limits.rendered_items_per_page }); if (token === state.storyPathToken && state.storySelectionId === item.selection_id) renderStoryReaderPath(page); }
+  catch (error) { if (!(await handleStoryReaderError(error)) && token === state.storyPathToken) $("#storyPathSummary").textContent = error.message; }
+}
+
+function renderStoryReaderDetail(page) {
+  reserveStoryProjection("detail", page.rendered_item_count);
+  const summary = page.items.find((item) => ["summary", "event", "arm", "choice"].includes(item.kind)) || page.items[0] || {};
+  $("#detailTitle").textContent = summary.title || storyItemTitle(state.storySelectionItem || {}); $("#detailKind").textContent = String(summary.kind || "story moment").replaceAll("_", " ");
+  $("#detailSummary").textContent = summary.text || summary.summary || "Exact local story evidence."; $("#pathStrip").replaceChildren(element("strong", "path-stop current", $("#detailTitle").textContent));
+  $("#technicalMembers").hidden = true; $("#derivationPanel").hidden = true; $("#canonicalEscapeButton").hidden = true; $("#interpretationPanel").hidden = true; $("#detailFacts").replaceChildren();
+  const evidence = $("#evidenceList"); evidence.replaceChildren();
+  for (const record of page.items.filter((item) => item.kind === "evidence" || item.relative_path)) {
+    const article = element("article", "story-source-record"); article.dataset.evidenceId = record.id;
+    article.append(element("strong", "", record.title || "Evidence")); if (record.text) article.append(element("pre", "", record.text));
+    if (record.relative_path) article.append(element("code", "", `${record.relative_path}:${record.start_line}${record.end_line !== record.start_line ? `–${record.end_line}` : ""} · ${record.line_basis || "source"}`)); evidence.append(article);
+  }
+  if (!evidence.children.length) evidence.append(element("p", "story-empty", "No source record is available on this page."));
+  if (page.next_cursor) {
+    const more = element("button", "quiet-button story-detail-more", "Continue detail"); more.type = "button";
+    more.addEventListener("click", async () => { more.disabled = true; const token = state.storyDetailToken; try { const next = await api.storyReaderDetailPage(state.storyReader.mapRevision, page.resource_id, { cursor: page.next_cursor, limit: state.storyReader.contract.limits.rendered_items_per_page }); const combined = combinedReaderPage(page, next); if (combined.rendered_item_count > state.storyReader.contract.limits.live_story_items) throw new RangeError("Detail would exceed the live story-item limit"); if (token === state.storyDetailToken && page.resource_id === state.storySelectionId) renderStoryReaderDetail(combined); } catch (error) { if (!(await handleStoryReaderError(error))) toast(error.message); } }); evidence.append(more);
+  }
+  recordStoryProjection("detail", page.rendered_item_count); state.detail = page; showLevel("detail_evidence"); document.documentElement.dataset.activeLevel = "detail_evidence"; $("#backToRouteMap").focus();
+}
+
+async function openStoryReaderDetail(selectionId) {
+  if (selectionId !== state.storySelectionId) return;
+  state.storySelectionScrollY = $("#storyBrowser").scrollTop; state.storySelectionWindowY = window.scrollY;
+  const control = currentStorySelectionControl(selectionId); state.storySelectionViewportTop = control?.getBoundingClientRect().top || state.storySelectionViewportTop;
+  const token = ++state.storyDetailToken;
+  try { const page = await api.storyReaderDetailPage(state.storyReader.mapRevision, selectionId, { limit: state.storyReader.contract.limits.rendered_items_per_page }); if (token === state.storyDetailToken && selectionId === state.storySelectionId) renderStoryReaderDetail(page); }
+  catch (error) { if (!(await handleStoryReaderError(error)) && token === state.storyDetailToken) toast(error.message); }
+}
+
+function storyReaderViewPayload() {
+  return {
+    section_id: state.storyReader.currentSectionId,
+    selection_id: state.storySelectionId,
+    focus_id: document.activeElement?.dataset?.storySelectionId || state.storySelectionId,
+    viewport: { scroll_top: $("#storyBrowser").scrollTop, zoom: 1.0 },
+    hide_new: state.storyReader.hideNew,
+  };
+}
+
+function scheduleStoryReaderViewSave() {
+  if (!storyReaderActive() || !state.storyReader.restored) return; clearTimeout(state.storyReader.saveTimer);
+  state.storyReader.saveTimer = setTimeout(async () => { try { const saved = await api.saveStoryReaderViewState(state.storyReader.mapRevision, storyReaderViewPayload()); $("#storyBrowser").dataset.viewStateSaved = `${saved.map_revision}:${Date.now()}`; } catch (error) { if (error.code === "stale_map_revision") handleStoryReaderError(error); } }, 180);
+}
+
+async function restoreStoryReaderView() {
+  try {
+    const response = await api.storyReaderViewState(state.storyReader.mapRevision); const saved = response.state;
+    state.storyReader.hideNew = saved.hide_new; $("#storyHideNew").checked = saved.hide_new; $("#storyBrowser").classList.toggle("hide-new", saved.hide_new);
+    const sectionId = state.storyReader.manifest.sections.some((section) => section.id === saved.section_id) ? saved.section_id : state.storyReader.manifest.sections[0]?.id;
+    if (sectionId) await loadStoryReaderSection(sectionId);
+    if (saved.selection_id) await locateStoryReaderSelection(saved.selection_id);
+    if (saved.focus_id && saved.focus_id !== saved.selection_id) await locateStoryReaderSelection(saved.focus_id, { activate: false });
+    $("#storyBrowser").scrollTop = saved.viewport.scroll_top; state.storyReader.restored = true;
+  } catch (error) {
+    if (await handleStoryReaderError(error)) return;
+    const first = state.storyReader.manifest.sections[0]; if (first) await loadStoryReaderSection(first.id); state.storyReader.restored = true;
+  }
+}
+
+async function loadStoryReader() {
+  if (!api.storyReaderRoutes) return false;
+  try {
+    state.storyReader.restored = false; const manifest = await api.storyReaderManifest(); renderStoryReaderManifest(manifest); await restoreStoryReaderView(); pollStoryReaderStatus(); return true;
+  } catch (error) { if (!(await handleStoryReaderError(error))) toast(error.message); return false; }
+}
+
 function renderStoryMapV2(page) {
   invalidateStoryDetail();
   state.storyPage = page; state.storyItems = new Map(); state.storySelectionId = null; state.storySelectionItem = null; state.storySelectionControl = null; state.storyPath = null;
@@ -1012,7 +1609,7 @@ function clearStoryPathWitness() {
     ["#storyPathRequirementsGroup", "#storyPathRequirements"],
     ["#storyPathEffectsGroup", "#storyPathEffects"],
   ]) renderStoryWitnessList(groupSelector, listSelector, []);
-  $("#storyPathSteps").replaceChildren(); $("#storyPathWarnings").replaceChildren(); $("#storyPathUncertaintyGroup").hidden = true; $("#storyPathAnalysisNotes").open = false; $("#storyPathAnalysisNotes").hidden = true;
+  $("#storyPathSteps").replaceChildren(); $(".story-path-more")?.remove(); $("#storyPathPanel").dataset.storyRecords = "0"; $("#storyPathWarnings").replaceChildren(); $("#storyPathUncertaintyGroup").hidden = true; $("#storyPathAnalysisNotes").open = false; $("#storyPathAnalysisNotes").hidden = true;
 }
 
 function renderStoryPath(path) {
@@ -1102,7 +1699,7 @@ async function openStoryDetail(selectionId) {
 function closeStoryPath() {
   state.storyPathToken += 1;
   invalidateStoryDetail();
-  $("#storyPathPanel").hidden = true;
+  $("#storyPathPanel").hidden = true; clearStoryPathWitness(); recordStoryProjection("path", 0);
   returnToStorySelection(false);
 }
 
@@ -1121,6 +1718,7 @@ function returnToStorySelection(scroll = true) {
   invalidateStoryDetail();
   if (!state.storyPage || !state.storySelectionId) return;
   showLevel("route_map"); showStorySurface(true);
+  if (storyReaderActive()) { $("#detailView").dataset.storyRecords = "0"; $("#evidenceList").replaceChildren(); recordStoryProjection("detail", 0); }
   const control = currentStorySelectionControl();
   if (!control) return;
   if (scroll) control.scrollIntoView({ block: "center", inline: "nearest" });
@@ -1136,6 +1734,7 @@ function returnToStorySelection(scroll = true) {
 }
 
 async function loadStoryMapV2() {
+  if (api.storyReaderRoutes) return loadStoryReader();
   if (!api.storyMapV2Routes?.map) return false;
   invalidateStoryDetail();
   try {
@@ -1150,7 +1749,8 @@ async function loadStoryMapV2() {
 async function enterAvailableWorkspace() {
   showPrimary("workspace"); showLevel("route_map");
   const storyAvailable = await loadStoryMapV2();
-  if (storyAvailable) { $("#projectBadge").textContent = "Story Map V2"; return true; }
+  if (storyAvailable) { $("#projectBadge").textContent = "Story Map V2"; await restoreStoryWorkflow(); return true; }
+  showStorySurface(false);
   const available = await resetRoutePaging();
   await loadNarrative();
   await loadNarrativeRunStatus();
@@ -1621,7 +2221,25 @@ function bind() {
   $("#backToRouteMap").addEventListener("click", () => { if (state.storyPage && state.storySelectionId) returnToStorySelection(false); else { showLevel("route_map"); graph.world.querySelector(`[data-element-id="${CSS.escape(state.selectedId || "")}"]`)?.focus(); } }); $("#detailView").addEventListener("keydown", (event) => { if (event.key === "Escape") $("#backToRouteMap").click(); });
   $("#closeStoryPath").addEventListener("click", closeStoryPath);
   $("#returnToStorySelection").addEventListener("click", () => returnToStorySelection(true));
-  $("#storyDetailAction").addEventListener("click", () => { if (state.storySelectionId) openStoryDetail(state.storySelectionId); });
+  $("#storyDetailAction").addEventListener("click", () => { if (state.storySelectionId) (storyReaderActive() ? openStoryReaderDetail(state.storySelectionId) : openStoryDetail(state.storySelectionId)); });
+  $("#storyLoadMore").addEventListener("click", () => {
+    const cursor = $("#storyLoadMore").dataset.cursor; if (!cursor || !state.storyReader.currentSectionId) return;
+    $("#storyLoadMore").disabled = true; loadStoryReaderSection(state.storyReader.currentSectionId, { cursor, append: true });
+  });
+  $("#storySearchInput").addEventListener("input", () => {
+    clearTimeout(searchStoryReader.timer); const query = $("#storySearchInput").value.trim(); searchStoryReader.timer = setTimeout(() => searchStoryReader(query), 180);
+  });
+  $("#storyHideNew").addEventListener("change", (event) => {
+    state.storyReader.hideNew = event.target.checked; $("#storyBrowser").classList.toggle("hide-new", state.storyReader.hideNew);
+    scheduleStoryReaderViewSave();
+  });
+  $("#storyBrowser").addEventListener("scroll", scheduleStoryReaderViewSave, { passive: true });
+  $("#closeStoryApproval").addEventListener("click", () => $("#storyApprovalDialog").close());
+  $("#storyPrepareAction").addEventListener("click", prepareStoryWorkflow);
+  $("#storyRunDetails").addEventListener("toggle", loadPublishedStoryWorkflowDetails);
+  $("#approveStoryGeneration").addEventListener("click", () => runStoryWorkflow("start"));
+  $("#storyCancelRun").addEventListener("click", () => runStoryWorkflow("cancel"));
+  $("#storyResumeRun").addEventListener("click", () => runStoryWorkflow("resume"));
   $("#openCompatibilityMap").addEventListener("click", async () => { showStorySurface(false); const available = await resetRoutePaging(); await loadNarrative(); await loadNarrativeRunStatus(); if (available) renderMap(); await loadOrganization(); });
   $("#canonicalEscapeButton").addEventListener("click", openCanonicalRecord);
   $("#selectVisibleNodes").addEventListener("click", async () => { try { await selectVisibleForAI(); toast("Exact provider-free preview ready"); } catch (error) { toast(error.message); } });
@@ -1639,7 +2257,7 @@ function bind() {
 
 async function start() {
   bind();
-  try { const bootstrap = await api.bootstrap(); api.configureM12(bootstrap.routes?.m12); api.configureStoryMapV2(bootstrap.routes?.story_map_v2); state.settings = { ...state.settings, ...(bootstrap.settings || {}) }; document.documentElement.dataset.theme = state.settings.theme; $("#technicalToggle").checked = state.settings.include_technical; $("#unresolvedToggle").checked = state.settings.include_unresolved; renderRecent(bootstrap.recent_projects || []); renderRoutePanel(); showPrimary("welcome"); } catch (error) { renderRecent([]); renderRoutePanel(); toast(error.message); }
+  try { const bootstrap = await api.bootstrap(); api.configureM12(bootstrap.routes?.m12); api.configureStoryMapV2(bootstrap.routes?.story_map_v2); api.configureStoryWorkflow(bootstrap.routes?.story_map_v2_workflow); const readerContract = storyReaderContractFromBootstrap(bootstrap); if (readerContract) { state.storyReader.contract = api.configureStoryReader(readerContract); } state.settings = { ...state.settings, ...(bootstrap.settings || {}) }; document.documentElement.dataset.theme = state.settings.theme; $("#technicalToggle").checked = state.settings.include_technical; $("#unresolvedToggle").checked = state.settings.include_unresolved; renderRecent(bootstrap.recent_projects || []); renderRoutePanel(); showPrimary("welcome"); } catch (error) { renderRecent([]); renderRoutePanel(); toast(error.message); }
 }
 
 start();

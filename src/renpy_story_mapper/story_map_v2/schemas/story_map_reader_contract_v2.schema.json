@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://renpy-story-mapper.invalid/schemas/story_map_reader_contract_v2.schema.json",
+  "title": "Story Map V2 Phase 04 reader contract v2 additive extension",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "extends", "base_fixture", "delta", "examples"],
+  "properties": {
+    "schema": {"const": "story-map-v2-reader-contract-v2"},
+    "extends": {"const": "story-map-v2-reader-contract-v1"},
+    "base_fixture": {"const": "tests/fixtures/story_map_v2/phase04_reader_contract_v1.json"},
+    "delta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locate_location_required_field", "page_cursor_binding"],
+      "properties": {
+        "locate_location_required_field": {"const": "branch_id"},
+        "page_cursor_binding": {"const": "branch_id_when_non_null_else_section_id"}
+      }
+    },
+    "examples": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["branch_location", "section_location"],
+      "properties": {
+        "branch_location": {"$ref": "#/$defs/locate"},
+        "section_location": {"$ref": "#/$defs/locate"}
+      }
+    }
+  },
+  "$defs": {
+    "opaqueId": {"type": "string", "minLength": 1, "maxLength": 512},
+    "locate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "map_revision", "generation_id", "selection_id", "location"],
+      "properties": {
+        "schema": {"const": "story-map-v2-reader-contract-v2"},
+        "map_revision": {"type": "integer", "minimum": 0},
+        "generation_id": {"$ref": "#/$defs/opaqueId"},
+        "selection_id": {"$ref": "#/$defs/opaqueId"},
+        "location": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["section_id", "branch_id", "page_cursor", "shell_id", "item_id"],
+          "properties": {
+            "section_id": {"$ref": "#/$defs/opaqueId"},
+            "branch_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 512},
+            "page_cursor": {"type": ["string", "null"], "minLength": 1, "maxLength": 4096},
+            "shell_id": {"$ref": "#/$defs/opaqueId"},
+            "item_id": {"$ref": "#/$defs/opaqueId"}
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://renpy-story-mapper.invalid/schemas/story_map_reader_contract_v1.schema.json",
+  "title": "Story Map V2 Phase 04 reader contract bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "routes", "limits", "examples"],
+  "properties": {
+    "schema": {"const": "story-map-v2-reader-contract-v1"},
+    "routes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest", "status", "section_page", "branch_page", "locate", "search",
+        "path_page", "detail_page", "view_state", "save_view_state"
+      ],
+      "properties": {
+        "manifest": {"const": "/api/v1/story-map-v2/manifest"},
+        "status": {"const": "/api/v1/story-map-v2/status"},
+        "section_page": {"const": "/api/v1/story-map-v2/section-page"},
+        "branch_page": {"const": "/api/v1/story-map-v2/branch-page"},
+        "locate": {"const": "/api/v1/story-map-v2/locate"},
+        "search": {"const": "/api/v1/story-map-v2/search"},
+        "path_page": {"const": "/api/v1/story-map-v2/path-page"},
+        "detail_page": {"const": "/api/v1/story-map-v2/detail-page"},
+        "view_state": {"const": "/api/v1/story-map-v2/view-state"},
+        "save_view_state": {"const": "/api/v1/story-map-v2/view-state/save"}
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "events_per_section_page", "rendered_items_per_page", "serialized_bytes_per_page",
+        "search_results_per_page", "live_story_items"
+      ],
+      "properties": {
+        "events_per_section_page": {"const": 30},
+        "rendered_items_per_page": {"const": 240},
+        "serialized_bytes_per_page": {"const": 1048576},
+        "search_results_per_page": {"type": "integer", "minimum": 1, "maximum": 100},
+        "live_story_items": {"const": 600}
+      }
+    },
+    "examples": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requests", "manifest", "status", "section_page", "branch_page", "locate", "search",
+        "path_page", "detail_page", "view_state", "stale_error"
+      ],
+      "properties": {
+        "requests": {"$ref": "#/$defs/requests"},
+        "manifest": {"$ref": "#/$defs/manifest"},
+        "status": {"$ref": "#/$defs/status"},
+        "section_page": {"$ref": "#/$defs/page"},
+        "branch_page": {"$ref": "#/$defs/page"},
+        "locate": {"$ref": "#/$defs/locate"},
+        "search": {"$ref": "#/$defs/search"},
+        "path_page": {"$ref": "#/$defs/page"},
+        "detail_page": {"$ref": "#/$defs/page"},
+        "view_state": {"$ref": "#/$defs/viewState"},
+        "stale_error": {"$ref": "#/$defs/staleError"}
+      }
+    }
+  },
+  "$defs": {
+    "nonempty": {"type": "string", "minLength": 1, "maxLength": 512},
+    "nullableCursor": {"type": ["string", "null"], "minLength": 1, "maxLength": 4096},
+    "requests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest", "status", "section_page", "branch_page", "locate", "search",
+        "path_page", "detail_page", "view_state", "save_view_state"
+      ],
+      "properties": {
+        "manifest": {"const": {}},
+        "status": {"const": {}},
+        "section_page": {"type": "object"},
+        "branch_page": {"type": "object"},
+        "locate": {"type": "object"},
+        "search": {"type": "object"},
+        "path_page": {"type": "object"},
+        "detail_page": {"type": "object"},
+        "view_state": {"type": "object"},
+        "save_view_state": {"type": "object"}
+      }
+    },
+    "manifest": {
+      "type": "object",
+      "required": [
+        "schema", "map_revision", "generation_id", "freshness", "status", "overview",
+        "counts", "sections", "landmarks", "new_facts"
+      ],
+      "properties": {
+        "schema": {"const": "story-map-v2-reader-contract-v1"},
+        "map_revision": {"type": "integer", "minimum": 0},
+        "generation_id": {"$ref": "#/$defs/nonempty"},
+        "freshness": {"enum": ["current", "building", "stale", "phase03_compatible"]},
+        "status": {"$ref": "#/$defs/nonempty"},
+        "overview": {"type": "object"},
+        "counts": {"type": "object"},
+        "sections": {"type": "array"},
+        "landmarks": {"type": "array"},
+        "new_facts": {"type": "object"}
+      }
+    },
+    "status": {
+      "type": "object",
+      "required": [
+        "schema", "map_revision", "generation_id", "run_id", "freshness", "state",
+        "coverage", "progress", "actions", "current_complete_generation", "active_build_generation"
+      ],
+      "properties": {
+        "schema": {"const": "story-map-v2-reader-contract-v1"},
+        "map_revision": {"type": "integer", "minimum": 0},
+        "generation_id": {"$ref": "#/$defs/nonempty"},
+        "run_id": {"$ref": "#/$defs/nonempty"},
+        "freshness": {"enum": ["current", "building", "stale", "phase03_compatible"]},
+        "state": {"$ref": "#/$defs/nonempty"},
+        "coverage": {"type": "object"},
+        "progress": {"type": "object"},
+        "actions": {"type": "object"},
+        "current_complete_generation": {"type": ["string", "null"]},
+        "active_build_generation": {"type": ["string", "null"]}
+      }
+    },
+    "page": {
+      "type": "object",
+      "required": [
+        "schema", "map_revision", "generation_id", "resource_id", "items", "shells",
+        "rendered_item_count", "next_cursor"
+      ],
+      "properties": {
+        "schema": {"const": "story-map-v2-reader-contract-v1"},
+        "map_revision": {"type": "integer", "minimum": 0},
+        "generation_id": {"$ref": "#/$defs/nonempty"},
+        "resource_id": {"$ref": "#/$defs/nonempty"},
+        "items": {"type": "array", "maxItems": 240},
+        "shells": {"type": "array", "maxItems": 240},
+        "rendered_item_count": {"type": "integer", "minimum": 0, "maximum": 240},
+        "next_cursor": {"$ref": "#/$defs/nullableCursor"}
+      }
+    },
+    "locate": {
+      "type": "object",
+      "required": ["schema", "map_revision", "generation_id", "selection_id", "location"],
+      "properties": {
+        "schema": {"const": "story-map-v2-reader-contract-v1"},
+        "map_revision": {"type": "integer", "minimum": 0},
+        "generation_id": {"$ref": "#/$defs/nonempty"},
+        "selection_id": {"$ref": "#/$defs/nonempty"},
+        "location": {"type": "object"}
+      }
+    },
+    "search": {
+      "type": "object",
+      "required": ["schema", "map_revision", "generation_id", "query", "results", "next_cursor"],
+      "properties": {
+        "schema": {"const": "story-map-v2-reader-contract-v1"},
+        "map_revision": {"type": "integer", "minimum": 0},
+        "generation_id": {"$ref": "#/$defs/nonempty"},
+        "query": {"type": "string", "maxLength": 256},
+        "results": {"type": "array", "maxItems": 100},
+        "next_cursor": {"$ref": "#/$defs/nullableCursor"}
+      }
+    },
+    "viewState": {
+      "type": "object",
+      "required": ["schema", "map_revision", "generation_id", "view_key", "state"],
+      "properties": {
+        "schema": {"const": "story-map-v2-reader-contract-v1"},
+        "map_revision": {"type": "integer", "minimum": 0},
+        "generation_id": {"$ref": "#/$defs/nonempty"},
+        "view_key": {"$ref": "#/$defs/nonempty"},
+        "state": {"type": "object"}
+      }
+    },
+    "staleError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error", "map_revision"],
+      "properties": {
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": {"const": "stale_map_revision"},
+            "message": {"$ref": "#/$defs/nonempty"}
+          }
+        },
+        "map_revision": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}
