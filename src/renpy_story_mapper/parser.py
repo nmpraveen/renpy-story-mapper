@@ -246,6 +246,14 @@ def _parse_menu_caption(text: str) -> str | None:
     if parsed is None:
         return None
     caption, remainder = parsed
+    if not remainder:
+        return caption
+    if keyword:
+        return None
+    second = _parse_string_literal_prefix(remainder)
+    if second is None:
+        return None
+    caption, remainder = second
     return caption if not remainder else None
 
 

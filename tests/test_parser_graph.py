@@ -48,6 +48,33 @@ def test_menu_branches_reunite_at_a_directed_merge() -> None:
     assert right["metadata"]["condition"] == "right_is_open"
 
 
+def test_two_string_menu_prompt_uses_second_literal_as_caption() -> None:
+    source = [
+        "label start:\n",
+        "    menu:\n",
+        '        "Who" "Prompt"\n',
+        '        "Left":\n',
+        "            return\n",
+        '        "Right":\n',
+        "            return\n",
+    ]
+
+    module = parse_script("two-string-menu-prompt.rpy", source)
+    graph = build_graph([module])
+
+    assert not any(
+        diagnostic["reason"] == "unsupported_menu_line"
+        for diagnostic in module.diagnostics
+    )
+    captions = nodes(graph, "menu")[0]["metadata"]["captions"]
+    assert [caption["text"] for caption in captions] == ["Prompt"]
+    assert captions[0]["source"]["start"] == {"line": 3, "column": 9}
+    assert {node["metadata"]["caption"] for node in nodes(graph, "menu_choice")} == {
+        "Left",
+        "Right",
+    }
+
+
 def test_conditional_has_ordered_branches_and_no_false_edge_with_else() -> None:
     graph = fixture_graph("conditional.rpy")
     branches = sorted(
