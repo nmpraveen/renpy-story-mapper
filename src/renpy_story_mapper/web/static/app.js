@@ -7,6 +7,8 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 const api = new LocalApi();
 const CURSOR_HISTORY_LIMIT = 12;
 const STORY_WORKFLOW_STORAGE_KEY = "rsm.story-map-v2.workflow.v2";
+const STORY_TIMELINE_MIN_GROUPS = 12;
+const STORY_TIMELINE_MAX_GROUPS = 30;
 
 const state = {
   project: null, page: null, scenePage: null, aiPage: null, technicalPage: null, inspectionPage: null, canonicalPage: null, sceneReason: null, aiReason: null, mode: "scenes",
@@ -868,6 +870,7 @@ function storyBadge(text, kind) {
 
 function appendStoryBadges(host, item) {
   const badges = element("div", "story-badges");
+  if (item.route_id) badges.append(storyBadge(item.route_id, "route"));
   if (item.condition) badges.append(storyBadge(item.condition, "condition"));
   for (const effect of item.effects || []) badges.append(storyBadge(effect, "effect"));
   if (item.reachability) {
@@ -1002,6 +1005,20 @@ function storyReaderActive() {
   return Boolean(state.storyReader.manifest && api.storyReaderRoutes);
 }
 
+function storyReaderGroupedTimeline() {
+  const sections = state.storyReader.manifest?.sections || [];
+  return sections.length >= STORY_TIMELINE_MIN_GROUPS && sections.length <= STORY_TIMELINE_MAX_GROUPS && sections.every((section) => section.id.startsWith("story-group:"));
+}
+
+function orderedStoryReaderSections() {
+  return [...(state.storyReader.manifest?.sections || [])].sort((a, b) => a.order - b.order);
+}
+
+function storyReaderSectionDomId(sectionId) {
+  const index = orderedStoryReaderSections().findIndex((section) => section.id === sectionId);
+  return index < 0 ? null : `story-group-${index + 1}`;
+}
+
 function appendStoryReaderNew(host, item) {
   if (!item?.is_new || state.storyReader.hideNew) return;
   const mark = element("span", "story-new", "NEW");
@@ -1039,13 +1056,15 @@ function renderStoryReaderItem(item, ordinal) {
     const title = element("strong", "", storyItemTitle(item)); appendStoryReaderNew(title, item);
     copy.append(title, element("span", "", item.summary || item.text || "")); head.append(copy);
   }
-  article.append(head); appendStoryBadges(article, item);
+  const marker = { choice: "Choice", arm: "Outcome", ending: "Ending" }[item.kind];
+  if (marker) article.append(element("span", "story-item-marker", marker));
+  article.append(head); appendStoryBadges(article, item); appendStoryWarnings(article, item.warnings || item.unresolved_warnings);
   if (item.kind === "choice") {
-    const button = element("button", "quiet-button story-branch-action", "View choices"); button.type = "button";
+    const button = element("button", "quiet-button story-branch-action", "Show outcomes"); button.type = "button";
     button.setAttribute("aria-expanded", "false");
     const branchHost = element("div", "story-branch-page"); branchHost.dataset.branchFor = item.id; branchHost.hidden = true;
     button.addEventListener("click", () => {
-      if (button.getAttribute("aria-expanded") === "true") { branchHost.hidden = true; button.setAttribute("aria-expanded", "false"); button.textContent = "View choices"; return; }
+      if (button.getAttribute("aria-expanded") === "true") { branchHost.hidden = true; button.setAttribute("aria-expanded", "false"); button.textContent = "Show outcomes"; return; }
       loadStoryReaderBranch(item.id, branchHost, null, false, button);
     });
     article.append(button, branchHost);
@@ -1101,15 +1120,18 @@ function recordStoryProjection(kind, count) {
   $("#storyBrowser").dataset.liveStoryItems = String(total);
 }
 
-function renderStoryReaderSection(page, section) {
-  reserveStoryProjection("section", page.rendered_item_count);
-  state.storyItems = new Map();
-  const sections = $("#storySections"); sections.replaceChildren();
+function renderStoryReaderSection(page, section, { append = false, ordinalStart = 0 } = {}) {
+  const sections = $("#storySections");
+  const incoming = append ? sections.querySelectorAll("[data-reader-item-id]").length + page.rendered_item_count : page.rendered_item_count;
+  reserveStoryProjection("section", incoming);
+  if (!append) { state.storyItems = new Map(); sections.replaceChildren(); }
   const card = element("section", "story-section"); card.dataset.status = "ready"; card.dataset.freshness = state.storyReader.manifest.freshness;
+  card.dataset.sectionId = section.id;
+  card.id = storyReaderSectionDomId(section.id) || "";
   const header = element("header", "story-section-header");
   const title = element("h2", "", section.title); appendStoryReaderNew(title, section);
   header.append(title, element("p", "story-section-summary", section.summary)); card.append(header);
-  let ordinal = 0; const rendered = new Set();
+  let ordinal = ordinalStart; const rendered = new Set();
   for (const shell of page.shells) {
     const result = storyReaderShell(page, shell, ordinal); ordinal = result.ordinal;
     shell.item_ids.forEach((id) => rendered.add(id)); card.append(result.host);
@@ -1119,10 +1141,37 @@ function renderStoryReaderSection(page, section) {
   sections.append(card);
   const live = sections.querySelectorAll("[data-reader-item-id]").length;
   recordStoryProjection("section", live);
-  $("#storyLoadMore").hidden = !page.next_cursor || page.rendered_item_count >= state.storyReader.contract.limits.live_story_items;
+  $("#storyLoadMore").hidden = storyReaderGroupedTimeline() || !page.next_cursor || page.rendered_item_count >= state.storyReader.contract.limits.live_story_items;
   $("#storyLoadMore").disabled = false;
   $("#storyLoadMore").dataset.cursor = page.next_cursor || "";
   for (const button of $$("#storySectionIndex button")) button.setAttribute("aria-current", String(button.dataset.sectionId === section.id));
+  return ordinal;
+}
+
+async function loadStoryReaderTimeline() {
+  const token = ++state.storyReader.requestToken;
+  state.storyItems = new Map(); state.storyReader.currentPage = null;
+  const host = $("#storySections"); host.replaceChildren();
+  let ordinal = 0;
+  for (const section of orderedStoryReaderSections()) {
+    try {
+      let page = await storyReaderPage("section_page", section.id, null);
+      while (page.next_cursor) {
+        const next = await storyReaderPage("section_page", section.id, page.next_cursor);
+        if (token !== state.storyReader.requestToken) return;
+        page = combinedReaderPage(page, next);
+      }
+      if (token !== state.storyReader.requestToken) return;
+      ordinal = renderStoryReaderSection(page, section, { append: true, ordinalStart: ordinal });
+    } catch (error) {
+      if (await handleStoryReaderError(error)) return;
+      if (token === state.storyReader.requestToken) host.append(element("p", "story-empty", `${section.title}: ${error.message}`));
+    }
+  }
+  state.storyReader.currentSectionId = orderedStoryReaderSections()[0]?.id || null;
+  for (const button of $$("#storySectionIndex button")) button.setAttribute("aria-current", String(button.dataset.sectionId === state.storyReader.currentSectionId));
+  $("#storyLoadMore").hidden = true;
+  recordStoryProjection("section", host.querySelectorAll("[data-reader-item-id]").length);
 }
 
 function storyReaderCacheKey(kind, resourceId, cursor) { return `${kind}:${resourceId}:${cursor || "first"}`; }
@@ -1179,13 +1228,13 @@ function renderStoryReaderBranchPage(page, host) {
   if ($$("#storySections [data-reader-item-id]").length > state.storyReader.contract.limits.live_story_items) throw new RangeError("Branch hydration exceeds the live story-item limit");
 }
 
-async function loadStoryReaderBranch(branchId, host, cursor = null, append = false, button = null) {
+async function loadStoryReaderBranch(branchId, host, cursor = null, append = false, button = null, locateToken = null) {
   const label = button?.textContent; const restoreFocus = button && document.activeElement === button;
   if (button) { button.disabled = true; button.textContent = "Loading…"; }
   const token = state.storyReader.requestToken;
   try {
     const page = await storyReaderPage("branch_page", branchId, cursor);
-    if (token !== state.storyReader.requestToken || !host.isConnected) return;
+    if (token !== state.storyReader.requestToken || (locateToken !== null && locateToken !== state.storyReader.locateToken) || !host.isConnected) return;
     const currentSection = $$("#storySections [data-reader-item-id]").length;
     const replacedLive = append ? 0 : host.querySelectorAll("[data-reader-item-id]").length;
     reserveStoryProjection("section", currentSection - replacedLive + page.rendered_item_count);
@@ -1193,14 +1242,14 @@ async function loadStoryReaderBranch(branchId, host, cursor = null, append = fal
       const wrapper = element("div", "story-branch-page"); renderStoryReaderBranchPage(page, wrapper);
       host.querySelector(".story-branch-action:last-child")?.remove(); while (wrapper.firstChild) host.append(wrapper.firstChild);
     } else {
-      for (const current of $$(".story-branch-page:not([hidden])")) if (current !== host) { const trigger = current.previousElementSibling; current.replaceChildren(); current.hidden = true; if (trigger?.classList.contains("story-branch-action")) { trigger.hidden = false; trigger.disabled = false; trigger.textContent = "View choices"; trigger.setAttribute("aria-expanded", "false"); } }
+      for (const current of $$(".story-branch-page:not([hidden])")) if (current !== host) { const trigger = current.previousElementSibling; current.replaceChildren(); current.hidden = true; if (trigger?.classList.contains("story-branch-action")) { trigger.hidden = false; trigger.disabled = false; trigger.textContent = "Show outcomes"; trigger.setAttribute("aria-expanded", "false"); } }
       renderStoryReaderBranchPage(page, host);
     }
     recordStoryProjection("section", $$("#storySections [data-reader-item-id]").length);
     if (button) {
       button.disabled = false;
       if (append) { button.hidden = true; if (restoreFocus) host.querySelector("[data-story-selection-id]")?.focus(); }
-      else { button.hidden = false; button.textContent = "Hide choices"; button.setAttribute("aria-expanded", "true"); if (restoreFocus) button.focus(); }
+      else { button.hidden = false; button.textContent = "Hide outcomes"; button.setAttribute("aria-expanded", "true"); if (restoreFocus) button.focus(); }
     }
   } catch (error) { if (!(await handleStoryReaderError(error))) toast(error.message); if (button) { button.disabled = false; button.textContent = label; if (restoreFocus) button.focus(); } }
 }
@@ -1216,13 +1265,22 @@ function renderStoryReaderManifest(manifest) {
   $("#storyPrepareAction").textContent = manifest.freshness === "phase03_compatible" || !manifest.generation_id ? "Generate" : "Update";
   $("#storyPrepareAction").disabled = !api.storyWorkflowRoutes || state.storyWorkflow.busy;
   const index = $("#storySectionIndex"); index.replaceChildren();
-  for (const section of [...manifest.sections].sort((a, b) => a.order - b.order)) {
+  const grouped = storyReaderGroupedTimeline();
+  $("#storyBrowser").classList.toggle("is-grouped-timeline", grouped);
+  index.setAttribute("aria-label", grouped ? "Major story events" : "Story sections");
+  for (const section of orderedStoryReaderSections()) {
     const button = element("button", "", section.title); button.type = "button"; button.dataset.sectionId = section.id;
     if (section.is_new && !state.storyReader.hideNew) appendStoryReaderNew(button, section);
-    button.addEventListener("click", () => loadStoryReaderSection(section.id)); index.append(button);
+    button.addEventListener("click", () => {
+      if (!grouped) { loadStoryReaderSection(section.id); return; }
+      state.storyReader.currentSectionId = section.id;
+      for (const current of $$("#storySectionIndex button")) current.setAttribute("aria-current", String(current === button));
+      document.getElementById(storyReaderSectionDomId(section.id))?.scrollIntoView({ block: "start" });
+      scheduleStoryReaderViewSave();
+    }); index.append(button);
   }
   index.hidden = !manifest.sections.length;
-  $("#storyAnalysisNotes").hidden = true; $("#storyPathPanel").hidden = true; clearStoryPathWitness();
+  $("#storyAnalysisNotes").hidden = true; $("#storyPathPanel").hidden = true; $("#storyRunDetails").open = false; clearStoryPathWitness();
   $("#storyBrowser").classList.toggle("hide-new", state.storyReader.hideNew); showStorySurface(true);
 }
 
@@ -1427,8 +1485,7 @@ async function pollStoryReaderStatus() {
 
 async function refreshStoryReaderForRevision() {
   state.storyReader.requestToken += 1; state.storyReader.locateToken += 1; state.storyReader.searchToken += 1; state.storyPathToken += 1; invalidateStoryDetail();
-  const manifest = await api.storyReaderManifest(); renderStoryReaderManifest(manifest);
-  const first = manifest.sections[0]; if (first) await loadStoryReaderSection(first.id);
+  state.storyReader.restored = false; const manifest = await api.storyReaderManifest(); renderStoryReaderManifest(manifest); await restoreStoryReaderView();
   toast("The story map changed. The current revision is shown."); pollStoryReaderStatus();
 }
 
@@ -1449,12 +1506,23 @@ async function locateStoryReaderSelection(selectionId, { activate = true } = {})
   try {
     const located = await api.storyReaderLocate(state.storyReader.mapRevision, selectionId); if (token !== state.storyReader.locateToken) return;
     const location = located.location;
-    await loadStoryReaderSection(location.section_id, { cursor: location.branch_id === null ? location.page_cursor : null, locateToken: token });
+    let sectionHost = null;
+    if (storyReaderGroupedTimeline()) {
+      state.storyReader.currentSectionId = location.section_id;
+      sectionHost = document.getElementById(storyReaderSectionDomId(location.section_id));
+      if (!sectionHost) throw new Error("The server-located story group is not present in the timeline");
+      for (const button of $$("#storySectionIndex button")) button.setAttribute("aria-current", String(button.dataset.sectionId === location.section_id));
+    } else {
+      await loadStoryReaderSection(location.section_id, { cursor: location.branch_id === null ? location.page_cursor : null, locateToken: token });
+    }
     if (token !== state.storyReader.locateToken) return;
     if (location.branch_id !== null) {
-      const host = $(`[data-branch-for="${CSS.escape(location.branch_id)}"]`);
+      const host = (sectionHost || document).querySelector(`[data-branch-for="${CSS.escape(location.branch_id)}"]`);
       if (!host) throw new Error("The server-located branch parent is not present in its section page");
-      await loadStoryReaderBranch(location.branch_id, host, location.page_cursor, false, null);
+      if (host.hidden || !host.children.length) {
+        const trigger = host.previousElementSibling?.classList.contains("story-branch-action") ? host.previousElementSibling : null;
+        await loadStoryReaderBranch(location.branch_id, host, location.page_cursor, false, trigger, token);
+      }
     }
     if (token !== state.storyReader.locateToken) return;
     if (!focusStoryReaderItem(location.item_id)) throw new Error("The located story item is not available in the returned page");
@@ -1485,12 +1553,37 @@ async function searchStoryReader(query, { cursor = null, append = false } = {}) 
   } catch (error) { if (!(await handleStoryReaderError(error)) && token === state.storyReader.searchToken) toast(error.message); }
 }
 
+function storyReaderPathValue(item) {
+  const value = item.text ?? item.summary ?? item.value;
+  if (value === null || value === undefined) return "";
+  if (typeof value !== "object") return String(value);
+  if (typeof value.expression === "string") return value.expression;
+  if (typeof value.text === "string") return value.text;
+  if (typeof value.title === "string") return value.title;
+  return Object.entries(value).map(([key, entry]) => `${key.replaceAll("_", " ")}: ${String(entry)}`).join(" · ");
+}
+
 function renderStoryReaderPath(page) {
   reserveStoryProjection("path", page.rendered_item_count);
   state.storyPath = page; const item = state.storySelectionItem || {};
-  $("#storyPathTitle").textContent = storyItemTitle(item); $("#storyPathSummary").textContent = "Deterministic path to this moment.";
+  $("#storyPathTitle").textContent = storyItemTitle(item);
   clearStoryPathWitness(); const steps = $("#storyPathSteps");
-  for (const value of page.items) { const step = element("li", "story-path-step"); step.append(element("strong", "", value.title || String(value.kind).replaceAll("_", " ")), element("span", "", value.text || value.summary || "")); steps.append(step); }
+  const summary = page.items.find((value) => value.kind === "summary");
+  $("#storyPathSummary").textContent = storyReaderPathValue(summary || {}) || "Known path to this moment.";
+  const requirements = page.items.filter((value) => value.kind === "requirement").map(storyReaderPathValue);
+  const effects = page.items.filter((value) => value.kind === "effect").map(storyReaderPathValue);
+  renderStoryWitnessList("#storyPathRequirementsGroup", "#storyPathRequirements", requirements);
+  renderStoryWitnessList("#storyPathEffectsGroup", "#storyPathEffects", effects);
+  $(".story-witness-title").textContent = "Known path";
+  const ordered = [...page.items].filter((value) => !["summary", "requirement", "effect", "warning"].includes(value.kind)).sort((left, right) => Number(left.kind === "instruction") - Number(right.kind === "instruction") || left.order - right.order);
+  for (const value of ordered) {
+    const title = value.title || String(value.kind).replaceAll("_", " "); const copy = storyReaderPathValue(value);
+    const step = element("li", `story-path-step story-path-kind-${value.kind}`); step.append(element("strong", "", title));
+    if (copy && copy !== title) step.append(element("span", "", copy)); steps.append(step);
+  }
+  const warnings = $("#storyPathWarnings");
+  for (const value of page.items.filter((candidate) => candidate.kind === "warning")) warnings.append(element("p", "", storyReaderPathValue(value)));
+  $("#storyPathUncertaintyGroup").hidden = !warnings.children.length;
   if (page.next_cursor) { const more = element("button", "quiet-button story-path-more", "Continue path"); more.type = "button"; more.addEventListener("click", async () => { more.disabled = true; const token = state.storyPathToken; try { const next = await api.storyReaderPathPage(state.storyReader.mapRevision, page.resource_id, { cursor: page.next_cursor, limit: state.storyReader.contract.limits.rendered_items_per_page }); const combined = combinedReaderPage(page, next); if (combined.rendered_item_count > state.storyReader.contract.limits.live_story_items) throw new RangeError("Path would exceed the live story-item limit"); if (token === state.storyPathToken && state.storySelectionId === page.resource_id) renderStoryReaderPath(combined); } catch (error) { if (!(await handleStoryReaderError(error))) toast(error.message); } }); steps.after(more); }
   recordStoryProjection("path", page.rendered_item_count); $("#storyDetailAction").disabled = false; $("#storyPathPanel").hidden = false;
 }
@@ -1552,13 +1645,18 @@ async function restoreStoryReaderView() {
     const response = await api.storyReaderViewState(state.storyReader.mapRevision); const saved = response.state;
     state.storyReader.hideNew = saved.hide_new; $("#storyHideNew").checked = saved.hide_new; $("#storyBrowser").classList.toggle("hide-new", saved.hide_new);
     const sectionId = state.storyReader.manifest.sections.some((section) => section.id === saved.section_id) ? saved.section_id : state.storyReader.manifest.sections[0]?.id;
-    if (sectionId) await loadStoryReaderSection(sectionId);
+    if (storyReaderGroupedTimeline()) {
+      await loadStoryReaderTimeline(); state.storyReader.currentSectionId = sectionId || state.storyReader.currentSectionId;
+      for (const button of $$("#storySectionIndex button")) button.setAttribute("aria-current", String(button.dataset.sectionId === state.storyReader.currentSectionId));
+    } else if (sectionId) await loadStoryReaderSection(sectionId);
     if (saved.selection_id) await locateStoryReaderSelection(saved.selection_id);
     if (saved.focus_id && saved.focus_id !== saved.selection_id) await locateStoryReaderSelection(saved.focus_id, { activate: false });
     $("#storyBrowser").scrollTop = saved.viewport.scroll_top; state.storyReader.restored = true;
   } catch (error) {
     if (await handleStoryReaderError(error)) return;
-    const first = state.storyReader.manifest.sections[0]; if (first) await loadStoryReaderSection(first.id); state.storyReader.restored = true;
+    const first = state.storyReader.manifest.sections[0];
+    if (storyReaderGroupedTimeline()) await loadStoryReaderTimeline(); else if (first) await loadStoryReaderSection(first.id);
+    state.storyReader.restored = true;
   }
 }
 
@@ -1614,6 +1712,7 @@ function clearStoryPathWitness() {
 
 function renderStoryPath(path) {
   state.storyPath = path; const item = state.storySelectionItem || state.storyItems.get(state.storySelectionId);
+  $(".story-witness-title").textContent = "Instructions";
   $("#storyPathTitle").textContent = storyItemTitle(item || {});
   $("#storyPathSummary").textContent = path.explanation || path.reason || (path.status === "available" ? "Known route to this moment." : "The complete route is not proven.");
   renderStoryWitnessList("#storyPathScenesGroup", "#storyPathScenes", path.witness?.scene_titles);
