@@ -11,12 +11,10 @@ and ask the user.**
 
 Status: M01 through M13 and M15.1 Phases 01-04 are complete and merged. PR #30 merged as
 `268d30ed15d50136be5a88d464f79adaf7f32f9e`, preserving 425 accepted local summaries and exact
-mechanics/evidence, but its 425-section lookup reader did not achieve the required story-level
-information architecture. Phase 05 is the active bounded correction under
-`docs/milestones/M15_PHASE_05/GOAL.md`: local-AI editorial grouping plus a clean scrolling timeline,
-with Python authoritative for choices, routes, effects, rejoins, endings, and evidence. Its
-lifecycle is `Blocked` at the Integration user-review gate: the strict real-game/browser result is
-ready, but the required user usefulness verdict has not been received. M14 remains deferred.
+mechanics/evidence, but the later 24-group result only covers that incomplete projection. Phase 05
+is the active extraction-first correction under `docs/milestones/M15_PHASE_05/GOAL.md`: prove one
+omitted real-game slice with a matching Ren'Py SDK, correct Python extraction, then regenerate and
+reuse the scrolling timeline. M14 remains deferred.
 
 Phase 01 evidence is now frozen at exactly 20 provider submissions. The first independent final
 review found one path-classification P1; its provider-free correction selects Luna mapping, Terra
@@ -78,7 +76,7 @@ experience is:
 
 ```text
 Select a Ren'Py game
-  -> analyze it without running game code
+  -> analyze it statically or load a trusted disposable copy with the matching Ren'Py SDK
   -> identify story paths, choices, requirements, and state changes
   -> classify temporary detours, persistent routes, loops, merges, and endings
   -> explore a broad route map and its exact detail/evidence workspace
@@ -149,8 +147,9 @@ effects.
 
 ## 3. Non-negotiable product rules
 
-1. The game folder and original archive are always read-only.
-2. Never execute embedded Ren'Py, screen, creator-defined, or game Python code.
+1. The supplied game folder and original archive are always read-only.
+2. Trusted games may be initialized by a matching Ren'Py SDK only from a disposable copy when
+   engine parsing materially improves story coverage. Ren'Py-created files stay in that copy.
 3. Deterministic analysis owns source selection, labels, choices, conditions, jumps, calls,
    returns, fallthrough, merges, loops, endings, and graph edges.
 4. Deterministic analysis also owns any stat requirement or state change that can be read safely
@@ -251,7 +250,7 @@ Game folder, .rpy, .rpyc, or .rpa
         |
 Read-only inventory, source precedence, and isolated compiled-source recovery (M06)
         |
-Safe static parser
+Safe static parser, optionally checked by isolated Ren'Py loading for a trusted game
         |
 Authoritative source-linked control-flow graph (M01)
         |
@@ -1231,9 +1230,10 @@ now and is not part of M10-M13 implementation work.
 Status: Phase 01 through Phase 04 are complete and merged. The rejected Stage H/Stage E
 architecture and PR #26 are historical only. Phase 04 merged through PR #30 and supplied a working
 local-only full-game generation/reader checkpoint with 425 accepted summaries and deterministic
-mechanics. The user rejected its 425-section lookup interface as the final product shape. Phase 05
-is now in progress after semantic `PASS`, adding the missing local-AI editorial grouping and clean
-scrolling story timeline without rebuilding Phase 04's workflow infrastructure.
+mechanics. The user rejected its 425-section lookup interface and then found that the later
+24-group result exactly covered an incomplete parsed projection rather than the whole narrative.
+Phase 05 now fixes that upstream extraction blocker first, using trusted Ren'Py loading on a
+disposable copy as a reference before regenerating the existing timeline.
 
 Current product direction: a practical private story guide with a readable chronological
 whole-story overview; visible choices, branch outcomes, requirements, effects, rejoins, persistent
@@ -1434,23 +1434,19 @@ Record factual commands, results, counts, heads, elapsed time when useful, and u
 ## 11. Current action
 
 Phase 04 is complete and merged through PR #30 at
-`268d30ed15d50136be5a88d464f79adaf7f32f9e`. Its local-only 425-summary checkpoint preserves exact
-mechanics and evidence but does not provide the required story-level information architecture.
-Phase 05 is the one active correction under `docs/milestones/M15_PHASE_05/GOAL.md`; its lightweight
-semantic review passed at exact checkpoint `803f94e`. The two bounded implementation tasks are
-integrated through source head `00a9762`, and acceptance evidence is recorded at `d93c82a`.
+`268d30ed15d50136be5a88d464f79adaf7f32f9e`. Its 425 local summaries remain useful, but the Phase 05
+24-group result only proves exact coverage of that incomplete parser projection. Many later-game
+labels were reduced to empty shells, so the user correctly rejected it as whole-game coverage.
 
-The strict MsDenvers result contains 24 chronological major-event groups with exact 425/425 source
-coverage, local-only AI editorial prose, Python-owned mechanics/evidence, and a browser-verified
-scrolling timeline. The native goal is blocked at the required user usefulness gate and resumes at
-Integration when the user accepts the result or identifies a concrete comprehension blocker.
-Completed implementation
-workers and the early reviewer used explicit `gpt-5.6-sol` with Ultra reasoning; by the user's
-latest instruction, every new worker/reviewer uses explicit `gpt-5.6-sol` with High reasoning and
-no new Ultra task is dispatched. The task API has no fast-mode selector, so fast mode remains
-unavailable/unverified. After user acceptance, use one final integrated review, sharded CI once,
-and one Release/package gate, then prepare the Phase 05 PR. Do not revive old Phase 04 production
-requirements, Stage H/E, PR #26, or M14.
+Phase 05 is the one active correction under `docs/milestones/M15_PHASE_05/GOAL.md`. First determine
+whether this trusted game needs its whole folder or can be faithfully checked from one script,
+using a matching Ren'Py SDK only on a disposable copy. Prove one omitted label end to end: Ren'Py
+finds substantive story content, Python retains it, and the loopback local model returns one of
+`PASS`, `PARTIAL`, `LOW`, or `FAIL`. Do not regenerate summaries or alter the reader before that
+slice earns `PASS`. Then apply the same extraction to the full game and reuse the existing grouped
+timeline. Every new worker/reviewer uses explicit `gpt-5.6-sol` with High reasoning; no new Ultra
+task is dispatched. Fast mode remains unavailable/unverified. Do not revive old Phase 04
+production requirements, Stage H/E, PR #26, or M14.
 
 ### Historical pre-reset current action
 

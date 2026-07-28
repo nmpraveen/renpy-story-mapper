@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-28 (Phase 05 native goal blocked awaiting the user usefulness verdict)
+Updated: 2026-07-28 (Phase 05 extraction-first contract in semantic review)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -14,37 +14,36 @@ Updated: 2026-07-28 (Phase 05 native goal blocked awaiting the user usefulness v
 - Planning rules: [`docs/MILESTONE_PLANNING_RULES.md`](MILESTONE_PLANNING_RULES.md).
 - Integration branch: `codex/m15-phase05-story-timeline`.
 - Baseline: merged `main` / PR #30 merge commit `268d30ed15d50136be5a88d464f79adaf7f32f9e`.
-- Status: Blocked (resume at Integration). The bounded implementation is integrated and the strict
-  real-game/browser result is ready, but the required user usefulness verdict has not been
-  received. Final Verification and PR preparation have not started.
+- Status: Semantic review. The user rejected 425/425 as whole-game proof, explicitly allowed
+  trusted Ren'Py execution, and approved an extraction-first correction. Product-code changes are
+  gated on a fresh semantic `PASS`.
 - Phase 04 result: 425 accepted local-model summaries, zero failed jobs and zero cloud story AI,
   with deterministic choices, routes, state, rejoins, endings, Path, and Detail/Evidence preserved.
   PR #30 is merged. Its primary reader remains a 425-section lookup interface and therefore does
   not meet the scrolling story-timeline goal.
-- Phase 05 result: the accepted summaries feed 24 ordered local-AI major-event groups and a
-  scrolling vertical timeline while Python preserves exact coverage/order, choices, routes,
-  effects, rejoins, endings, paths, and evidence. The 425 rows remain collapsed diagnostics.
-- Semantic review: `PASS` at exact reviewed checkpoint `803f94e`, with P0=P1=P2=0.
+- Phase 05 baseline: the accepted summaries feed 24 ordered local-AI major-event groups and a
+  scrolling vertical timeline, but the groups only cover the incomplete 425-section projection.
+  They are reusable UI/editorial work, not whole-game narrative evidence.
+- Semantic review: prior `PASS` at `803f94e` is superseded; fresh Sol/High review is pending for
+  the extraction-first contract.
 - Integrated source head: `00a9762`; acceptance-evidence checkpoint: `d93c82a`.
 - Strict real-game evidence: generation `5daf4e7e...bab7857` has exact 425/425 chronological
   coverage, 24 groups whose published spans/titles/summaries match the accepted local-AI outputs,
   zero cloud calls, and passing SQLite/source-integrity checks. The current browser walkthrough
   proves scrolling, inline branches/effects/rejoins, selected-choice Path, Detail/Evidence, and no
   horizontal overflow at desktop and effective 200% widths.
-- Native Codex goal: blocked on Orchestra task `019fa621-c148-7652-8b69-76c9e148d4fd` after the
-  same required user-verdict condition persisted for three consecutive goal turns. Resume at
-  Integration when the user explicitly accepts the result or identifies a concrete comprehension
-  blocker.
+- Native Codex goal: the earlier blocked goal is superseded by the user's explicit extraction-first
+  resumption. Record the replacement goal after the revised contract is locked.
 - Settings: completed implementation workers and the early reviewer used explicit `gpt-5.6-sol`
   with Ultra reasoning. Per the user's latest instruction, every new worker/reviewer uses explicit
   `gpt-5.6-sol` with High reasoning; no new Ultra task may be dispatched. The task API has no
   fast-mode selector, so fast mode remains unavailable/unverified.
 - Orchestration: one user-visible Orchestra, two concurrent implementation threads, one early
   semantic reviewer, and one final integrated reviewer.
-- Testing: the focused integrated gate passes 104 Story Map tests plus 2 workflow-contract tests,
-  Ruff, strict mypy, Node syntax, and whitespace. The explicit user usefulness verdict, final
-  Sol/High integrated review, completion artifacts, one final Windows Release/package gate, one
-  push/sharded-CI pass, and the Phase 05 PR remain pending. No Phase 05 PR currently exists.
+- Testing: the historical grouped-reader gate passed 104 Story Map tests plus 2 workflow-contract
+  tests, Ruff, strict mypy, Node syntax, and whitespace. New extraction proof, regeneration,
+  browser acceptance, final review, Release, sharded CI, and the Phase 05 PR remain pending. No
+  Phase 05 PR currently exists.
 
 ## Historical Phase 04 closeout record (superseded)
 
