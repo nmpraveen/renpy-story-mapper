@@ -58,8 +58,10 @@ EDITORIAL_TIMELINE_TASK = (
 EDITORIAL_TIMELINE_BATCH_TASK = (
     "Return exactly one JSON object matching the supplied section prose schema. Group this "
     "chronological slice into exactly two contiguous story groups. Cover every source section "
-    "exactly once and preserve order. Write only titles and summaries; do not add or change "
-    "choices, routes, effects, rejoins, endings, or evidence."
+    "exactly once and preserve order. The first group must start at the first ordered child; the "
+    "second must start immediately after the first group's last child and end at the final ordered "
+    "child. Do not skip or overlap any child. Write only titles and summaries; do not add or "
+    "change choices, routes, effects, rejoins, endings, or evidence."
 )
 EDITORIAL_TIMELINE_CORRIDOR_ID = "editorial-timeline"
 EDITORIAL_MAX_SOURCE_SECTIONS_PER_GROUP = 40
