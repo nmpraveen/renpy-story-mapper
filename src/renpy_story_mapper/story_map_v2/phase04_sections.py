@@ -510,22 +510,23 @@ def validate_editorial_timeline_response(
         )
         first = _string(proposal["first_event_id"], "first source section ID")
         last = _string(proposal["last_event_id"], "last source section ID")
-        if first not in indexes or last not in indexes:
-            raise DerivedSemanticError("editorial group references a foreign source section")
-        first_index = indexes[first]
-        last_index = indexes[last]
         if required_group_count == EDITORIAL_GROUPS_PER_BATCH:
             if index == 0:
-                if last_index >= len(sections) - 1:
-                    raise DerivedSemanticError("editorial groups must be contiguous and ordered")
+                split_index = indexes.get(last)
+                if split_index is None or split_index >= len(sections) - 1:
+                    split_index = len(sections) // 2 - 1
                 member_first = 0
-                member_last = last_index
+                member_last = split_index
             else:
                 if index != 1 or cursor >= len(sections):
                     raise DerivedSemanticError("editorial groups must be contiguous and ordered")
                 member_first = cursor
                 member_last = len(sections) - 1
         else:
+            if first not in indexes or last not in indexes:
+                raise DerivedSemanticError("editorial group references a foreign source section")
+            first_index = indexes[first]
+            last_index = indexes[last]
             if first_index != cursor or last_index < first_index:
                 raise DerivedSemanticError("editorial groups must be contiguous and ordered")
             member_first = first_index

@@ -246,10 +246,14 @@ def test_editorial_timeline_batches_real_scale_into_bounded_exact_slices() -> No
 
 def test_editorial_timeline_batch_binds_advisory_ids_to_one_python_split() -> None:
     sections = _editorial_sections(38)
+    payload = json.loads(_editorial_payload(sections, ((3, 15), (19, 15))))
+    payload["sections"][0]["first_event_id"] = "section:advisory-foreign-start"
+    payload["sections"][1]["first_event_id"] = "section:advisory-foreign-second"
+    payload["sections"][1]["last_event_id"] = "advisory-missing-prefix"
     timeline = validate_editorial_timeline_response(
         sections,
         _digest("gap-closing-batch-authority"),
-        _editorial_payload(sections, ((3, 15), (19, 15))),
+        canonical_json(payload),
         required_group_count=2,
     )
 

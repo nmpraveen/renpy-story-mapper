@@ -1034,13 +1034,12 @@ def test_local_editorial_timeline_fails_closed_on_invalid_slice() -> None:
             packet = json.loads(request)
             child_ids = [child["id"] for child in packet["children"]]
             midpoint = len(child_ids) // 2
-            first = "section:foreign" if submissions == 2 else child_ids[0]
             prose = {
                 "title": "Slice",
                 "summary": "This slice response is schema-valid prose.",
                 "sections": [
                     {
-                        "first_event_id": first,
+                        "first_event_id": child_ids[0],
                         "last_event_id": child_ids[midpoint - 1],
                         "title": "First movement",
                         "summary": "First half.",
@@ -1053,6 +1052,8 @@ def test_local_editorial_timeline_fails_closed_on_invalid_slice() -> None:
                     },
                 ],
             }
+            if submissions == 2:
+                prose["sections"].pop()
             return ProviderCallResult(
                 payload=canonical_json(prose),
                 accounting=AttemptAccounting(1, len(request), 20, 10),
