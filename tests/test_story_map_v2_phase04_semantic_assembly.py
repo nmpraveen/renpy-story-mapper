@@ -298,6 +298,26 @@ def test_editorial_timeline_batch_binds_three_advisory_groups_with_balanced_fall
     )
 
 
+def test_editorial_timeline_batch_balances_oversized_advisory_group() -> None:
+    sections = _editorial_sections(71)
+    payload = _editorial_payload(
+        sections,
+        ((0, 41), (42, 40), (41, 48), (49, 70)),
+    )
+
+    timeline = validate_editorial_timeline_response(
+        sections,
+        _digest("oversized-advisory-group-authority"),
+        payload,
+        group_count_bounds=(3, 5),
+    )
+
+    assert tuple(len(group.source_section_ids) for group in timeline.groups) == (17, 24, 8, 22)
+    assert tuple(
+        source_id for group in timeline.groups for source_id in group.source_section_ids
+    ) == tuple(section.section_id for section in sections)
+
+
 def test_editorial_batch_drops_only_a_600_character_incomplete_summary_suffix() -> None:
     sections = _editorial_sections(2)
     authority = _digest("clipped-editorial-summary-authority")

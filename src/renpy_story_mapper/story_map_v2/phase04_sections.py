@@ -537,6 +537,8 @@ def validate_editorial_timeline_response(
                 if (
                     proposed_last is not None
                     and cursor <= proposed_last <= latest_valid_last
+                    and proposed_last - cursor + 1
+                    <= EDITORIAL_MAX_SOURCE_SECTIONS_PER_GROUP
                 ):
                     member_last = proposed_last
                 else:
