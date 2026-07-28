@@ -800,7 +800,7 @@ class _MemoryGenerationRepository:
         generation_id: str,
         *,
         expected_active_generation_id: str | None,
-        expected_complete_generation_id: str | None | object = _POINTER_EXPECTATION_UNSET,
+        expected_complete_generation_id: str | object | None = _POINTER_EXPECTATION_UNSET,
     ) -> GenerationPointers:
         if self.before_activate_cas is not None:
             hook, self.before_activate_cas = self.before_activate_cas, None
@@ -834,7 +834,7 @@ class _MemoryGenerationRepository:
         generation_id: str,
         *,
         expected_active_generation_id: str,
-        expected_complete_generation_id: str | None | object = _POINTER_EXPECTATION_UNSET,
+        expected_complete_generation_id: str | object | None = _POINTER_EXPECTATION_UNSET,
         fault: Callable[[str], None] | None = None,
     ) -> GenerationPointers:
         if fault is not None:

@@ -38,7 +38,7 @@ Updated: 2026-07-27 (Phase 05 AI story timeline entered semantic review)
 
 - **Product rule:** quick, crude Ren'Py script-to-story conversion for personal checking, not a
   production-grade system.
-- Active milestone: M15.1 Phase 04 lean full-game story map.
+- Historical milestone: M15.1 Phase 04 lean full-game story map.
 - Active contract: [`docs/milestones/M15_PHASE_04/GOAL.md`](milestones/M15_PHASE_04/GOAL.md).
 - Active design: [`docs/milestones/M15_PHASE_04/PHASE_04_DESIGN.md`](milestones/M15_PHASE_04/PHASE_04_DESIGN.md).
 - Future-phase planning rules: [`docs/MILESTONE_PLANNING_RULES.md`](MILESTONE_PLANNING_RULES.md).
