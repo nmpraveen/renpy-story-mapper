@@ -26,6 +26,7 @@ from renpy_story_mapper.story_map_v2.phase04_chunk_adapter import (
 from renpy_story_mapper.story_map_v2.phase04_chunk_plan import (
     PHASE04_MAPPER_PROMPT_VERSION,
     ChunkPlanningProjection,
+    ChunkSizingPolicy,
     StoryChunkDescriptor,
     StoryChunkPlan,
     plan_story_chunks,
@@ -93,6 +94,7 @@ class ProductWorkflowProject(Protocol):
 
 MAPPING_ADAPTER_VERSION = "story-map-v2-phase04-mapper-adapter-v1"
 LOOPBACK_WORKFLOW_ADAPTER_VERSION = "story-map-v2-phase04-loopback-workflow-v1"
+LOCAL_MAXIMUM_REQUEST_TOKENS = 96_000
 DERIVED_INPUT_TOKEN_ALLOWANCE = 10_700
 OUTPUT_TOKEN_ALLOWANCE_PER_CALL = 8_000
 ELAPSED_ALLOWANCE_MS_PER_CALL = 300_000
@@ -561,10 +563,17 @@ def prepare_product_workflow_from_authority(
     source = adapt_story_scope(graph, scene_model=scene_model)
     story_plan = build_story_plan(graph, scene_model=scene_model, source_scope=source)
     projection = adapt_chunk_planning_projection(story_plan, source)
-    chunk_plan = plan_story_chunks(projection)
+    policy = _workflow_policy(loopback, primary=primary)
+    chunk_plan = (
+        plan_story_chunks(
+            projection,
+            ChunkSizingPolicy(maximum_request_tokens=LOCAL_MAXIMUM_REQUEST_TOKENS),
+        )
+        if policy.cloud.mode is ProviderMode.LOOPBACK
+        else plan_story_chunks(projection)
+    )
     frozen_plans = FrozenPlanBundle(story_plan, chunk_plan)
     authority = AuthorityIdentity(graph.authority_hash)
-    policy = _workflow_policy(loopback, primary=primary)
 
     jobs: list[WorkflowJobDescriptor] = []
     requests: list[tuple[SerializedRequestIdentity, bytes]] = []

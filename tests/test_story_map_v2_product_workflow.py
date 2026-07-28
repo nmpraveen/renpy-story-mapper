@@ -44,6 +44,7 @@ from renpy_story_mapper.story_map_v2.product_vertical import (
     project_workflow_reader_status,
 )
 from renpy_story_mapper.story_map_v2.product_workflow import (
+    LOCAL_MAXIMUM_REQUEST_TOKENS,
     MAPPING_ADAPTER_VERSION,
     FrozenProductRequestMaterializer,
     ProductWorkflowValidator,
@@ -192,6 +193,7 @@ def test_product_prepare_freezes_exact_provider_free_workflow() -> None:
     assert prepared.policy.cloud.reasoning == CLOUD_REASONING
     assert prepared.policy.cloud.fast_mode is False
     assert prepared.policy.cloud.adapter_version == MAPPING_ADAPTER_VERSION
+    assert chunk_plan.maximum_request_tokens == 10_700
     assert prepared.policy.loopback is None
     assert prepared.ceilings.submission_slots == GLOBAL_SUBMISSION_SLOTS
     assert prepared.ceilings.mapping_calls == len(prepared.plan.jobs)
@@ -275,6 +277,10 @@ def test_product_local_only_binds_mapping_and_derived_jobs_to_loopback() -> None
     durable_section = adapt_derived_semantic_job(prepared, derived.section_jobs[0])
 
     assert prepared.policy.cloud == local
+    assert (
+        prepared.frozen_plans.story_chunk_plan.maximum_request_tokens
+        == LOCAL_MAXIMUM_REQUEST_TOKENS
+    )
     assert prepared.policy.loopback is None
     assert prepared.policy.allow_refusal_fallback is False
     assert prepared.ceilings.submission_slots == 1

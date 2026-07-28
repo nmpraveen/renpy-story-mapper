@@ -688,7 +688,12 @@ def _store_reader_material(
                     _event_effects(graph, event, placements),
                 )
             )
-            for choice_key in placement.choice_keys:
+            event_choice_keys = dict.fromkeys(
+                choice_key
+                for placement_id in event.placement_ids
+                for choice_key in placements[placement_id].choice_keys
+            )
+            for choice_key in event_choice_keys:
                 choice = choices.get(choice_key)
                 if choice is not None and choice_key not in emitted_choices:
                     items.append(_choice_item(choice, len(items)))
