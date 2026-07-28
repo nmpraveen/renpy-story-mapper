@@ -32,8 +32,9 @@ Updated: 2026-07-28 (Phase 05 extraction-first contract in semantic review)
   zero cloud calls, and passing SQLite/source-integrity checks. The current browser walkthrough
   proves scrolling, inline branches/effects/rejoins, selected-choice Path, Detail/Evidence, and no
   horizontal overflow at desktop and effective 200% widths.
-- Native Codex goal: the earlier blocked goal is superseded by the user's explicit extraction-first
-  resumption. Record the replacement goal after the revised contract is locked.
+- Native Codex goal: active on resumed Orchestra task
+  `019fa621-c148-7652-8b69-76c9e148d4fd`, with the revised whole-story extraction and readable
+  timeline done condition.
 - Settings: completed implementation workers and the early reviewer used explicit `gpt-5.6-sol`
   with Ultra reasoning. Per the user's latest instruction, every new worker/reviewer uses explicit
   `gpt-5.6-sol` with High reasoning; no new Ultra task may be dispatched. The task API has no
