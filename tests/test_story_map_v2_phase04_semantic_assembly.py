@@ -244,6 +244,23 @@ def test_editorial_timeline_batches_real_scale_into_bounded_exact_slices() -> No
     ) == tuple(section.section_id for section in sections)
 
 
+def test_editorial_timeline_batch_closes_an_advisory_id_gap_in_python() -> None:
+    sections = _editorial_sections(38)
+    timeline = validate_editorial_timeline_response(
+        sections,
+        _digest("gap-closing-batch-authority"),
+        _editorial_payload(sections, ((0, 15), (19, 37))),
+        required_group_count=2,
+    )
+
+    assert timeline.groups[0].source_section_ids == tuple(
+        section.section_id for section in sections[:16]
+    )
+    assert timeline.groups[1].source_section_ids == tuple(
+        section.section_id for section in sections[16:]
+    )
+
+
 def test_editorial_timeline_batches_reject_global_reordering() -> None:
     sections = _editorial_sections(425)
     authority = _digest("reordered-batch-authority")

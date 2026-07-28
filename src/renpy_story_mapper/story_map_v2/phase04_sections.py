@@ -514,9 +514,25 @@ def validate_editorial_timeline_response(
             raise DerivedSemanticError("editorial group references a foreign source section")
         first_index = indexes[first]
         last_index = indexes[last]
-        if first_index != cursor or last_index < first_index:
-            raise DerivedSemanticError("editorial groups must be contiguous and ordered")
-        members = tuple(sections[first_index : last_index + 1])
+        if required_group_count == EDITORIAL_GROUPS_PER_BATCH:
+            if index == 0:
+                if first_index != 0 or last_index < first_index or last_index >= len(sections) - 1:
+                    raise DerivedSemanticError("editorial groups must be contiguous and ordered")
+                member_first = 0
+            else:
+                if (
+                    index != 1
+                    or first_index > last_index
+                    or last_index != len(sections) - 1
+                    or cursor > last_index
+                ):
+                    raise DerivedSemanticError("editorial groups must be contiguous and ordered")
+                member_first = cursor
+        else:
+            if first_index != cursor or last_index < first_index:
+                raise DerivedSemanticError("editorial groups must be contiguous and ordered")
+            member_first = first_index
+        members = tuple(sections[member_first : last_index + 1])
         if len(members) > EDITORIAL_MAX_SOURCE_SECTIONS_PER_GROUP:
             raise DerivedSemanticError("editorial group exceeds the source-section limit")
         member_ids = tuple(member.section_id for member in members)
