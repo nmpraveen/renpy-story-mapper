@@ -1433,18 +1433,19 @@ Record factual commands, results, counts, heads, elapsed time when useful, and u
 
 ## 11. Current action
 
-Phase 04 is safely stopped at local product checkpoint `2995d99` on
-`codex/m15-phase04-full-game`; draft PR #30 remains open and unmerged. Repository-wide sharded CI
-is already integrated through `8e502e4`. The user-authorized simplicity reset replaces the old
-production-grade contract. The revised contract is at `Revise` and permits only read-only
-inspection and contract correction until one fresh lightweight semantic review records `PASS`.
+Phase 04 is complete and merged through PR #30 at
+`268d30ed15d50136be5a88d464f79adaf7f32f9e`. Its local-only 425-summary checkpoint preserves exact
+mechanics and evidence but does not provide the required story-level information architecture.
+Phase 05 is the one active correction under `docs/milestones/M15_PHASE_05/GOAL.md`; implementation
+waits for its lightweight semantic review to record `PASS`.
 
-After `PASS`, one Orchestra may dispatch at most two implementation workers using the user's
-selected settings for this resumption: `gpt-5.6-sol`, Medium reasoning, and fast mode disabled.
-They must finish the smallest existing backend/API and website seams, run the real MsDenvers
-workflow early after zero-submit preview and exact consent, pause for user review, fix only proven
-blockers, then use one final integrated review, sharded CI once, and one Release/package gate. Do
-not revive old Phase 04 production requirements, Stage H/E, PR #26, Phase 05, or M14.
+After `PASS`, one Orchestra may run the two bounded implementation threads already selected by the
+user: local-AI editorial grouping/Python validation and the scrolling timeline browser composition.
+Workers and reviewers use explicit `gpt-5.6-sol` with Ultra reasoning; the task API has no
+fast-mode selector, so fast mode remains unavailable/unverified. Run the real MsDenvers timeline
+early, pause for the user's usefulness verdict, fix only demonstrated comprehension blockers, then
+use one final integrated review, sharded CI once, and one Release/package gate. Do not revive old
+Phase 04 production requirements, Stage H/E, PR #26, or M14.
 
 ### Historical pre-reset current action
 
