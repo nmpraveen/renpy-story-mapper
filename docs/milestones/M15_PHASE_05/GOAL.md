@@ -1,6 +1,6 @@
 # M15.1 Phase 05 - Whole-story extraction and readable timeline
 
-Status: Semantic review
+Status: In progress (one-slice Ren'Py extraction gate)
 
 Scope authority: `docs/MASTER_PLAN.md`, M15 / M15.1 semantic Story Map correction
 
@@ -83,7 +83,7 @@ succeeds.
 
 | Criterion | Evidence required | Result / durable location |
 |---|---|---|
-| 1 | SDK/version discovery, input comparison, disposable-copy path, and original-input fingerprints | Pending |
+| 1 | SDK/version discovery, input comparison, disposable-copy path, and original-input fingerprints | Discovery: the trusted distribution bundles matching Ren'Py 8.5.3; its CLI requires a project root with `game/`, not a lone `.rpy` argument. Disposable-copy execution and before/after fingerprints are pending |
 | 2 | One label-sized Ren'Py/Python comparison with private prose omitted from reports | Pending |
 | 3 | Local-only audit transcript/receipt for the real and deliberately incomplete comparisons | Pending |
 | 4 | Full-game extraction counts, coverage grades, and regenerated artifact identity | Pending; blocked on criteria 1-3 |

@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-28 (Phase 05 extraction-first contract in semantic review)
+Updated: 2026-07-28 (Phase 05 extraction-first implementation)
 
 `docs/MASTER_PLAN.md` owns product scope. This file owns the operational pointer to one explicit milestone contract. Milestone-local files own acceptance and evidence.
 
@@ -14,9 +14,9 @@ Updated: 2026-07-28 (Phase 05 extraction-first contract in semantic review)
 - Planning rules: [`docs/MILESTONE_PLANNING_RULES.md`](MILESTONE_PLANNING_RULES.md).
 - Integration branch: `codex/m15-phase05-story-timeline`.
 - Baseline: merged `main` / PR #30 merge commit `268d30ed15d50136be5a88d464f79adaf7f32f9e`.
-- Status: Semantic review. The user rejected 425/425 as whole-game proof, explicitly allowed
-  trusted Ren'Py execution, and approved an extraction-first correction. Product-code changes are
-  gated on a fresh semantic `PASS`.
+- Status: In progress at the one-slice Ren'Py extraction gate. The corrected contract advanced
+  through `Ready` after a fresh semantic `PASS`; no summary regeneration or UI work may begin
+  before the real slice earns `PASS`.
 - Phase 04 result: 425 accepted local-model summaries, zero failed jobs and zero cloud story AI,
   with deterministic choices, routes, state, rejoins, endings, Path, and Detail/Evidence preserved.
   PR #30 is merged. Its primary reader remains a 425-section lookup interface and therefore does
@@ -24,8 +24,9 @@ Updated: 2026-07-28 (Phase 05 extraction-first contract in semantic review)
 - Phase 05 baseline: the accepted summaries feed 24 ordered local-AI major-event groups and a
   scrolling vertical timeline, but the groups only cover the incomplete 425-section projection.
   They are reusable UI/editorial work, not whole-game narrative evidence.
-- Semantic review: prior `PASS` at `803f94e` is superseded; fresh Sol/High review is pending for
-  the extraction-first contract.
+- Semantic review: fresh `PASS` at exact head `17f8400b089f7bf7cb3004058d14a961720b998c`
+  from `/root/phase05_extraction_semantic_review`, with P0=P1=P2=0. The prior `803f94e` review is
+  superseded.
 - Integrated source head: `00a9762`; acceptance-evidence checkpoint: `d93c82a`.
 - Strict real-game evidence: generation `5daf4e7e...bab7857` has exact 425/425 chronological
   coverage, 24 groups whose published spans/titles/summaries match the accepted local-AI outputs,
@@ -35,6 +36,9 @@ Updated: 2026-07-28 (Phase 05 extraction-first contract in semantic review)
 - Native Codex goal: active on resumed Orchestra task
   `019fa621-c148-7652-8b69-76c9e148d4fd`, with the revised whole-story extraction and readable
   timeline done condition.
+- Ren'Py discovery: the trusted whole-game distribution bundles matching Ren'Py 8.5.3. The CLI
+  accepts a project root containing `game/`, not a lone `.rpy` path. A disposable Day 1 project is
+  the smoke input; matching `scripts.rpa` plus `extras.rpa` are the meaningful whole-game oracle.
 - Settings: completed implementation workers and the early reviewer used explicit `gpt-5.6-sol`
   with Ultra reasoning. Per the user's latest instruction, every new worker/reviewer uses explicit
   `gpt-5.6-sol` with High reasoning; no new Ultra task may be dispatched. The task API has no
