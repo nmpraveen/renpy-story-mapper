@@ -566,7 +566,11 @@ def validate_editorial_timeline_response(
     if grouped_sources != source_ids or grouped_events != source_events:
         raise DerivedSemanticError("editorial grouping changed source coverage or chronology")
     title = _string(value["title"], "editorial timeline title", maximum=80)
-    overview = _string(value["summary"], "editorial timeline overview", maximum=800)
+    overview = (
+        groups[0].summary
+        if required_group_count == EDITORIAL_GROUPS_PER_BATCH
+        else _string(value["summary"], "editorial timeline overview", maximum=800)
+    )
     return _make_editorial_timeline(authority_identity, title, overview, tuple(groups))
 
 

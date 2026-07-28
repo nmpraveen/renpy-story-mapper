@@ -316,6 +316,38 @@ def test_editorial_batch_preserves_a_normal_complete_group_summary() -> None:
     assert timeline.groups[0].summary == summary
 
 
+def test_editorial_batch_derives_its_discarded_overview_from_validated_groups() -> None:
+    sections = _editorial_sections(2)
+    payload = json.loads(_editorial_payload(sections, ((0, 0), (1, 1))))
+    wrapper = ("A discarded batch wrapper. " + ("w" * 600))[:599] + " "
+    payload["summary"] = wrapper
+
+    timeline = validate_editorial_timeline_response(
+        sections,
+        _digest("discarded-editorial-wrapper-authority"),
+        canonical_json(payload),
+        required_group_count=2,
+    )
+
+    assert len(wrapper) == 600
+    assert timeline.overview == timeline.groups[0].summary
+
+
+def test_unbatched_editorial_overview_remains_strict() -> None:
+    sections = _editorial_sections(12)
+    payload = json.loads(
+        _editorial_payload(sections, tuple((index, index) for index in range(12)))
+    )
+    payload["summary"] = str(payload["summary"]) + " "
+
+    with pytest.raises(DerivedSemanticError, match="editorial timeline overview"):
+        validate_editorial_timeline_response(
+            sections,
+            _digest("strict-editorial-overview-authority"),
+            canonical_json(payload),
+        )
+
+
 def test_editorial_batch_rejects_a_group_without_one_complete_sentence() -> None:
     sections = _editorial_sections(2)
     payload = json.loads(_editorial_payload(sections, ((0, 0), (1, 1))))
