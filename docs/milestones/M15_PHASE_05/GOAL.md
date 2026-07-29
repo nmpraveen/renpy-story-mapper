@@ -1,6 +1,6 @@
 # M15.1 Phase 05 - Progressive state-aware story timeline
 
-Status: Terrance proof accepted; whole-game structure coverage complete; summaries pending
+Status: Terrance proof, whole-game structure, and first-10 AI canary complete
 
 ## User outcome
 
@@ -103,6 +103,6 @@ family-tree relationships.
 
 ## Handoff
 
-The Terrance acceptance gate and graph-backed whole-game structure coverage are complete. Continue
-next with the first-10 AI-summary canary; Phase 05 remains active until the coherent whole-game
-timeline is delivered.
+The Terrance acceptance gate, graph-backed whole-game structure coverage, and first-10 AI-summary
+canary are complete. Correct the three identified packet-shape issues, then parallelize the
+remaining summaries; Phase 05 remains active until the coherent whole-game timeline is delivered.

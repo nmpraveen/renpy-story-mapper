@@ -14,7 +14,7 @@
 | Build the Terrance family-tree reader | Complete | Colored sibling forks, content-sized boxes, full-width owned descendants, labeled multi-route handoffs, expandable detail, and no 1920px page overflow |
 | User review of corrected Terrance proof | Complete | User accepted the family-tree reader after the content-sized box correction |
 | Walk the full game | Complete | 149/149 labels accounted; 134 reachable, 15 unreachable, and 6 reachable unresolved mechanics explicit |
-| Validate first 10 bulk summaries | Pending | Ten inspected useful results before parallel expansion |
+| Validate first 10 bulk summaries | Complete | 10/10 fidelity PASS; 7 packet shapes PASS and 3 PARTIAL with bounded cleanup identified |
 | Parallelize remaining summaries | Pending | Roughly equal work across three or four user-visible Sol/High sidebar tasks; no subagent substitution |
 | Publish and inspect full desktop timeline | Pending | Correct story order, branches, conditions, state links, rejoins, and endings |
 
