@@ -265,7 +265,11 @@ def _project_reader_page(
                     ),
                     "effects": trace["effects"],
                     "destination_id": target,
-                    "rejoin_node_id": trace["boundary_id"],
+                    "rejoin_node_id": (
+                        f"story:{trace['boundary_title']}"
+                        if trace["boundary_title"]
+                        else trace["boundary_id"]
+                    ),
                     "rejoin_line": trace["boundary_line"],
                     "reachability": "reachable",
                     "warnings": [],
@@ -424,7 +428,7 @@ def _trace_arm(
     story_material: list[str] = []
     corridor_material: list[str] = []
     effects: list[str] = []
-    boundaries: list[tuple[str, int]] = []
+    boundaries: list[tuple[str, int, str]] = []
     while pending:
         node_id = pending.popleft()
         if node_id in seen or node_id not in nodes or node_id in choice_ids:
@@ -443,15 +447,22 @@ def _trace_arm(
             story_material.append(_text(node.get("title"), f"{kind} title"))
         elif kind in {"rejoin", "terminal", "unresolved"}:
             source = _mapping(node.get("source"), "boundary source")
-            boundaries.append((node_id, _integer(source.get("start_line"), "boundary line")))
-            story_material.append(_text(node.get("title"), "boundary title"))
+            current_boundary_title = _text(node.get("title"), "boundary title")
+            boundaries.append(
+                (
+                    node_id,
+                    _integer(source.get("start_line"), "boundary line"),
+                    current_boundary_title,
+                )
+            )
+            story_material.append(current_boundary_title)
             continue
         pending.extend(
             _text(edge.get("target"), "walk edge target")
             for edge in outgoing.get(node_id, ())
         )
-    boundary_id, boundary_line = (
-        min(boundaries, key=lambda item: item[1]) if boundaries else (None, None)
+    boundary_id, boundary_line, boundary_title = (
+        min(boundaries, key=lambda item: item[1]) if boundaries else (None, None, None)
     )
     material: list[str] = []
     for item in story_material:
@@ -468,6 +479,7 @@ def _trace_arm(
         "effects": list(dict.fromkeys(effects)),
         "boundary_id": boundary_id,
         "boundary_line": boundary_line,
+        "boundary_title": boundary_title,
     }
 
 

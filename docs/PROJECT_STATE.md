@@ -8,7 +8,7 @@ Updated: 2026-07-28
 - Contract: [`docs/milestones/M15_PHASE_05/GOAL.md`](milestones/M15_PHASE_05/GOAL.md).
 - Task ledger: [`docs/milestones/M15_PHASE_05/TASKS.md`](milestones/M15_PHASE_05/TASKS.md).
 - Branch: `codex/m15-phase05-story-timeline`.
-- Status: correcting the Terrance proof into a vertical outline with concrete expandable story.
+- Status: corrected Terrance proof is rendered and awaiting user acceptance.
 - Native Codex goal: none.
 
 ## Current product decision
@@ -26,9 +26,10 @@ Build the story progressively from actual Ren'Py execution flow and state:
 The first proof is the Terrance route. Full-game processing waits until that rendered section is
 useful to the user.
 
-The current correction replaces the card wall with a compact vertical branch outline. Each node
-opens concrete story detail inline, while variables, reachability, source lines, and evidence remain
-inside a separate technical disclosure. The existing structural walk remains authoritative.
+The corrected proof replaces the card wall with a compact vertical branch outline. Each of its 22
+projected arms has a short initial summary and concrete story detail that opens inline. Proven Lois
+rejoins are visible, while variables, reachability, source lines, and evidence remain inside a
+separate technical disclosure. The existing 66-node, 75-edge structural walk remains authoritative.
 
 ## User-selected operating rules
 

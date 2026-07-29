@@ -254,6 +254,12 @@ def test_story_map_contract_accepts_nested_local_choices_and_rejects_duplicate_t
       import {{ assertStoryMapV2 }} from {json.dumps(module_uri)};
       const valid = {json.dumps(page)};
       const accepted = assertStoryMapV2(valid);
+      const enriched = structuredClone(valid);
+      enriched.sections[0].events[0].outline_summary = "Wanda decides whether to continue.";
+      enriched.sections[0].events[0].detail_summary = "Wanda considers the meeting and its consequences.";
+      enriched.sections[0].events[0].choices[0].arms[0].outline_summary = "She takes the direct route.";
+      enriched.sections[0].events[0].choices[0].arms[0].detail_summary = "She follows the direct route until the paths meet again.";
+      const enrichedAccepted = assertStoryMapV2(enriched);
       const duplicate = structuredClone(valid);
       duplicate.sections[0].events[0].choices[0].arms[1].selection_id = "arm-bridge";
       duplicate.sections[0].events[0].choices[0].arms[1].binding.selection_id = "arm-bridge";
@@ -319,6 +325,7 @@ def test_story_map_contract_accepts_nested_local_choices_and_rejects_duplicate_t
       }}
       process.stdout.write(JSON.stringify({{
         status: accepted.status,
+        enrichedOutline: enrichedAccepted.sections[0].events[0].outline_summary,
         event: accepted.sections[0].events[0].selection_id,
         nested: accepted.sections[0].events[0].choices[0].arms[1].nested_choices[0].key,
         continuation: accepted.sections[0].events[0].choices[0].arms[1].rejoin_binding.selection_id,
@@ -340,6 +347,7 @@ def test_story_map_contract_accepts_nested_local_choices_and_rejects_duplicate_t
     )
     assert json.loads(completed.stdout) == {
         "status": "fallback",
+        "enrichedOutline": "Wanda decides whether to continue.",
         "event": "event-departure",
         "nested": "nested-choice",
         "continuation": "story-map-v2-continuation:c2cdc2d22eefd73445bb724831489c2d55b7b3b450e55408c4369396980f487a",

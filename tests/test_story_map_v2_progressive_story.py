@@ -286,6 +286,7 @@ def test_progressive_terrance_walk_preserves_real_nesting_and_rejoin(tmp_path) -
             "Wanda eventually leaves Terrance behind.",
             "Lois continuation",
         ]
+        assert do_nothing["rejoin_node_id"] == "story:Lois continuation"
         assert project.payload("story_map_v2", "phase05_progressive") == page
     finally:
         project.close()

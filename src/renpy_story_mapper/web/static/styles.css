@@ -250,23 +250,29 @@ button:disabled { cursor: default; opacity: .45; }
 .story-path-analysis-notes .story-witness-group { margin-top: .45rem; border-top: 0; padding-top: .25rem; }
 .story-path-analysis-notes .story-path-steps { margin-bottom: 0; }
 .story-event-select[aria-selected="true"], .story-arm-select[aria-selected="true"], .story-continuation-select[aria-selected="true"] { outline: 3px solid var(--focus); outline-offset: 2px; background: var(--accent-soft); }
+.story-browser.is-progressive-story .story-hero { align-items: center; padding: clamp(1.25rem, 2.5vw, 2.25rem) 0 clamp(1rem, 2vw, 1.5rem); }
+.story-browser.is-progressive-story .story-hero h1 { max-width: 24ch; font-size: clamp(2.1rem, 4vw, 3.5rem); line-height: 1; }
+.story-browser.is-progressive-story .story-overview { max-width: 68rem; font-size: clamp(1rem, 1.4vw, 1.15rem); }
 .story-browser.is-progressive-story .story-reader-shell { gap: 1rem; padding-top: 1.25rem; }
 .story-browser.is-progressive-story .story-section { border: 0; background: transparent; padding: 0; box-shadow: none; }
 .story-browser.is-progressive-story .story-section::before { display: none; }
 .story-browser.is-progressive-story .story-events { margin-top: 0; }
 .story-browser.is-progressive-story .story-event { border-top: 0; padding-top: .55rem; }
 .story-browser.is-progressive-story .story-event-number { top: .35rem; }
-.story-browser.is-progressive-story .story-choice { position: relative; margin-top: .75rem; border-left: 0; background: transparent; padding: 0 0 0 1.15rem; }
+.story-browser.is-progressive-story .story-choice { position: relative; margin-top: .75rem; border-left: 0; background: transparent; padding: 0 0 0 .8rem; }
 .story-browser.is-progressive-story .story-choice::before { position: absolute; top: .45rem; bottom: .65rem; left: .15rem; width: 2px; background: var(--accent); content: ""; opacity: .55; }
 .story-browser.is-progressive-story .story-choice.nested { margin-top: .7rem; border-left: 0; background: transparent; }
 .story-browser.is-progressive-story .story-choice.nested::before { border-left: 2px dotted var(--rule-strong); background: transparent; }
 .story-browser.is-progressive-story .story-choice-label { margin-bottom: .4rem; }
-.story-browser.is-progressive-story .story-arms { position: relative; gap: .45rem; padding-left: 1.15rem; }
-.story-browser.is-progressive-story .story-arm { position: relative; border: 1px solid var(--rule); border-radius: .2rem; padding: .45rem .6rem; box-shadow: none; }
-.story-browser.is-progressive-story .story-arm::before { position: absolute; top: 1rem; left: -1.15rem; width: 1.15rem; height: 1px; background: var(--accent); content: ""; opacity: .65; }
+.story-browser.is-progressive-story .story-arms { position: relative; gap: .45rem; padding-left: .9rem; }
+.story-browser.is-progressive-story .story-arm { position: relative; border: 0; border-radius: 0; background: transparent; padding: 0; box-shadow: none; }
+.story-browser.is-progressive-story .story-arm::before { position: absolute; top: 1rem; left: -.9rem; width: .9rem; height: 1px; background: var(--accent); content: ""; opacity: .65; }
 .story-browser.is-progressive-story .story-event-head, .story-browser.is-progressive-story .story-arm-head { grid-template-columns: minmax(0, 1fr); }
+.story-browser.is-progressive-story .story-arm-head { border: 1px solid var(--rule); border-radius: .2rem; background: color-mix(in srgb, var(--sheet) 84%, var(--paper)); padding: .1rem .2rem; }
+.story-browser.is-progressive-story .story-arm[aria-current="true"] { box-shadow: none; }
+.story-browser.is-progressive-story .story-arm[aria-current="true"] > .story-arm-head { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .story-browser.is-progressive-story .story-event-select, .story-browser.is-progressive-story .story-arm-select { padding: .35rem .4rem; }
-.story-browser.is-progressive-story .story-inline-detail { width: 100%; margin-top: .35rem; border-top: 1px solid var(--rule); padding: .6rem .4rem .2rem; }
+.story-browser.is-progressive-story .story-inline-detail { width: 100%; margin-top: 0; border: 1px solid var(--rule); border-top: 0; background: color-mix(in srgb, var(--sheet) 84%, var(--paper)); padding: .65rem .8rem .35rem; }
 .story-inline-summary { max-width: 72rem; margin: 0; color: var(--ink); font-family: Georgia, "Times New Roman", serif; font-size: 1rem; line-height: 1.62; white-space: pre-line; }
 .story-technical-disclosure { margin-top: .65rem; border-top: 1px dashed var(--rule); padding-top: .45rem; color: var(--muted); font-size: 12px; }
 .story-technical-disclosure > summary { cursor: pointer; font-weight: 700; }
