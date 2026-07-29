@@ -21,6 +21,7 @@ from renpy_story_mapper.story_map_v2.durable_repository import (
     StoryMapV2RepositoryError,
     _validate_private_content,
 )
+from renpy_story_mapper.story_map_v2.loopback_transport import LoopbackLmStudioTransport
 from renpy_story_mapper.story_map_v2.phase04_publication import (
     AtomicGenerationPublisher,
     GenerationArtifact,
@@ -31,10 +32,18 @@ from renpy_story_mapper.story_map_v2.phase04_publication import (
     build_generation_artifact,
 )
 from renpy_story_mapper.story_map_v2.phase04_sections import (
+    EDITORIAL_MAX_GROUPS_PER_BATCH,
+    EDITORIAL_MIN_GROUPS_PER_BATCH,
     DerivedSemanticAssembly,
     DerivedSemanticJob,
+    EditorialTimeline,
     assemble_derived_semantics,
     build_derived_semantic_plan,
+    build_editorial_timeline_request,
+    build_editorial_timeline_rollup_request,
+    combine_editorial_timeline_batches,
+    partition_editorial_timeline_sections,
+    validate_editorial_timeline_response,
 )
 from renpy_story_mapper.story_map_v2.phase04_semantics import (
     ExactChoiceOverlay,
@@ -64,12 +73,16 @@ from renpy_story_mapper.story_map_v2.workflow_contracts import (
     WorkflowStatus,
     workflow_digest,
 )
-from renpy_story_mapper.story_map_v2.workflow_protocols import ProviderFactory
+from renpy_story_mapper.story_map_v2.workflow_protocols import (
+    ProviderFactory,
+    WorkflowProviderError,
+)
 from renpy_story_mapper.story_map_v2.workflow_repository_adapter import (
     DurableWorkflowRepositoryAdapter,
 )
 
 _PAGE_ITEMS = 30
+_CHOICE_TITLE_MAX_CHARS = 160
 ProjectOpener = Callable[[Path], AbstractContextManager[ProductWorkflowProject]]
 
 
@@ -82,6 +95,7 @@ def execute_product_vertical(
     authority_graph: CanonicalGraph,
     cloud_factory: ProviderFactory | None = None,
     loopback_factory: ProviderFactory | None = None,
+    use_editorial_timeline: bool = False,
 ) -> None:
     """Execute approved work, assemble accepted prose/fallbacks, and publish one map."""
 
@@ -122,9 +136,7 @@ def execute_product_vertical(
         generation_id = _generation_id("complete", prepared, semantic)
         derived = assemble_derived_semantics(semantic_plan, semantic, generation_id)
         local_mapping_only = prepared.policy.cloud.mode is ProviderMode.LOOPBACK
-        if terminal_fallback or local_mapping_only:
-            # One local mapping summary already covers every frozen story chunk. Keep the local
-            # product path to that user-approved finite batch and assemble its hierarchy in Python.
+        if terminal_fallback:
             _publish_generation(
                 project,
                 prepared,
@@ -132,6 +144,29 @@ def execute_product_vertical(
                 derived,
                 generation_id,
                 authority_graph=authority_graph,
+            )
+            return
+        if local_mapping_only or use_editorial_timeline:
+            editorial_factory = loopback_factory if local_mapping_only else cloud_factory
+            if use_editorial_timeline and not local_mapping_only and editorial_factory is None:
+                raise ValueError("cloud editorial timeline requires a provider factory")
+            timeline = _editorial_timeline(
+                derived,
+                prepared.plan.authority_identity.value,
+                editorial_factory,
+            )
+            if timeline is None:
+                return
+            generation_id = _generation_id(f"editorial-{timeline.identity}", prepared, semantic)
+            derived = assemble_derived_semantics(semantic_plan, semantic, generation_id)
+            _publish_generation(
+                project,
+                prepared,
+                semantic,
+                derived,
+                generation_id,
+                authority_graph=authority_graph,
+                timeline=timeline,
             )
             return
 
@@ -211,11 +246,7 @@ def project_workflow_reader_status(
     """Plain provider-free status projection for the existing durable reader."""
 
     descriptor = generation.descriptor
-    run_id = (
-        descriptor.get("workflow_run_id")
-        if isinstance(descriptor, Mapping)
-        else None
-    )
+    run_id = descriptor.get("workflow_run_id") if isinstance(descriptor, Mapping) else None
     if not isinstance(run_id, str):
         run_id = generation.run_id
     adapter = DurableWorkflowRepositoryAdapter(repository)
@@ -239,6 +270,42 @@ def project_workflow_reader_status(
                 "retry_approval_required": False,
             },
         }
+    recovery = (
+        descriptor.get("reader_manifest", {}).get("mapping_recovery")
+        if isinstance(descriptor, Mapping)
+        and isinstance(descriptor.get("reader_manifest"), Mapping)
+        else None
+    )
+    if (
+        isinstance(recovery, Mapping)
+        and generation.kind.value == GenerationKind.COMPLETE.value
+        and (active_status is None or active_status.run_id == run_id)
+        and all(
+            type(recovery.get(field)) is int and recovery[field] >= 0
+            for field in (
+                "completed_jobs",
+                "total_jobs",
+                "failed_jobs",
+                "indeterminate_jobs",
+            )
+        )
+        and recovery["completed_jobs"] <= recovery["total_jobs"]
+    ):
+        return {
+            "run_id": run_id,
+            "state": "complete",
+            "coverage": {
+                "completed_chunks": recovery["completed_jobs"],
+                "total_chunks": recovery["total_jobs"],
+                "event_fraction": 1.0,
+            },
+            "progress": dict(recovery),
+            "actions": {
+                "can_cancel": False,
+                "can_resume": False,
+                "retry_approval_required": False,
+            },
+        }
     total = (
         status.pending_jobs
         + status.active_jobs
@@ -248,10 +315,7 @@ def project_workflow_reader_status(
         + status.indeterminate_jobs
     )
     finished = status.accepted_jobs + status.structural_fallback_jobs
-    complete = (
-        status.run_id == run_id
-        and generation.kind.value == GenerationKind.COMPLETE.value
-    )
+    complete = status.run_id == run_id and generation.kind.value == GenerationKind.COMPLETE.value
     return {
         "run_id": status.run_id,
         "state": "complete" if complete else "building",
@@ -293,11 +357,7 @@ def load_product_workflow(
 
     adapter = DurableWorkflowRepositoryAdapter.from_project(project)
     preview = adapter.load_preview(run_id)
-    primary = (
-        preview.policy.cloud
-        if preview.policy.cloud.mode is ProviderMode.LOOPBACK
-        else None
-    )
+    primary = preview.policy.cloud if preview.policy.cloud.mode is ProviderMode.LOOPBACK else None
     prepared = prepare_product_workflow_from_authority(
         authority_graph,
         scene_model,
@@ -332,10 +392,7 @@ def _terminal_indeterminate_fallback(status: WorkflowStatus) -> bool:
         and status.active_jobs == 0
         and status.resumable_jobs == 0
         and len(status.indeterminate_retries) == status.indeterminate_jobs
-        and all(
-            item.call_kind is ProviderCallKind.MAPPING
-            for item in status.indeterminate_retries
-        )
+        and all(item.call_kind is ProviderCallKind.MAPPING for item in status.indeterminate_retries)
     )
 
 
@@ -352,6 +409,74 @@ def _semantic_assembly(
         prepared.frozen_plans.story_chunk_plan,
         payloads,
     )
+
+
+def _editorial_timeline(
+    derived: DerivedSemanticAssembly,
+    authority_identity: str,
+    provider_factory: ProviderFactory | None,
+) -> EditorialTimeline | None:
+    try:
+        provider = (provider_factory or LoopbackLmStudioTransport)()
+        batches = partition_editorial_timeline_sections(derived.sections)
+    except (ValueError, WorkflowProviderError):
+        return None
+
+    if len(batches) == 1:
+        try:
+            result = provider.submit(
+                build_editorial_timeline_request(batches[0], authority_identity)
+            )
+            return validate_editorial_timeline_response(
+                batches[0], authority_identity, result.payload
+            )
+        except (ValueError, WorkflowProviderError):
+            return None
+
+    timelines: list[EditorialTimeline] = []
+    failed = False
+    for batch in batches:
+        try:
+            result = provider.submit(
+                build_editorial_timeline_request(
+                    batch,
+                    authority_identity,
+                    group_count_bounds=(
+                        EDITORIAL_MIN_GROUPS_PER_BATCH,
+                        EDITORIAL_MAX_GROUPS_PER_BATCH,
+                    ),
+                )
+            )
+            timelines.append(
+                validate_editorial_timeline_response(
+                    batch,
+                    authority_identity,
+                    result.payload,
+                    group_count_bounds=(
+                        EDITORIAL_MIN_GROUPS_PER_BATCH,
+                        EDITORIAL_MAX_GROUPS_PER_BATCH,
+                    ),
+                )
+            )
+        except (ValueError, WorkflowProviderError):
+            failed = True
+
+    if failed:
+        return None
+
+    try:
+        groups = tuple(group for timeline in timelines for group in timeline.groups)
+        rollup = provider.submit(
+            build_editorial_timeline_rollup_request(groups, authority_identity)
+        )
+        return combine_editorial_timeline_batches(
+            derived.sections,
+            authority_identity,
+            timelines,
+            rollup.payload,
+        )
+    except (ValueError, WorkflowProviderError):
+        return None
 
 
 def _published_payloads(
@@ -378,9 +503,7 @@ def _register_job(
     from renpy_story_mapper.story_map_v2.phase04_sections import DerivedSemanticJob
     from renpy_story_mapper.story_map_v2.workflow_service import StoryMapWorkflowService
 
-    if not isinstance(service, StoryMapWorkflowService) or not isinstance(
-        job, DerivedSemanticJob
-    ):
+    if not isinstance(service, StoryMapWorkflowService) or not isinstance(job, DerivedSemanticJob):
         raise TypeError("unsupported derived workflow composition")
     durable_job = adapt_derived_semantic_job(prepared, job)
     materializer.register(durable_job.serialized_request_identity, job.request)
@@ -415,6 +538,7 @@ def _publish_generation(
     generation_id: str,
     *,
     authority_graph: CanonicalGraph,
+    timeline: EditorialTimeline | None = None,
 ) -> None:
     repository = project.story_map_v2_repository()
     graph = authority_graph
@@ -433,7 +557,7 @@ def _publish_generation(
         path_facts=path_facts,
         immediately_previous=previous,
     )
-    complete = replace(complete, reader_manifest=_reader_manifest(complete, semantic))
+    complete = replace(complete, reader_manifest=_reader_manifest(complete, semantic, timeline))
 
     build_id = _generation_id("build", prepared, semantic)
     build_derived = assemble_derived_semantics(
@@ -452,16 +576,16 @@ def _publish_generation(
         path_facts=path_facts,
         immediately_previous=previous,
     )
-    build = replace(build, reader_manifest=_reader_manifest(build, semantic))
+    build = replace(build, reader_manifest=_reader_manifest(build, semantic, timeline))
     publisher = AtomicGenerationPublisher(generation_repository)
 
     generation_repository.create_generation(build.durable_descriptor())
-    _store_reader_material(repository, build, prepared, semantic, graph)
+    _store_reader_material(repository, build, prepared, semantic, graph, timeline)
     active = repository.generation_pointers().active_build_generation
     publisher.activate_progressive(build, expected_active_generation_id=active)
 
     generation_repository.create_generation(complete.durable_descriptor())
-    _store_reader_material(repository, complete, prepared, semantic, graph)
+    _store_reader_material(repository, complete, prepared, semantic, graph, timeline)
     publisher.publish_complete(complete, expected_active_generation_id=build_id)
 
 
@@ -499,8 +623,12 @@ def _previous_path_facts(
 def _reader_manifest(
     artifact: GenerationArtifact,
     semantic: SemanticAssembly,
+    timeline: EditorialTimeline | None = None,
 ) -> Mapping[str, object]:
     event_by_id = {event.event_id: event for event in semantic.events}
+    visible_sections = artifact.sections if timeline is None else timeline.sections
+    overview_title = artifact.title if timeline is None else timeline.title
+    overview_summary = artifact.overview if timeline is None else timeline.overview
     sections: list[dict[str, object]] = [
         {
             "id": section.section_id,
@@ -513,29 +641,33 @@ def _reader_manifest(
             "is_new": False,
             "new_facts": [],
         }
-        for order, section in enumerate(artifact.sections)
+        for order, section in enumerate(visible_sections)
     ]
     choices = sum(len(chunk.choices) for chunk in semantic.chunks)
     arms = sum(len(choice.arm_orders) for chunk in semantic.chunks for choice in chunk.choices)
-    endings = sum(
-        "terminal" in event.structural_flags for event in event_by_id.values()
-    )
-    landmarks = [
-        {
-            "kind": "route",
-            "id": section.route_owner,
-            "section_id": section.section_id,
-            "selection_id": section.event_ids[0],
-            "title": section.route_owner,
-        }
-        for section in artifact.sections
-        if section.route_owner is not None
-    ]
+    endings = sum("terminal" in event.structural_flags for event in event_by_id.values())
+    landmarks: list[dict[str, object]] = []
+    seen_routes: set[str] = set()
+    for section in visible_sections:
+        for event_id in section.event_ids:
+            route_id = event_by_id[event_id].route_owner
+            if not route_id or route_id in seen_routes:
+                continue
+            seen_routes.add(route_id)
+            landmarks.append(
+                {
+                    "kind": "route",
+                    "id": route_id,
+                    "section_id": section.section_id,
+                    "selection_id": event_id,
+                    "title": route_id,
+                }
+            )
     return {
         "status": "complete" if artifact.kind is GenerationKind.COMPLETE else "building",
-        "overview": {"title": artifact.title, "summary": artifact.overview},
+        "overview": {"title": overview_title, "summary": overview_summary},
         "counts": {
-            "sections": len(artifact.sections),
+            "sections": len(visible_sections),
             "events": len(event_by_id),
             "choices": choices,
             "arms": arms,
@@ -563,18 +695,16 @@ def _store_reader_material(
     prepared: PreparedProductWorkflow,
     semantic: SemanticAssembly,
     graph: CanonicalGraph,
+    timeline: EditorialTimeline | None = None,
 ) -> None:
     events = {event.event_id: event for event in semantic.events}
     placements = {
         placement.id: placement for placement in prepared.frozen_plans.story_plan.placements
     }
-    choices = {
-        choice.choice_key: choice
-        for chunk in semantic.chunks
-        for choice in chunk.choices
-    }
+    choices = {choice.choice_key: choice for chunk in semantic.chunks for choice in chunk.choices}
     emitted_choices: set[str] = set()
-    for section in artifact.sections:
+    visible_sections = artifact.sections if timeline is None else timeline.sections
+    for section in visible_sections:
         items: list[dict[str, object]] = []
         section_choice_keys: list[str] = []
         for event_id in section.event_ids:
@@ -588,7 +718,12 @@ def _store_reader_material(
                     _event_effects(graph, event, placements),
                 )
             )
-            for choice_key in placement.choice_keys:
+            event_choice_keys = dict.fromkeys(
+                choice_key
+                for placement_id in event.placement_ids
+                for choice_key in placements[placement_id].choice_keys
+            )
+            for choice_key in event_choice_keys:
                 choice = choices.get(choice_key)
                 if choice is not None and choice_key not in emitted_choices:
                     items.append(_choice_item(choice, len(items)))
@@ -632,9 +767,7 @@ def _store_reader_material(
             page_ordinal += 1
 
         for choice in (choices[key] for key in section_choice_keys):
-            arm_items, branch_shells = _arm_items(
-                prepared, semantic, choice, placements
-            )
+            arm_items, branch_shells = _arm_items(prepared, semantic, choice, placements)
             page = reader_storage_page(
                 endpoint=BRANCH_PAGE_ENDPOINT,
                 resource_id=choice.choice_key,
@@ -680,6 +813,7 @@ def _event_item(
         "order": order,
         "title": event.title,
         "summary": event.summary,
+        "route_id": event.route_owner,
         "effects": list(effects),
         "selection_id": event.event_id,
         "is_new": False,
@@ -715,17 +849,64 @@ def _event_effects(
 
 def _choice_item(choice: ExactChoiceOverlay, order: int) -> dict[str, object]:
     mechanics = _choice_mechanics(choice)
-    title = mechanics.get("caption")
     return {
         "id": choice.choice_key,
         "kind": "choice",
         "order": order,
-        "title": title if isinstance(title, str) and title else choice.choice_key,
-        "summary": choice.summary,
+        "title": _choice_title(choice, mechanics),
+        "summary": _choice_summary(choice),
         "selection_id": choice.choice_key,
         "is_new": False,
         "new_facts": [],
     }
+
+
+def _choice_title(choice: ExactChoiceOverlay, mechanics: Mapping[str, object]) -> str:
+    raw_arms = mechanics.get("arms")
+    if not isinstance(raw_arms, list):
+        return _bounded_choice_locator(choice.choice_key)
+    captions_by_order: dict[int, str] = {}
+    for raw_arm in raw_arms:
+        if not isinstance(raw_arm, Mapping):
+            continue
+        arm_order = raw_arm.get("order")
+        caption = raw_arm.get("caption")
+        if (
+            type(arm_order) is int
+            and isinstance(caption, str)
+            and caption
+            and caption == caption.strip()
+            and arm_order not in captions_by_order
+        ):
+            captions_by_order[arm_order] = caption
+    if any(arm_order not in captions_by_order for arm_order in choice.arm_orders):
+        return _bounded_choice_locator(choice.choice_key)
+    captions = tuple(captions_by_order[arm_order] for arm_order in choice.arm_orders)
+    title = " / ".join(captions)
+    if len(title) <= _CHOICE_TITLE_MAX_CHARS:
+        return title
+    visible: list[str] = []
+    for caption in captions:
+        candidate = " / ".join((*visible, caption))
+        if len(candidate) > _CHOICE_TITLE_MAX_CHARS:
+            break
+        visible.append(caption)
+    if not visible:
+        return _bounded_choice_locator(choice.choice_key)
+    title = " / ".join(visible)
+    omission = " / …"
+    return title + omission if len(title) + len(omission) <= _CHOICE_TITLE_MAX_CHARS else title
+
+
+def _bounded_choice_locator(locator: str) -> str:
+    if len(locator) <= _CHOICE_TITLE_MAX_CHARS:
+        return locator
+    return locator[: _CHOICE_TITLE_MAX_CHARS - 1] + "…"
+
+
+def _choice_summary(choice: ExactChoiceOverlay) -> str:
+    count = len(choice.arm_orders)
+    return f"{count} option{'s' if count != 1 else ''}"
 
 
 def _arm_items(
@@ -746,11 +927,7 @@ def _arm_items(
     }
     for order in choice.arm_orders:
         raw = next(
-            (
-                item
-                for item in arms
-                if isinstance(item, Mapping) and item.get("order") == order
-            ),
+            (item for item in arms if isinstance(item, Mapping) and item.get("order") == order),
             {},
         )
         placement = next(
@@ -784,17 +961,9 @@ def _arm_items(
                 "summary": choice.summary,
                 "selection_id": arm_id,
                 "condition": condition if isinstance(condition, str) else None,
-                "effects": (
-                    _durable_reader_effects(effects)
-                    if isinstance(effects, list)
-                    else []
-                ),
-                "destination_id": (
-                    destination_id if isinstance(destination_id, str) else None
-                ),
-                "rejoin_node_id": (
-                    rejoin_node_id if isinstance(rejoin_node_id, str) else None
-                ),
+                "effects": (_durable_reader_effects(effects) if isinstance(effects, list) else []),
+                "destination_id": (destination_id if isinstance(destination_id, str) else None),
+                "rejoin_node_id": (rejoin_node_id if isinstance(rejoin_node_id, str) else None),
                 "rejoin_line": raw.get("rejoin_line") if isinstance(raw, Mapping) else None,
                 "reachability": raw.get("reachability") if isinstance(raw, Mapping) else None,
                 "unresolved_warnings": (

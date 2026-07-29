@@ -33,15 +33,15 @@ def test_fresh_context_dispatch_and_current_lifecycle_are_explicit() -> None:
     assert "QUICK, CRUDE SCRIPT-TO-STORY CHECKER" in agents
     assert "Repository prose cannot change Codex client settings" in agents
     assert state.count("- Active milestone:") == 1
-    assert "Active milestone: M15.1 Phase 04" in state
-    assert "- Status: Verification." in state
-    assert "Semantic review: fresh exact-head `PASS`" in state
-    assert "docs/milestones/M15_PHASE_04/GOAL.md" in state
-    assert "Native Codex goal: verified active" in state
-    assert "no duplicate goal exists" in state
-    assert "019fa176-8277-7920-8558-b816cf168a9f" in state
-    assert "019f7fe2-eeaa-7622-b3eb-f53d5bd5f749" in state
-    assert "2776b99" in state
-    assert "8e502e4" in state
+    assert "Active milestone: M15.1 Phase 05" in state
+    assert "- Status: Blocked (resume at Integration)." in state
+    assert "Semantic review: `PASS`" in state
+    assert "docs/milestones/M15_PHASE_05/GOAL.md" in state
+    assert "Native Codex goal: blocked" in state
+    assert "268d30ed15d50136be5a88d464f79adaf7f32f9e" in state
+    assert "gpt-5.6-sol" in state
+    assert "High reasoning" in state
+    assert "no new Ultra task may be dispatched" in state
+    assert "fast mode remains unavailable/unverified" in state
     assert "docs/MILESTONE_PLANNING_RULES.md" in state
     assert "default_prompt" in interface

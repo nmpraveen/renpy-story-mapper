@@ -137,7 +137,9 @@ def test_quarantine_rule_does_not_change_direct_or_noncoexisting_archive_behavio
     assert [source.path for source in loose_result.sources] == ["game/story.rpy"]
 
 
-def test_game_folder_metadata_is_persisted_without_entering_story_graph(tmp_path: Path) -> None:
+def test_game_folder_includes_labeled_extras_but_keeps_label_free_metadata_out_of_graph(
+    tmp_path: Path,
+) -> None:
     game = tmp_path / "game"
     game.mkdir()
     (game / "loose_replay.rpy").write_text(
@@ -173,8 +175,10 @@ def test_game_folder_metadata_is_persisted_without_entering_story_graph(tmp_path
             "game/scripts/character_screen.rpy",
         }
         graph = storage.canonical_json(project.payload("m01_graph", "authoritative"))
-        assert b"replay_memory" not in graph
+        assert b"replay_memory" in graph
         assert b"loose_replay_memory" not in graph
+        assert "game/extras/replay.rpy" in project.payload_keys("parsed_source")
+        assert "game/scripts/character_screen.rpy" not in project.payload_keys("parsed_source")
         metadata = project.payload("story_metadata", "authoritative")
         assert isinstance(metadata, dict)
         assert {item["alias"] for item in metadata["characters"]} == {"w"}
@@ -182,7 +186,7 @@ def test_game_folder_metadata_is_persisted_without_entering_story_graph(tmp_path
         scenes = project.presentation_service().view(
             PresentationRequest(PresentationLevel.OVERVIEW)
         ).nodes
-        assert scenes[0].name == "Opening Memory"
+        assert "Opening Memory" in {scene.name for scene in scenes}
         variables = {
             item.original_name: item
             for item in project.presentation_service().state_variables().items

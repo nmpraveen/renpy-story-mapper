@@ -137,6 +137,7 @@ def create_input_project(
     )
     try:
         all_sources = (*result.sources, *result.secondary_sources)
+        story_content = _input_story_content(result, cancel_check)
         fingerprints = tuple(
             SourceFingerprint.from_bytes(
                 source.path,
@@ -148,7 +149,7 @@ def create_input_project(
         story_metadata = _input_story_metadata(result, cancel_check)
         _refresh_open_project(
             project,
-            result.content_by_path,
+            story_content,
             entry_label=entry_label,
             cancel_check=cancel_check,
             source_fingerprints=fingerprints,
@@ -195,6 +196,7 @@ def refresh_input_project(
             "an existing project input is already current and cannot refresh another project"
         )
     all_sources = (*result.sources, *result.secondary_sources)
+    story_content = _input_story_content(result, cancel_check)
     fingerprints = tuple(
         SourceFingerprint.from_bytes(
             source.path,
@@ -219,7 +221,7 @@ def refresh_input_project(
         reused_phases = _coherent_reused_phases(
             original,
             fingerprints,
-            canonical_paths=tuple(sorted(result.content_by_path)),
+            canonical_paths=tuple(sorted(story_content)),
             entry_label=entry_label,
             dependency_hash=dependency_hash,
             story_metadata=story_metadata,
@@ -230,7 +232,7 @@ def refresh_input_project(
             _emit_analysis_progress(progress, "complete", 100)
             return RefreshReport(
                 (),
-                tuple(sorted(result.content_by_path)),
+                tuple(sorted(story_content)),
                 (),
                 (),
                 reused_phases,
@@ -243,7 +245,7 @@ def refresh_input_project(
         try:
             report = _refresh_open_project(
                 staged,
-                result.content_by_path,
+                story_content,
                 entry_label=entry_label,
                 cancel_check=cancel_check,
                 source_fingerprints=fingerprints,
@@ -586,6 +588,23 @@ def _input_story_metadata(result: object, cancel_check: CancelCheck) -> dict[str
                 }
             ],
         }
+
+
+def _input_story_content(
+    result: object, cancel_check: CancelCheck
+) -> dict[str, bytes]:
+    """Include secondary recovered sources only when they define story labels."""
+
+    from renpy_story_mapper.ingestion.contracts import IngestionResult
+
+    if not isinstance(result, IngestionResult):
+        raise TypeError("result must be an IngestionResult")
+    content = result.content_by_path
+    for source in result.secondary_sources:
+        _check_cancelled(cancel_check)
+        if _parse_source(source.path, source.content).labels:
+            content[source.path] = source.content
+    return content
 
 
 def _input_analysis_dependency_hash(

@@ -356,22 +356,32 @@ function readableStrings(value, label, maximum = 64) {
 function storyChoice(value, seenSelections, depth = 0, rejoinSelections = new Map(), budget = { choices: 0, arms: 0 }, continuationBindings = new Map()) {
   const CHOICE_KEYS = ["key", "source", "arms"];
   const ARM_KEYS = ["selection_id", "caption", "outcome_summary", "condition", "effects", "destination_id", "rejoin_node_id", "rejoin_line", "reachability", "warnings", "binding", "rejoin_binding", "nested_choices"];
-  exactKeys(value, CHOICE_KEYS, "Story Map V2 choice");
+  const choiceKeys = [...CHOICE_KEYS];
+  if (Object.hasOwn(value, "control_kind")) choiceKeys.push("control_kind");
+  exactKeys(value, choiceKeys, "Story Map V2 choice");
   if (!object(value) || depth > 8) throw new TypeError("Invalid Story Map V2 choice nesting");
   budget.choices += 1;
   if (budget.choices > 512) throw new RangeError("Story Map V2 choice tree is too large");
   boundedText(value.key, "Story Map V2 choice key", 512);
+  if (Object.hasOwn(value, "control_kind") && !["decision", "condition"].includes(value.control_kind)) throw new TypeError("Invalid Story Map V2 control kind");
   sourceBinding(value.source);
   if (!Array.isArray(value.arms) || !value.arms.length || value.arms.length > 32) throw new TypeError("Invalid Story Map V2 choice arms");
   budget.arms += value.arms.length;
   if (budget.arms > 4096) throw new RangeError("Story Map V2 arm tree is too large");
   value.arms.forEach((arm) => {
-    exactKeys(arm, ARM_KEYS, "Story Map V2 arm");
+    const armKeys = [...ARM_KEYS];
+    if (Object.hasOwn(arm, "outcome_kind")) armKeys.push("outcome_kind");
+    if (Object.hasOwn(arm, "outline_summary")) armKeys.push("outline_summary");
+    if (Object.hasOwn(arm, "detail_summary")) armKeys.push("detail_summary");
+    exactKeys(arm, armKeys, "Story Map V2 arm");
     boundedText(arm.selection_id, "Story Map V2 arm selection", 512);
     if (seenSelections.has(arm.selection_id) || continuationBindings.has(arm.selection_id)) throw new TypeError("Duplicate Story Map V2 selection");
     seenSelections.add(arm.selection_id);
     boundedText(arm.caption, "Story Map V2 arm caption", 2048);
+    if (Object.hasOwn(arm, "outcome_kind") && !["continues", "rejoins", "ends", "unresolved"].includes(arm.outcome_kind)) throw new TypeError("Invalid Story Map V2 outcome kind");
     boundedText(arm.outcome_summary, "Story Map V2 arm summary", 8192, { empty: true });
+    if (Object.hasOwn(arm, "outline_summary")) boundedText(arm.outline_summary, "Story Map V2 arm outline", 8192, { empty: true });
+    if (Object.hasOwn(arm, "detail_summary")) boundedText(arm.detail_summary, "Story Map V2 arm detail", 32768, { empty: true });
     optionalText(arm.condition, "Story Map V2 condition", 4096);
     readableStrings(arm.effects, "Story Map V2 effects");
     for (const key of ["destination_id", "rejoin_node_id"]) if (arm[key] !== null) boundedText(arm[key], `Story Map V2 ${key}`, 512);
@@ -421,12 +431,17 @@ export function assertStoryMapV2(value) {
     if (!Array.isArray(section.events) || !section.events.length || eventCount + section.events.length > 512) throw new TypeError("Invalid Story Map V2 section events");
     eventCount += section.events.length;
     for (const event of section.events) {
-      exactKeys(event, ["selection_id", "title", "summary", "characters", "reachability", "warnings", "binding", "choices"], "Story Map V2 event");
+      const eventKeys = ["selection_id", "title", "summary", "characters", "reachability", "warnings", "binding", "choices"];
+      if (Object.hasOwn(event, "outline_summary")) eventKeys.push("outline_summary");
+      if (Object.hasOwn(event, "detail_summary")) eventKeys.push("detail_summary");
+      exactKeys(event, eventKeys, "Story Map V2 event");
       boundedText(event.selection_id, "Story Map V2 event selection", 512);
       if (selections.has(event.selection_id) || continuationBindings.has(event.selection_id)) throw new TypeError("Duplicate Story Map V2 selection");
       selections.add(event.selection_id);
       boundedText(event.title, "Story Map V2 event title", 512);
       boundedText(event.summary, "Story Map V2 event summary", 8192, { empty: true });
+      if (Object.hasOwn(event, "outline_summary")) boundedText(event.outline_summary, "Story Map V2 event outline", 8192, { empty: true });
+      if (Object.hasOwn(event, "detail_summary")) boundedText(event.detail_summary, "Story Map V2 event detail", 32768, { empty: true });
       readableStrings(event.characters, "Story Map V2 characters");
       readableStrings(event.warnings, "Story Map V2 event warnings");
       if (!["reachable", "unreachable", "unresolved"].includes(event.reachability)) throw new TypeError("Invalid Story Map V2 event reachability");

@@ -140,6 +140,10 @@ from renpy_story_mapper.story_map_v2.product_workflow import (
     persist_product_workflow_preview,
     prepare_product_workflow_from_authority,
 )
+from renpy_story_mapper.story_map_v2.progressive_persistence import (
+    ProgressiveStoryMapPayloadError,
+    load_progressive_story_map,
+)
 from renpy_story_mapper.story_map_v2.reader import (
     DEFAULT_SEARCH_RESULTS,
     DETAIL_PAGE_ENDPOINT,
@@ -1393,19 +1397,24 @@ class ProjectApi:
             exact_fields(body, allowed=STORY_MAP_V2_MAP_REQUEST_FIELDS)
             try:
                 with Project.open(self._project()) as opened_project:
-                    stored = load_story_map_v2_for_current_project(opened_project)
-                    if stored is None:
-                        story_map_v2_page = unavailable_story_map()
-                    else:
-                        projected_page = project_story_map(stored.core, stored.synthesis)
-                        try:
-                            story_map_v2_page = _story_map_navigator(
-                                opened_project,
-                                stored.core,
-                                projected_page,
-                            ).bound_page()
-                        except StoryNavigationAuthorityUnavailableError:
-                            story_map_v2_page = unresolved_navigation_page(projected_page)
+                    try:
+                        story_map_v2_page = load_progressive_story_map(opened_project)
+                    except ProgressiveStoryMapPayloadError:
+                        story_map_v2_page = None
+                    if story_map_v2_page is None:
+                        stored = load_story_map_v2_for_current_project(opened_project)
+                        if stored is None:
+                            story_map_v2_page = unavailable_story_map()
+                        else:
+                            projected_page = project_story_map(stored.core, stored.synthesis)
+                            try:
+                                story_map_v2_page = _story_map_navigator(
+                                    opened_project,
+                                    stored.core,
+                                    projected_page,
+                                ).bound_page()
+                            except StoryNavigationAuthorityUnavailableError:
+                                story_map_v2_page = unresolved_navigation_page(projected_page)
             except (
                 StoryMapV2PersistenceError,
                 StoryNavigationAuthorityUnavailableError,

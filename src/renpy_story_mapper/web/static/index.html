@@ -28,7 +28,7 @@
 
     <main id="main">
       <section id="welcomeView" class="welcome" aria-labelledby="welcomeTitle">
-        <div class="welcome-copy"><p class="eyebrow">Private, evidence-linked cartography</p><h1 id="welcomeTitle">Read the story.<br>Keep its source local.</h1><p>Static analysis traces every route without running game code.</p>
+        <div class="welcome-copy"><p class="eyebrow">Script-to-story timeline</p><h1 id="welcomeTitle">Load a game.<br>Read its story.</h1><p>Follow the story, choices, conditions, routes, and rejoins in one scrolling timeline.</p>
           <div class="welcome-actions" aria-label="Open a story source"><button class="primary-button" type="button" data-open-kind="folder">Open Folder</button><button class="secondary-button" type="button" data-open-kind="archive">Open Archive</button><button class="secondary-button" type="button" data-open-kind="file">Open File</button><button class="secondary-button" type="button" data-open-kind="project">Open Project</button></div>
         </div>
         <section class="recent-section" aria-labelledby="recentTitle"><div class="section-heading"><h2 id="recentTitle">Recent projects</h2><span id="recentCount"></span></div><div id="recentProjects" class="recent-grid"></div></section>
@@ -97,15 +97,15 @@
                   <div class="story-path-actions"><button id="closeStoryPath" class="quiet-button" type="button">Close path</button><button id="returnToStorySelection" class="quiet-button" type="button">Return to selected</button></div>
                 </div>
                 <p id="storyPathSummary" class="story-path-summary" role="status" aria-live="polite"></p>
-                <section id="storyPathChoicesGroup" class="story-witness-group" hidden><h3>Visible choices</h3><ul id="storyPathChoices"></ul></section>
+                <section id="storyPathChoicesGroup" class="story-witness-group" hidden><h3>Selected choices</h3><ul id="storyPathChoices"></ul></section>
                 <section id="storyPathRequirementsGroup" class="story-witness-group" hidden><h3>Requirements</h3><ul id="storyPathRequirements"></ul></section>
                 <section id="storyPathEffectsGroup" class="story-witness-group" hidden><h3>Effects</h3><ul id="storyPathEffects"></ul></section>
-                <h3 class="story-witness-title">Instructions</h3>
-                <ol id="storyPathSteps" class="story-path-steps"></ol>
-                <section id="storyPathUncertaintyGroup" class="story-witness-group story-path-warnings" hidden><h3>Uncertainty</h3><div id="storyPathWarnings"></div></section>
                 <details id="storyPathAnalysisNotes" class="story-path-analysis-notes" hidden>
-                  <summary>Analysis notes</summary>
+                  <summary>Analysis / technical details</summary>
                   <section id="storyPathScenesGroup" class="story-witness-group" hidden><h3>Scene sequence</h3><ul id="storyPathScenes"></ul></section>
+                  <h3 class="story-witness-title">Path steps</h3>
+                  <ol id="storyPathSteps" class="story-path-steps"></ol>
+                  <section id="storyPathUncertaintyGroup" class="story-witness-group story-path-warnings" hidden><h3>Uncertainty</h3><div id="storyPathWarnings"></div></section>
                 </details>
                 <button id="storyDetailAction" class="secondary-button" type="button">Detail / Evidence</button>
               </aside>

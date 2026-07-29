@@ -1,4 +1,4 @@
-# ruff: noqa: E501
+# ruff:file-ignore[line-too-long]
 from __future__ import annotations
 
 import copy
@@ -52,6 +52,259 @@ def _fixture() -> dict[str, Any]:
     return promoted
 
 
+def _grouped_fixture() -> dict[str, Any]:
+    grouped = _fixture()
+    manifest = grouped["examples"]["manifest"]
+    sections = [
+        {
+            "id": f"story-group:{index:02d}",
+            "order": index - 1,
+            "title": f"Major Event {index:02d}",
+            "summary": f"The story advances through major event {index:02d}.",
+            "route_id": None,
+            "status": "complete",
+            "event_count": 3 if index == 1 else 2 if index == 2 else 1,
+            "is_new": False,
+            "new_facts": [],
+        }
+        for index in range(1, 13)
+    ]
+    manifest["overview"] = {
+        "title": "A Grouped Story",
+        "summary": "Twelve major events form one chronological story timeline.",
+    }
+    manifest["sections"] = list(reversed(sections))
+    manifest["counts"].update(
+        sections=12,
+        events=15,
+        choices=1,
+        arms=2,
+        endings=1,
+    )
+    manifest["landmarks"] = [
+        {
+            "kind": "route",
+            "id": "route:a",
+            "section_id": "story-group:01",
+            "selection_id": "arm:a",
+            "title": "Route A",
+        },
+        {
+            "kind": "ending",
+            "id": "ending:shared",
+            "section_id": "story-group:12",
+            "selection_id": "event:ending",
+            "title": "Shared Ending",
+        },
+    ]
+    grouped["examples"]["status"]["coverage"].update(
+        completed_chunks=425,
+        total_chunks=425,
+        event_fraction=1.0,
+    )
+    grouped["examples"]["status"]["progress"].update(
+        completed_jobs=425,
+        total_jobs=425,
+        failed_jobs=0,
+        indeterminate_jobs=0,
+    )
+    grouped["examples"]["path_page"] = {
+        "schema": SCHEMA,
+        "map_revision": 7,
+        "generation_id": "generation:complete:7",
+        "resource_id": "arm:a",
+        "items": [
+            {
+                "id": "path:summary",
+                "kind": "summary",
+                "order": 0,
+                "title": "Route A",
+                "text": "Reach Route A through the opening choice.",
+            },
+            {
+                "id": "path:scene",
+                "kind": "path_step",
+                "order": 1,
+                "title": "Arrival",
+                "value": "Arrival",
+            },
+            {
+                "id": "path:visible-choice",
+                "kind": "path_step",
+                "order": 2,
+                "title": "Visible choice",
+                "value": "Take Route A",
+            },
+            {
+                "id": "path:requirement",
+                "kind": "requirement",
+                "order": 3,
+                "title": "Requirement",
+                "value": {
+                    "expression": "courage > 0",
+                    "source": "route",
+                    "evidence_ids": ["evidence:courage"],
+                },
+            },
+            {
+                "id": "path:effect",
+                "kind": "effect",
+                "order": 4,
+                "title": "Important effect",
+                "value": "Courage +1",
+            },
+            {
+                "id": "path:instruction",
+                "kind": "instruction",
+                "order": 5,
+                "title": "Choice instruction",
+                "value": {
+                    "ordinal": 1,
+                    "kind": "choice",
+                    "text": 'Choose "Take Route A".',
+                },
+            },
+            {
+                "id": "path:technical-instruction",
+                "kind": "instruction",
+                "order": 6,
+                "title": "Technical instruction",
+                "value": {
+                    "ordinal": 2,
+                    "kind": "continue",
+                    "text": "Traverse node 17.",
+                },
+            },
+        ],
+        "shells": [
+            {
+                "id": "shell:path:meaningful",
+                "kind": "path",
+                "item_ids": [
+                    "path:summary",
+                    "path:scene",
+                    "path:visible-choice",
+                    "path:requirement",
+                    "path:effect",
+                    "path:instruction",
+                    "path:technical-instruction",
+                ],
+                "parent_shell_id": None,
+                "route_id": "route:a",
+                "rejoin_selection_id": None,
+            }
+        ],
+        "rendered_item_count": 7,
+        "next_cursor": None,
+    }
+    grouped["examples"]["detail_page"]["rendered_item_count"] = 40
+    return grouped
+
+
+def _grouped_section_page(section_id: str, cursor: str | None = None) -> dict[str, Any]:
+    index = int(section_id.rsplit(":", 1)[1])
+    if index == 1:
+        items = [
+            {
+                "id": "event:intro",
+                "kind": "event",
+                "order": 0,
+                "title": "Arrival",
+                "summary": "The story begins.",
+                "route_id": "route:main",
+                "selection_id": "event:intro",
+                "is_new": False,
+                "new_facts": [],
+            },
+            {
+                "id": "choice:first",
+                "kind": "choice",
+                "order": 1,
+                "title": "Choose a route",
+                "summary": "Pick Route A or Route B.",
+                "selection_id": "choice:first",
+                "is_new": False,
+                "new_facts": [],
+            },
+            {
+                "id": "event:rejoin",
+                "kind": "event",
+                "order": 2,
+                "title": "Paths Rejoin",
+                "summary": "Both outcomes return to the main story.",
+                "selection_id": "event:rejoin",
+                "is_new": False,
+                "new_facts": [],
+            },
+        ]
+        route_id = None
+        rejoin_selection_id = "event:rejoin"
+    elif index == 2 and cursor:
+        items = [
+            {
+                "id": "event:group:02:later",
+                "kind": "event",
+                "order": 1,
+                "title": "Later story beat 02",
+                "summary": "The same major event continues on its existing next page.",
+                "selection_id": "event:group:02:later",
+                "is_new": False,
+                "new_facts": [],
+            }
+        ]
+        route_id = None
+        rejoin_selection_id = None
+    elif index == 12:
+        items = [
+            {
+                "id": "event:ending",
+                "kind": "ending",
+                "order": 0,
+                "title": "Shared Ending",
+                "summary": "The routes reach the same ending.",
+                "selection_id": "event:ending",
+                "is_new": True,
+                "new_facts": [{"kind": "ending", "fact_id": "ending:shared"}],
+            }
+        ]
+        route_id = None
+        rejoin_selection_id = None
+    else:
+        items = [
+            {
+                "id": f"event:group:{index:02d}",
+                "kind": "event",
+                "order": 0,
+                "title": f"Story beat {index:02d}",
+                "summary": f"A subordinate beat inside major event {index:02d}.",
+                "selection_id": f"event:group:{index:02d}",
+                "is_new": False,
+                "new_facts": [],
+            }
+        ]
+        route_id = None
+        rejoin_selection_id = None
+    return {
+        "schema": SCHEMA,
+        "map_revision": 7,
+        "generation_id": "generation:complete:7",
+        "resource_id": section_id,
+        "items": items,
+        "shells": [
+            {
+                "id": f"shell:group:{index:02d}",
+                "kind": "timeline",
+                "item_ids": [item["id"] for item in items],
+                "parent_shell_id": None,
+                "route_id": route_id,
+                "rejoin_selection_id": rejoin_selection_id,
+            }
+        ],
+        "rendered_item_count": len(items),
+        "next_cursor": "cursor:story-group:02:more" if index == 2 and cursor is None else None,
+    }
+
+
 def test_reader_v2_static_contract_and_transport_are_bounded() -> None:
     contract = _text("contract.js")
     api = _text("api.js")
@@ -77,6 +330,32 @@ def test_reader_v2_static_contract_and_transport_are_bounded() -> None:
     assert 'id="storyRunDetails"' in html and 'id="storyRunRows"' in html
     assert "renderStoryWorkflowDetails" in app
     assert "/workflow/approve" not in "\n".join((contract, api, app, html))
+
+
+def test_grouped_reader_static_composition_reuses_reader_v2_contract() -> None:
+    app = _text("app.js")
+    css = _text("styles.css")
+    html = _text("index.html")
+
+    for marker in (
+        "STORY_TIMELINE_MIN_GROUPS = 12",
+        "STORY_TIMELINE_MAX_GROUPS = 30",
+        'section.id.startsWith("story-group:")',
+        "loadStoryReaderTimeline",
+        'element("details", "story-group-details")',
+        '"Show outcomes"',
+        '$("#storyRunDetails").open = false',
+        "selectedStoryChoices",
+    ):
+        assert marker in app
+    assert ".story-browser.is-grouped-timeline .story-sections" in css
+    assert ".story-group-details" in css
+    assert ".story-kind-ending" in css and ".story-rejoin" in css
+    assert "major_groups" not in app
+    details = html[html.index('id="storyRunDetails"') - 40 : html.index('id="storyRunDetails"') + 120]
+    assert "<details" in details and " open" not in details
+    assert "Selected choices" in html and "Analysis / technical details" in html
+    assert "story-map-v2-reader-contract-v3" not in "\n".join((app, css, html))
 
 
 def test_reader_contract_rejects_v1_locate_and_accepts_v2_branch_identity() -> None:
@@ -138,6 +417,7 @@ def test_workflow_contract_accepts_loopback_primary_and_rejects_no_provider() ->
 
 class _ReaderHandler(http.server.BaseHTTPRequestHandler):
     fixture = _fixture()
+    grouped_fixture = _grouped_fixture()
     workflow_fixture = json.loads(WORKFLOW_FIXTURE.read_text(encoding="utf-8"))
     revision = 7
     view_state: dict[str, Any] | None = None
@@ -151,6 +431,7 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
     workflow_status_mode = "complete"
     workflow_local_only = False
     reader_available = True
+    grouped_timeline = False
 
     def log_message(self, _format: str, *args: object) -> None:
         return
@@ -169,6 +450,7 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
         cls.workflow_status_mode = "complete"
         cls.workflow_local_only = False
         cls.reader_available = True
+        cls.grouped_timeline = False
 
     def _at_revision(self, value: Any) -> Any:
         result = copy.deepcopy(value)
@@ -266,7 +548,11 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
         if self.path not in {self.fixture["routes"]["manifest"], self.fixture["routes"]["status"]} and body.get("map_revision") != self.revision:
             self._json({"error": {"code": "stale_map_revision", "message": "The requested map revision is stale."}, "map_revision": self.revision}, status=409)
             return
-        examples = self.fixture["examples"]
+        examples = (
+            self.grouped_fixture["examples"]
+            if type(self).grouped_timeline
+            else self.fixture["examples"]
+        )
         resource = body.get("section_id") or body.get("branch_id") or body.get("selection_id") or body.get("query")
         kind = next((key for key, route in self.fixture["routes"].items() if route == self.path), None)
         self._delayed_request = kind == type(self).delayed_kind and resource == type(self).delayed_resource
@@ -282,7 +568,9 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
         elif self.path == self.fixture["routes"]["status"]:
             self._json(self._at_revision(examples["status"]))
         elif self.path == self.fixture["routes"]["section_page"]:
-            if body["section_id"] == "section:prologue" and body.get("cursor") == "cursor:section:page-two":
+            if type(self).grouped_timeline:
+                self._json(self._at_revision(_grouped_section_page(body["section_id"], body.get("cursor"))))
+            elif body["section_id"] == "section:prologue" and body.get("cursor") == "cursor:section:page-two":
                 page = copy.deepcopy(examples["section_page"])
                 page["items"] = [{"id": "event:page-two", "kind": "event", "order": 3, "title": "Later in Prologue", "summary": "This target is on the second section page.", "selection_id": "event:page-two", "is_new": False, "new_facts": []}]
                 page["shells"] = [{"id": "shell:prologue:two", "kind": "timeline", "item_ids": ["event:page-two"], "parent_shell_id": None, "route_id": None, "rejoin_selection_id": None}]
@@ -306,13 +594,16 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
             result = self._at_revision(examples["search"])
             result["query"] = body["query"]
             selection_id = "event:page-two" if body["query"] == "page two" else "arm:a"
-            result["results"][0].update({"selection_id": selection_id, "title": f"{body['query'].title()} result", "section_id": "section:prologue", "is_loaded": False})
+            section_id = "story-group:01" if type(self).grouped_timeline else "section:prologue"
+            result["results"][0].update({"selection_id": selection_id, "title": f"{body['query'].title()} result", "section_id": section_id, "is_loaded": False})
             self._json(result)
         elif self.path == self.fixture["routes"]["locate"]:
             selection_id = body["selection_id"]
             location = self._at_revision(examples["locate"])
             location["selection_id"] = selection_id
-            if selection_id in {"event:intro", "event:rejoin", "event:page-two"}:
+            if type(self).grouped_timeline:
+                location["location"] = {"section_id": "story-group:01", "branch_id": "choice:first", "page_cursor": None, "shell_id": "shell:branch:a", "item_id": "arm:a"}
+            elif selection_id in {"event:intro", "event:rejoin", "event:page-two"}:
                 page_cursor = "cursor:section:page-two" if selection_id == "event:page-two" else None
                 item_id = "event:page-two" if page_cursor else selection_id
                 location["location"] = {"section_id": "section:prologue", "branch_id": None, "page_cursor": page_cursor, "shell_id": "shell:prologue:two" if page_cursor else "shell:prologue", "item_id": item_id}
@@ -330,7 +621,12 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
             page["items"][0]["text"] = f"Detail for {body['selection_id']}."
             self._json(page)
         elif self.path == self.fixture["routes"]["view_state"]:
-            state = type(self).view_state or {"section_id": "section:prologue", "selection_id": None, "focus_id": None, "viewport": {"scroll_top": 0, "zoom": 1.0}, "hide_new": False}
+            default_section = (
+                "story-group:01"
+                if type(self).grouped_timeline
+                else "section:prologue"
+            )
+            state = type(self).view_state or {"section_id": default_section, "selection_id": None, "focus_id": None, "viewport": {"scroll_top": 0, "zoom": 1.0}, "hide_new": False}
             response = self._at_revision(examples["view_state"])
             response["state"] = copy.deepcopy(state)
             self._json(response)
@@ -339,13 +635,16 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
             response = self._at_revision(examples["view_state"])
             response["state"] = copy.deepcopy(type(self).view_state)
             self._json(response)
+
+
 @contextmanager
-def _server(*, workflow: bool = False, workflow_status_mode: str = "complete", reader_available: bool = True, workflow_local_only: bool = False) -> Iterator[str]:
+def _server(*, workflow: bool = False, workflow_status_mode: str = "complete", reader_available: bool = True, workflow_local_only: bool = False, grouped_timeline: bool = False) -> Iterator[str]:
     _ReaderHandler.reset()
     _ReaderHandler.advertise_workflow = workflow
     _ReaderHandler.workflow_status_mode = workflow_status_mode
     _ReaderHandler.workflow_local_only = workflow_local_only
     _ReaderHandler.reader_available = reader_available
+    _ReaderHandler.grouped_timeline = grouped_timeline
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _ReaderHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -691,6 +990,189 @@ def test_workflow_v2_completion_refreshes_reader_without_layout_overflow(
 
 @pytest.mark.parametrize(
     ("profile", "zoom", "width", "height", "device_scale"),
+    [("desktop", 100, 1440, 900, 1), ("effective_200", 200, 720, 450, 2)],
+)
+def test_grouped_reader_is_one_vertical_timeline_with_meaningful_path_and_detail(
+    profile: str, zoom: int, width: int, height: int, device_scale: int
+) -> None:
+    driver = _browser_driver()
+    try:
+        browser = driver._browser()
+    except FileNotFoundError:
+        pytest.skip("Chrome or Edge is unavailable")
+    with _server(workflow=True, grouped_timeline=True) as origin, tempfile.TemporaryDirectory(prefix=f"rsm-m15-p5-grouped-{profile}-", ignore_cleanup_errors=True) as temporary:
+        process, session = driver._session(browser, zoom, Path(temporary))
+        try:
+            session.command("Emulation.setDeviceMetricsOverride", {"width": width, "height": height, "deviceScaleFactor": device_scale, "mobile": False})
+            session.command("Page.navigate", {"url": origin})
+            session.wait("document.readyState === 'complete' && !!document.querySelector('.recent-card')")
+            session.evaluate("document.querySelector('.recent-card').click()")
+            session.wait("document.querySelector('#storyBrowser').classList.contains('is-grouped-timeline') && document.querySelectorAll('#storySections > .story-section').length === 12 && !document.querySelector('#storyRunDetails').hidden")
+
+            initial = session.evaluate(
+                """(() => {
+                  const root = document.documentElement;
+                  const body = document.body;
+                  const browser = document.querySelector('#storyBrowser');
+                  const groups = [...document.querySelectorAll('#storySections > .story-section')];
+                  const rects = groups.map(group => group.getBoundingClientRect());
+                  const details = groups.map(group => group.querySelector('.story-group-details'));
+                  const choice = document.querySelector('[data-reader-item-id="choice:first"]');
+                  const action = choice.querySelector('.story-branch-action');
+                  return {
+                    groups: groups.length,
+                    groupIds: groups.map(group => group.dataset.sectionId),
+                    titles: groups.map(group => group.querySelector('h2').textContent),
+                    ordered: rects.every((rect, index) => index === 0 || rect.top >= rects[index - 1].bottom - 1),
+                    verticalScroll: browser.scrollHeight > browser.clientHeight,
+                    overflow: {
+                      page: root.scrollWidth - root.clientWidth,
+                      body: body.scrollWidth - body.clientWidth,
+                      browser: browser.scrollWidth - browser.clientWidth,
+                      groups: groups.map(group => group.scrollWidth - group.clientWidth),
+                    },
+                    details: {count:details.length, open:details.filter(node => node.open).length, summariesVisible:details.every(node => node.querySelector('summary').getBoundingClientRect().height > 0)},
+                    diagnostics: {hidden:document.querySelector('#storyRunDetails').hidden, open:document.querySelector('#storyRunDetails').open, progress:document.querySelector('#storyRunProgress').textContent},
+                    choice: {visible:choice.checkVisibility(), marker:choice.querySelector('.story-item-marker').textContent, action:action.textContent, branchHidden:choice.querySelector('.story-branch-page').hidden},
+                    markers: [...document.querySelectorAll('#storySections > .story-section .story-item-marker')].map(node => node.textContent),
+                    routes: [...document.querySelectorAll('#storySections > .story-section .story-badge.route')].map(node => node.textContent),
+                    laterBeat: document.querySelector('[data-reader-item-id="event:group:02:later"]')?.closest('.story-section')?.dataset.sectionId || null,
+                  };
+                })()"""
+            )
+            assert initial["groups"] == 12
+            assert initial["groupIds"] == [f"story-group:{index:02d}" for index in range(1, 13)]
+            assert initial["titles"] == [f"Major Event {index:02d}" for index in range(1, 13)]
+            assert initial["ordered"] is True and initial["verticalScroll"] is True
+            assert initial["overflow"] == {"page": 0, "body": 0, "browser": 0, "groups": [0] * 12}
+            assert initial["details"] == {"count": 12, "open": 0, "summariesVisible": True}
+            assert initial["diagnostics"]["hidden"] is False
+            assert initial["diagnostics"]["open"] is False
+            assert initial["diagnostics"]["progress"].startswith("425/425 jobs")
+            assert initial["choice"] == {"visible": False, "marker": "Choice", "action": "Show outcomes", "branchHidden": True}
+            assert "Ending" in initial["markers"]
+            assert "route:main" in initial["routes"]
+            assert initial["laterBeat"] == "story-group:02"
+            assert any(request[1].get("cursor") == "cursor:story-group:02:more" for request in _ReaderHandler.requests)
+            branch_route = _ReaderHandler.fixture["routes"]["branch_page"]
+            assert not [request for request in _ReaderHandler.requests if request[0] == branch_route]
+
+            modeled = session.evaluate(
+                """import('/app.js').then(({state}) => {
+                  state.storyReader.contract = {...state.storyReader.contract, limits:{...state.storyReader.contract.limits, live_story_items:500}};
+                  const host = document.querySelector('#story-group-12 .story-group-details');
+                  const existing = document.querySelectorAll('#storySections [data-reader-item-id]').length;
+                  for (let index = existing; index < 462; index += 1) {
+                    const item = document.createElement('i'); item.dataset.readerItemId = `real-scale:${index}`; host.append(item);
+                  }
+                  const count = document.querySelectorAll('#storySections [data-reader-item-id]').length;
+                  document.querySelector('#storyBrowser').dataset.liveStoryItems = String(count);
+                  return {count, limit:state.storyReader.contract.limits.live_story_items};
+                })"""
+            )
+            assert modeled == {"count": 462, "limit": 500}
+
+            session.evaluate("document.querySelector('#storySearchInput').value='route'; document.querySelector('#storySearchInput').dispatchEvent(new Event('input',{bubbles:true}))")
+            session.wait("!document.querySelector('#storySearchResults').hidden && !!document.querySelector('.story-search-result')")
+            session.evaluate("document.querySelector('.story-search-result').click()")
+            session.wait("document.activeElement?.dataset?.storySelectionId === 'arm:a' && document.querySelector('#story-group-1 .story-group-details').open")
+            located = session.evaluate("({groupOpen:document.querySelector('#story-group-1 .story-group-details').open,branchVisible:!!document.querySelector('[data-reader-item-id=\"choice:first\"] .story-branch-page:not([hidden]) [data-reader-item-id=\"arm:a\"]'),focused:document.activeElement.dataset.storySelectionId,overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth})")
+            assert located == {"groupOpen": True, "branchVisible": True, "focused": "arm:a", "overflow": 0}
+            outcomes = session.evaluate(
+                """(() => {
+                  const choice = document.querySelector('[data-reader-item-id="choice:first"]');
+                  const branch = choice.querySelector('.story-branch-page');
+                  return {
+                    action: choice.querySelector('.story-branch-action').textContent,
+                    inline: branch.closest('.story-section').dataset.sectionId,
+                    outcomes: [...branch.querySelectorAll('.story-item-marker')].map(node => node.textContent),
+                    routes: [...branch.querySelectorAll('.story-shell-route')].map(node => node.textContent),
+                    rejoins: [...branch.querySelectorAll('.story-rejoin')].map(node => node.textContent),
+                    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+                  };
+                })()"""
+            )
+            assert outcomes == {
+                "action": "Hide outcomes",
+                "inline": "story-group:01",
+                "outcomes": ["Outcome", "Outcome"],
+                "routes": ["route:a", "route:b"],
+                "rejoins": ["Rejoin", "Rejoin"],
+                "overflow": 0,
+            }
+            branch_requests = [request for request in _ReaderHandler.requests if request[0] == branch_route]
+            assert len(branch_requests) == 1 and branch_requests[0][1]["branch_id"] == "choice:first"
+
+            session.evaluate("document.querySelector('[data-reader-item-id=\"arm:a\"] [data-story-selection-id=\"arm:a\"]').click()")
+            session.wait("!document.querySelector('#storyPathPanel').hidden && document.querySelector('#storyPathRequirements').textContent.includes('courage > 0') && document.querySelector('#storyPathEffects').textContent.includes('Courage +1') && !!document.querySelector('.story-path-kind-instruction')")
+            path = session.evaluate(
+                """(() => {
+                  const choices = document.querySelector('#storyPathChoicesGroup');
+                  const requirement = document.querySelector('#storyPathRequirementsGroup');
+                  const effect = document.querySelector('#storyPathEffectsGroup');
+                  const technical = document.querySelector('#storyPathAnalysisNotes');
+                  const instruction = document.querySelector('.story-path-kind-instruction');
+                  return {
+                    summary: document.querySelector('#storyPathSummary').textContent,
+                    choiceLabel: choices.querySelector('h3').textContent,
+                    choices: document.querySelector('#storyPathChoices').textContent,
+                    choiceCount: document.querySelector('#storyPathChoices').children.length,
+                    requirement: document.querySelector('#storyPathRequirements').textContent,
+                    effect: document.querySelector('#storyPathEffects').textContent,
+                    stepsLabel: document.querySelector('.story-witness-title').textContent,
+                    stepKinds: [...document.querySelectorAll('#storyPathSteps > li')].map(node => node.className),
+                    stepText: [...document.querySelectorAll('#storyPathSteps > li')].map(node => node.textContent),
+                    primaryBeforeTechnical: [choices, requirement, effect].every(node => node.getBoundingClientRect().top < technical.getBoundingClientRect().top),
+                    technical: {hidden:technical.hidden, open:technical.open, label:technical.querySelector('summary').textContent, instructionVisible:instruction.checkVisibility()},
+                    diagnosticsOpen: document.querySelector('#storyRunDetails').open,
+                    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+                  };
+                })()"""
+            )
+            assert path["summary"] == "Reach Route A through the opening choice."
+            assert path["choiceLabel"] == "Selected choices"
+            assert path["choices"] == "Take Route A" and path["choiceCount"] == 1
+            assert path["requirement"] == "courage > 0"
+            assert path["effect"] == "Courage +1"
+            assert path["stepsLabel"] == "Path steps"
+            assert path["stepKinds"] == [
+                "story-path-step story-path-kind-path_step",
+                "story-path-step story-path-kind-instruction",
+                "story-path-step story-path-kind-instruction",
+            ]
+            assert path["stepText"] == [
+                "Arrival",
+                'Choice instructionChoose "Take Route A".',
+                "Technical instructionTraverse node 17.",
+            ]
+            assert path["primaryBeforeTechnical"] is True
+            assert path["technical"] == {"hidden": False, "open": False, "label": "Analysis / technical details", "instructionVisible": False}
+            assert path["diagnosticsOpen"] is False and path["overflow"] == 0
+
+            session.evaluate("document.querySelector('#story-group-1 .story-group-details').open=false; document.querySelector('#returnToStorySelection').click()")
+            session.wait("document.querySelector('#story-group-1 .story-group-details').open && document.activeElement?.dataset?.storySelectionId === 'arm:a'")
+            entry_scroll = session.evaluate("document.querySelector('#storyBrowser').scrollTop")
+            session.evaluate("document.querySelector('#storyDetailAction').click()")
+            session.wait("!document.querySelector('#detailView').hidden && document.querySelector('#evidenceList').textContent.includes('game/story.rpy')")
+            assert session.evaluate("document.querySelector('#detailTitle').textContent") == "Route A"
+            detail_projection = session.evaluate("({detail:Number(document.querySelector('#detailView').dataset.storyRecords),live:Number(document.querySelector('#storyBrowser').dataset.liveStoryItems),route:document.querySelectorAll('#storySections [data-reader-item-id]').length+Number(document.querySelector('#storyPathPanel').dataset.storyRecords||0)+Number(document.querySelector('#storySearchResults').dataset.storyRecords||0),limitToast:document.querySelector('#toast').textContent.includes('live story-record limit')})")
+            assert detail_projection == {"detail": 40, "live": 40, "route": 471, "limitToast": False}
+            session.evaluate("document.querySelector('#backToRouteMap').click()")
+            session.wait("!document.querySelector('#storyBrowser').hidden && document.activeElement?.dataset?.storySelectionId === 'arm:a'")
+            returned = session.evaluate("({selection:document.activeElement.dataset.storySelectionId,groupOpen:document.querySelector('#story-group-1 .story-group-details').open,scroll:document.querySelector('#storyBrowser').scrollTop,live:Number(document.querySelector('#storyBrowser').dataset.liveStoryItems),diagnosticsOpen:document.querySelector('#storyRunDetails').open,overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth})")
+            assert returned == {"selection": "arm:a", "groupOpen": True, "scroll": entry_scroll, "live": 471, "diagnosticsOpen": False, "overflow": 0}
+        finally:
+            session.close()
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
+
+
+@pytest.mark.parametrize(
+    ("profile", "zoom", "width", "height", "device_scale"),
     [("desktop", 100, 1440, 900, 1), ("effective_200", 200, 720, 450, 2), ("narrow", 100, 390, 844, 1)],
 )
 def test_reader_v2_real_browser_lazy_reader_and_restoration(
@@ -709,8 +1191,8 @@ def test_reader_v2_real_browser_lazy_reader_and_restoration(
             session.wait("document.readyState === 'complete' && !!document.querySelector('.recent-card')")
             session.evaluate("document.querySelector('.recent-card').click()")
             session.wait("!document.querySelector('#storyBrowser').hidden && document.querySelectorAll('[data-reader-item-id]').length === 3")
-            initial = session.evaluate("({revision:document.querySelector('#storyBrowser').dataset.mapRevision,live:Number(document.querySelector('#storyBrowser').dataset.liveStoryItems),sections:document.querySelectorAll('#storySections > .story-section').length,branchCalls:0,overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth,prepareDisabled:document.querySelector('#storyPrepareAction').disabled})")
-            assert initial == {"revision": "7", "live": 3, "sections": 1, "branchCalls": 0, "overflow": 0, "prepareDisabled": True}
+            initial = session.evaluate("({revision:document.querySelector('#storyBrowser').dataset.mapRevision,live:Number(document.querySelector('#storyBrowser').dataset.liveStoryItems),sections:document.querySelectorAll('#storySections > .story-section').length,groupDetails:document.querySelectorAll('.story-group-details').length,branchCalls:0,overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth,prepareDisabled:document.querySelector('#storyPrepareAction').disabled})")
+            assert initial == {"revision": "7", "live": 3, "sections": 1, "groupDetails": 0, "branchCalls": 0, "overflow": 0, "prepareDisabled": True}
             assert not [request for request in _ReaderHandler.requests if request[0] == _ReaderHandler.fixture["routes"]["branch_page"]]
 
             session.evaluate("document.querySelector('.story-branch-action').focus(); document.querySelector('.story-branch-action').click()")

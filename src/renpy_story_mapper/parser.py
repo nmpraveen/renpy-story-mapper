@@ -246,6 +246,14 @@ def _parse_menu_caption(text: str) -> str | None:
     if parsed is None:
         return None
     caption, remainder = parsed
+    if not remainder:
+        return caption
+    if keyword:
+        return None
+    second = _parse_string_literal_prefix(remainder)
+    if second is None:
+        return None
+    caption, remainder = second
     return caption if not remainder else None
 
 
@@ -298,6 +306,27 @@ class RenpySubsetParser:
             statements.append(statement)
         return statements, index
 
+    def _parse_flat_label_suite(
+        self, index: int, label_indent: int, current_global: str
+    ) -> tuple[list[Statement], int]:
+        statements: list[Statement] = []
+        while index < len(self.lines):
+            line = self.lines[index]
+            if line.indent < label_indent:
+                break
+            if line.indent > label_indent:
+                self._diagnose(
+                    line, "unexpected_indent", "unexpected nested line treated as opaque"
+                )
+                index = self._skip_statement(index)
+                continue
+            keyword, _ = _head(line.code)
+            if keyword == "label":
+                break
+            statement, index = self._parse_statement(index, current_global)
+            statements.append(statement)
+        return statements, index
+
     def _parse_label(
         self, index: int, current_global: str
     ) -> tuple[LabelAnchor, int, str]:
@@ -316,7 +345,17 @@ class RenpySubsetParser:
         resolved = _resolve_local(name, current_global)
         assert resolved is not None
         label_global = resolved if not name.startswith(".") else current_global
-        body, next_index = self._parse_suite(index + 1, line.indent, label_global)
+        body_index = index + 1
+        if (
+            body_index < len(self.lines)
+            and self.lines[body_index].indent == line.indent
+            and _head(self.lines[body_index].code)[0] != "label"
+        ):
+            body, next_index = self._parse_flat_label_suite(
+                body_index, line.indent, label_global
+            )
+        else:
+            body, next_index = self._parse_suite(body_index, line.indent, label_global)
         label = Label(resolved, line.span, line.code.strip(), body)
         self.labels.append(label)
         anchor = LabelAnchor(line.span, line.code.strip(), resolved, body)

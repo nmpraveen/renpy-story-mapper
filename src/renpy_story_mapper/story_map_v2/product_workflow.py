@@ -26,6 +26,7 @@ from renpy_story_mapper.story_map_v2.phase04_chunk_adapter import (
 from renpy_story_mapper.story_map_v2.phase04_chunk_plan import (
     PHASE04_MAPPER_PROMPT_VERSION,
     ChunkPlanningProjection,
+    ChunkSizingPolicy,
     StoryChunkDescriptor,
     StoryChunkPlan,
     plan_story_chunks,
@@ -91,8 +92,10 @@ class ProductWorkflowProject(Protocol):
 
     def story_map_v2_repository(self) -> SqliteStoryMapV2Repository: ...
 
+
 MAPPING_ADAPTER_VERSION = "story-map-v2-phase04-mapper-adapter-v1"
 LOOPBACK_WORKFLOW_ADAPTER_VERSION = "story-map-v2-phase04-loopback-workflow-v1"
+PRODUCT_MAXIMUM_REQUEST_TOKENS = 96_000
 DERIVED_INPUT_TOKEN_ALLOWANCE = 10_700
 OUTPUT_TOKEN_ALLOWANCE_PER_CALL = 8_000
 ELAPSED_ALLOWANCE_MS_PER_CALL = 300_000
@@ -169,9 +172,7 @@ class ProductWorkflowValidator:
 
     def __init__(self, prepared: PreparedProductWorkflow) -> None:
         self._chunk_plan = prepared.frozen_plans.story_chunk_plan
-        self._validator = Phase04MapperResponseValidator(
-            self._chunk_plan
-        )
+        self._validator = Phase04MapperResponseValidator(self._chunk_plan)
 
     def validate(
         self,
@@ -191,9 +192,7 @@ class ProductWorkflowValidator:
             request_sha256=job.serialized_request_identity.sha256,
             request_byte_count=job.serialized_request_identity.byte_count,
         )
-        bound_payload = (
-            payload if cached else _bind_provider_prose(self._chunk_plan, job, payload)
-        )
+        bound_payload = payload if cached else _bind_provider_prose(self._chunk_plan, job, payload)
         result = self._validator.validate(binding, bound_payload, cached=cached)
         return ValidatedWorkflowResult(
             result.result_identity,
@@ -367,9 +366,7 @@ def _section_prose(
                 "first_event_id": first,
                 "last_event_id": last,
                 "title": _derived_text(raw["title"], "proposed section title", 80),
-                "summary": _derived_text(
-                    raw["summary"], "proposed section summary", 600
-                ),
+                "summary": _derived_text(raw["summary"], "proposed section summary", 600),
             }
         )
     if cursor != len(job.child_ids):
@@ -521,11 +518,7 @@ def adapt_derived_semantic_job(
         fast_mode=primary.fast_mode,
         mode=primary.mode,
     )
-    node_role = (
-        None
-        if job.node_role is None
-        else DerivedSemanticNodeRole(job.node_role.value)
-    )
+    node_role = None if job.node_role is None else DerivedSemanticNodeRole(job.node_role.value)
     return WorkflowDerivedSemanticJobDescriptor(
         plan_id=prepared.plan.plan_id,
         semantic_plan_identity=job.semantic_plan_identity,
@@ -561,10 +554,13 @@ def prepare_product_workflow_from_authority(
     source = adapt_story_scope(graph, scene_model=scene_model)
     story_plan = build_story_plan(graph, scene_model=scene_model, source_scope=source)
     projection = adapt_chunk_planning_projection(story_plan, source)
-    chunk_plan = plan_story_chunks(projection)
+    policy = _workflow_policy(loopback, primary=primary)
+    chunk_plan = plan_story_chunks(
+        projection,
+        ChunkSizingPolicy(maximum_request_tokens=PRODUCT_MAXIMUM_REQUEST_TOKENS),
+    )
     frozen_plans = FrozenPlanBundle(story_plan, chunk_plan)
     authority = AuthorityIdentity(graph.authority_hash)
-    policy = _workflow_policy(loopback, primary=primary)
 
     jobs: list[WorkflowJobDescriptor] = []
     requests: list[tuple[SerializedRequestIdentity, bytes]] = []
@@ -690,8 +686,7 @@ def _resource_ceilings(
         fallback_calls=mapping_calls if has_loopback else 0,
         input_tokens=max(
             1,
-            mapping_input * (2 + int(has_loopback))
-            + derived_calls * DERIVED_INPUT_TOKEN_ALLOWANCE,
+            mapping_input * (2 + int(has_loopback)) + derived_calls * DERIVED_INPUT_TOKEN_ALLOWANCE,
         ),
         output_tokens=max(1, maximum_calls * OUTPUT_TOKEN_ALLOWANCE_PER_CALL),
         elapsed_ms=max(1, maximum_calls * ELAPSED_ALLOWANCE_MS_PER_CALL),

@@ -14,7 +14,7 @@ import time
 from contextlib import suppress
 from http.client import HTTPMessage
 from pathlib import Path
-from typing import IO, Protocol, cast
+from typing import IO, Literal, Protocol, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import SplitResult, urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
@@ -46,6 +46,15 @@ from renpy_story_mapper.story_map_v2.workflow_protocols import WorkflowProviderE
 DEFAULT_LOOPBACK_ENDPOINT = LOCAL_MAPPER_ENDPOINT
 DEFAULT_TIMEOUT_SECONDS = 300.0
 DEFAULT_MAXIMUM_RESPONSE_BYTES = 2_000_000
+CoverageGrade = Literal["PASS", "PARTIAL", "LOW", "FAIL"]
+_COVERAGE_GRADES: tuple[CoverageGrade, ...] = ("PASS", "PARTIAL", "LOW", "FAIL")
+_COVERAGE_SCHEMA_NAME = "story_map_phase05_coverage_check_v1"
+_COVERAGE_CHECK_SCHEMA = {
+    "additionalProperties": False,
+    "properties": {"grade": {"enum": list(_COVERAGE_GRADES), "type": "string"}},
+    "required": ["grade"],
+    "type": "object",
+}
 _STATIC_TASK = (
     "Return only one JSON object matching the supplied Story Map V2 mapper schema. Summarize "
     "approximate narrative events and branch outcomes. Treat opaque mechanics keys as references; "
@@ -209,6 +218,8 @@ class LoopbackLmStudioTransport:
             payload, input_tokens, output_tokens = _parse_workflow_completion(
                 _decode_json(raw, "The local workflow returned malformed JSON.")
             )
+            if schema_name == _COVERAGE_SCHEMA_NAME:
+                parse_coverage_grade(payload)
         except ProviderFailure as exc:
             raise _adapt_workflow_failure(exc, started, submitted=True) from None
         return ProviderCallResult(
@@ -417,7 +428,13 @@ def _workflow_schema_for_request(request: bytes) -> tuple[str, object]:
         kind = "mapping"
     else:
         call_kind = value.get("call_kind") if isinstance(value, dict) else None
-        kind = call_kind if call_kind in _WORKFLOW_RESPONSE_SCHEMAS else "mapping"
+        kind = (
+            call_kind
+            if call_kind in {*_WORKFLOW_RESPONSE_SCHEMAS, "coverage_check"}
+            else "mapping"
+        )
+    if kind == "coverage_check":
+        return _COVERAGE_SCHEMA_NAME, _COVERAGE_CHECK_SCHEMA
     name = _WORKFLOW_RESPONSE_SCHEMAS[kind]
     path = Path(__file__).resolve().parent / "schemas" / name
     try:
@@ -428,6 +445,24 @@ def _workflow_schema_for_request(request: bytes) -> tuple[str, object]:
             "The local workflow response schema is unavailable.",
         ) from None
     return name.removesuffix(".schema.json").replace("-", "_"), schema
+
+
+def parse_coverage_grade(payload: bytes) -> CoverageGrade:
+    """Return the one allowed local coverage grade from a strict response payload."""
+
+    value = _decode_json(payload, "The local coverage check content was invalid.")
+    if not isinstance(value, dict) or set(value) != {"grade"}:
+        raise ProviderFailure(
+            FailureKind.INVALID_RESPONSE,
+            "The local coverage check content was invalid.",
+        )
+    grade = value["grade"]
+    if grade not in _COVERAGE_GRADES:
+        raise ProviderFailure(
+            FailureKind.INVALID_RESPONSE,
+            "The local coverage check grade was invalid.",
+        )
+    return cast(CoverageGrade, grade)
 
 
 def _parse_workflow_completion(value: object) -> tuple[bytes, int, int]:

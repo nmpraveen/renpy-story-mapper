@@ -43,11 +43,17 @@ from renpy_story_mapper.story_map_v2.phase04_sections import (
     ROLLUP_SYNTHESIS_SCHEMA_VERSION,
     SECTION_SYNTHESIS_SCHEMA_VERSION,
     DerivedCallKind,
+    DerivedSemanticError,
     DerivedSemanticJob,
     MeaningfulSection,
     RollupNodeRole,
     assemble_derived_semantics,
     build_derived_semantic_plan,
+    build_editorial_timeline_request,
+    build_editorial_timeline_rollup_request,
+    combine_editorial_timeline_batches,
+    partition_editorial_timeline_sections,
+    validate_editorial_timeline_response,
 )
 from renpy_story_mapper.story_map_v2.phase04_semantics import (
     MAX_REPLACEMENT_REVIEW_CALLS_PER_CHUNK,
@@ -69,6 +75,412 @@ _POINTER_EXPECTATION_UNSET = object()
 
 def _digest(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
+
+
+def _editorial_sections(count: int) -> tuple[MeaningfulSection, ...]:
+    return tuple(
+        MeaningfulSection(
+            section_id=f"section:public-{index:03d}",
+            corridor_id=f"corridor:public-{index:03d}",
+            route_owner=None,
+            event_ids=(f"event:public-{index:03d}",),
+            title=f"Public section {index + 1}",
+            summary=f"Public synthetic story summary {index + 1}.",
+            origin=SemanticOrigin.AI,
+        )
+        for index in range(count)
+    )
+
+
+def _editorial_payload(
+    sections: tuple[MeaningfulSection, ...], ranges: tuple[tuple[int, int], ...]
+) -> bytes:
+    return canonical_json(
+        {
+            "title": "Whole public story",
+            "summary": "The public story advances chronologically across every source section.",
+            "sections": [
+                {
+                    "first_event_id": sections[first].section_id,
+                    "last_event_id": sections[last].section_id,
+                    "title": f"Major event {index + 1}",
+                    "summary": "A concise public synthetic major event.",
+                }
+                for index, (first, last) in enumerate(ranges)
+            ],
+        }
+    )
+
+
+def _editorial_batch_payload(
+    sections: tuple[MeaningfulSection, ...], ranges: tuple[tuple[int, int], ...]
+) -> bytes:
+    payload = json.loads(_editorial_payload(sections, ranges))
+    proposals = payload["sections"]
+    assert isinstance(proposals, list)
+    for proposal, (first, last) in zip(proposals, ranges, strict=True):
+        proposal["first_event_id"] = f"source:{first:03d}"
+        proposal["last_event_id"] = f"source:{last:03d}"
+    return canonical_json(payload)
+
+
+def test_editorial_timeline_reuses_section_shape_and_preserves_exact_coverage() -> None:
+    sections = _editorial_sections(12)
+    authority = _digest("public-editorial-authority")
+
+    request = json.loads(build_editorial_timeline_request(sections, authority))
+    timeline = validate_editorial_timeline_response(
+        sections,
+        authority,
+        _editorial_payload(sections, tuple((index, index) for index in range(12))),
+    )
+
+    assert request["call_kind"] == "section_synthesis"
+    assert request["schema_version"] == SECTION_SYNTHESIS_SCHEMA_VERSION
+    assert request["ordered_child_ids"] == [section.section_id for section in sections]
+    assert "complete sentences" in request["task"]
+    assert "sentence boundary" in request["task"]
+    assert len(timeline.groups) == 12
+    assert tuple(
+        source_id for group in timeline.groups for source_id in group.source_section_ids
+    ) == tuple(section.section_id for section in sections)
+    assert tuple(event_id for group in timeline.groups for event_id in group.event_ids) == tuple(
+        event_id for section in sections for event_id in section.event_ids
+    )
+    assert timeline.sections[0].section_id.startswith("story-group:")
+
+
+@pytest.mark.parametrize("mutation", ["too_few", "foreign", "duplicate", "extra_fact"])
+def test_editorial_timeline_rejects_invalid_membership_or_fact_fields(mutation: str) -> None:
+    sections = _editorial_sections(12)
+    ranges = [(index, index) for index in range(12)]
+    payload = json.loads(_editorial_payload(sections, tuple(ranges)))
+    proposals = payload["sections"]
+    assert isinstance(proposals, list)
+    if mutation == "too_few":
+        proposals[-2]["last_event_id"] = sections[-1].section_id
+        proposals.pop()
+    elif mutation == "foreign":
+        proposals[0]["first_event_id"] = "section:foreign"
+    elif mutation == "duplicate":
+        proposals[1]["first_event_id"] = sections[0].section_id
+    else:
+        proposals[0]["effects"] = ["invented_flag = True"]
+
+    with pytest.raises(DerivedSemanticError):
+        validate_editorial_timeline_response(
+            sections, _digest("authority"), canonical_json(payload)
+        )
+
+
+def test_editorial_timeline_rejects_more_than_thirty_groups() -> None:
+    sections = _editorial_sections(31)
+    with pytest.raises(DerivedSemanticError, match="bounded group count"):
+        validate_editorial_timeline_response(
+            sections,
+            _digest("authority"),
+            _editorial_payload(sections, tuple((index, index) for index in range(31))),
+        )
+
+
+def test_editorial_timeline_rejects_group_over_current_reader_bound() -> None:
+    sections = _editorial_sections(52)
+    ranges = ((0, 40), *((index, index) for index in range(41, 52)))
+    with pytest.raises(DerivedSemanticError, match="source-section limit"):
+        validate_editorial_timeline_response(
+            sections,
+            _digest("reader-bound-authority"),
+            _editorial_payload(sections, ranges),
+        )
+
+
+@pytest.mark.parametrize("group_count", [12, 30])
+def test_editorial_timeline_accepts_real_scale_group_bounds(group_count: int) -> None:
+    sections = _editorial_sections(425)
+    ranges = tuple(
+        (
+            index * len(sections) // group_count,
+            ((index + 1) * len(sections) // group_count) - 1,
+        )
+        for index in range(group_count)
+    )
+
+    timeline = validate_editorial_timeline_response(
+        sections,
+        _digest("real-scale-public-authority"),
+        _editorial_payload(sections, ranges),
+    )
+
+    assert len(timeline.groups) == group_count
+    assert sum(len(group.source_section_ids) for group in timeline.groups) == 425
+
+
+def test_editorial_timeline_batches_real_scale_into_bounded_exact_slices() -> None:
+    sections = _editorial_sections(425)
+    authority = _digest("batched-real-scale-authority")
+
+    batches = partition_editorial_timeline_sections(sections)
+    group_counts = (3, 4, 5, 3, 4, 5)
+    timelines = tuple(
+        validate_editorial_timeline_response(
+            batch,
+            authority,
+            _editorial_batch_payload(
+                batch,
+                tuple(
+                    (
+                        index * len(batch) // group_count,
+                        ((index + 1) * len(batch) // group_count) - 1,
+                    )
+                    for index in range(group_count)
+                ),
+            ),
+            group_count_bounds=(3, 5),
+        )
+        for batch, group_count in zip(batches, group_counts, strict=True)
+    )
+    groups = tuple(group for timeline in timelines for group in timeline.groups)
+    batch_request = json.loads(
+        build_editorial_timeline_request(
+            batches[0],
+            authority,
+            group_count_bounds=(3, 5),
+        )
+    )
+    rollup_request = json.loads(
+        build_editorial_timeline_rollup_request(groups, authority)
+    )
+    timeline = combine_editorial_timeline_batches(
+        sections,
+        authority,
+        timelines,
+        canonical_json(
+            {
+                "title": "Whole public story",
+                "summary": "A coherent overview of every chronological public story group.",
+            }
+        ),
+    )
+
+    assert len(batches) == 6
+    assert {len(batch) for batch in batches} == {70, 71}
+    assert len(timeline.groups) == 24
+    assert batch_request["minimum_group_count"] == 3
+    assert batch_request["maximum_group_count"] == 5
+    assert batch_request["ordered_child_ids"] == [
+        f"source:{index:03d}" for index in range(len(batches[0]))
+    ]
+    assert [child["id"] for child in batch_request["children"]] == batch_request[
+        "ordered_child_ids"
+    ]
+    assert batches[0][0].section_id not in batch_request["ordered_child_ids"]
+    assert "Prefer four groups" in batch_request["task"]
+    assert "Never return fewer than three or more than five groups" in batch_request["task"]
+    assert "Copy the supplied short child IDs exactly" in batch_request["task"]
+    assert "more than 40 children" in batch_request["task"]
+    assert "family roles" in batch_request["task"]
+    assert "alternatives rather than one resolved chronology" in batch_request["task"]
+    assert rollup_request["call_kind"] == "rollup_synthesis"
+    assert rollup_request["schema_version"] == ROLLUP_SYNTHESIS_SCHEMA_VERSION
+    assert "about 450-650 characters" in rollup_request["task"]
+    assert "complete sentences" in rollup_request["task"]
+    assert "sentence boundary" in rollup_request["task"]
+    assert "family roles" in rollup_request["task"]
+    assert "not as one resolved chronology" in rollup_request["task"]
+    assert rollup_request["ordered_child_ids"] == [group.group_id for group in groups]
+    assert tuple(
+        source_id for group in timeline.groups for source_id in group.source_section_ids
+    ) == tuple(section.section_id for section in sections)
+
+
+def test_editorial_timeline_batch_maps_local_prose_spans_to_exact_membership() -> None:
+    sections = _editorial_sections(71)
+    ranges = ((0, 16), (17, 34), (35, 52), (53, 70))
+    payload = json.loads(_editorial_batch_payload(sections, ranges))
+    proposals = payload["sections"]
+    assert isinstance(proposals, list)
+    for index, (proposal, (first, last)) in enumerate(
+        zip(proposals, ranges, strict=True), start=1
+    ):
+        proposal["title"] = f"Exact span {index}"
+        proposal["summary"] = f"This prose describes only source children {first} through {last}."
+
+    timeline = validate_editorial_timeline_response(
+        sections,
+        _digest("local-prose-membership-authority"),
+        canonical_json(payload),
+        group_count_bounds=(3, 5),
+    )
+
+    for index, (group, (first, last)) in enumerate(
+        zip(timeline.groups, ranges, strict=True), start=1
+    ):
+        assert group.source_section_ids == tuple(
+            section.section_id for section in sections[first : last + 1]
+        )
+        assert group.title == f"Exact span {index}"
+        assert group.summary == f"This prose describes only source children {first} through {last}."
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("overlap", "contiguous and ordered"),
+        ("gap", "contiguous and ordered"),
+        ("foreign", "foreign source section"),
+        ("oversized", "source-section limit"),
+    ],
+)
+def test_editorial_timeline_batch_rejects_invalid_local_membership(
+    mutation: str, message: str
+) -> None:
+    sections = _editorial_sections(71)
+    ranges = (
+        ((0, 40), (41, 50), (51, 60), (61, 70))
+        if mutation == "oversized"
+        else ((0, 16), (17, 34), (35, 52), (53, 70))
+    )
+    payload = json.loads(_editorial_batch_payload(sections, ranges))
+    proposals = payload["sections"]
+    assert isinstance(proposals, list)
+    if mutation == "overlap":
+        proposals[1]["first_event_id"] = "source:016"
+    elif mutation == "gap":
+        proposals[1]["first_event_id"] = "source:018"
+    elif mutation == "foreign":
+        proposals[0]["last_event_id"] = "source:999"
+
+    with pytest.raises(DerivedSemanticError, match=message):
+        validate_editorial_timeline_response(
+            sections,
+            _digest(f"invalid-local-membership-{mutation}"),
+            canonical_json(payload),
+            group_count_bounds=(3, 5),
+        )
+
+
+def test_editorial_batch_drops_only_a_600_character_incomplete_summary_suffix() -> None:
+    sections = _editorial_sections(2)
+    authority = _digest("clipped-editorial-summary-authority")
+    complete = "Avery follows the known route and reaches the shared outcome."
+    clipped = (complete + " The next description breaks mid" + ("w" * 600))[:600]
+    payload = json.loads(_editorial_batch_payload(sections, ((0, 0), (1, 1))))
+    payload["sections"][0]["summary"] = clipped
+    packet = json.loads(
+        build_editorial_timeline_request(
+            sections,
+            authority,
+            group_count_bounds=(1, 2),
+        )
+    )
+
+    timeline = validate_editorial_timeline_response(
+        sections,
+        authority,
+        canonical_json(payload),
+        group_count_bounds=(1, 2),
+    )
+
+    assert len(clipped) == 600
+    assert timeline.groups[0].summary == complete
+    assert "complete sentences" in packet["task"]
+    assert "sentence boundary" in packet["task"]
+    assert "600-character schema maximum" in packet["task"]
+
+
+def test_editorial_batch_preserves_a_normal_complete_group_summary() -> None:
+    sections = _editorial_sections(2)
+    summary = "The route branches, develops through two outcomes, and rejoins at a shared scene."
+    payload = json.loads(_editorial_batch_payload(sections, ((0, 0), (1, 1))))
+    payload["sections"][0]["summary"] = summary
+
+    timeline = validate_editorial_timeline_response(
+        sections,
+        _digest("complete-editorial-summary-authority"),
+        canonical_json(payload),
+        group_count_bounds=(1, 2),
+    )
+
+    assert timeline.groups[0].summary == summary
+
+
+def test_editorial_batch_derives_its_discarded_overview_from_validated_groups() -> None:
+    sections = _editorial_sections(2)
+    payload = json.loads(_editorial_batch_payload(sections, ((0, 0), (1, 1))))
+    wrapper = ("A discarded batch wrapper. " + ("w" * 600))[:599] + " "
+    payload["summary"] = wrapper
+
+    timeline = validate_editorial_timeline_response(
+        sections,
+        _digest("discarded-editorial-wrapper-authority"),
+        canonical_json(payload),
+        group_count_bounds=(1, 2),
+    )
+
+    assert len(wrapper) == 600
+    assert timeline.overview == timeline.groups[0].summary
+
+
+def test_unbatched_editorial_overview_remains_strict() -> None:
+    sections = _editorial_sections(12)
+    payload = json.loads(
+        _editorial_payload(sections, tuple((index, index) for index in range(12)))
+    )
+    payload["summary"] = str(payload["summary"]) + " "
+
+    with pytest.raises(DerivedSemanticError, match="editorial timeline overview"):
+        validate_editorial_timeline_response(
+            sections,
+            _digest("strict-editorial-overview-authority"),
+            canonical_json(payload),
+        )
+
+
+def test_editorial_batch_rejects_a_group_without_one_complete_sentence() -> None:
+    sections = _editorial_sections(2)
+    payload = json.loads(_editorial_batch_payload(sections, ((0, 0), (1, 1))))
+    payload["sections"][0]["summary"] = "A clipped fragment without any complete sentence"
+
+    with pytest.raises(DerivedSemanticError, match="complete sentence"):
+        validate_editorial_timeline_response(
+            sections,
+            _digest("fragment-only-editorial-summary-authority"),
+            canonical_json(payload),
+            group_count_bounds=(1, 2),
+        )
+
+
+def test_editorial_timeline_batches_reject_global_reordering() -> None:
+    sections = _editorial_sections(425)
+    authority = _digest("reordered-batch-authority")
+    batches = partition_editorial_timeline_sections(sections)
+    timelines = [
+        validate_editorial_timeline_response(
+            batch,
+            authority,
+            _editorial_batch_payload(
+                batch,
+                tuple(
+                    (
+                        index * len(batch) // 3,
+                        ((index + 1) * len(batch) // 3) - 1,
+                    )
+                    for index in range(3)
+                ),
+            ),
+            group_count_bounds=(3, 5),
+        )
+        for batch in batches
+    ]
+    timelines[0], timelines[1] = timelines[1], timelines[0]
+
+    with pytest.raises(DerivedSemanticError, match="coverage or chronology"):
+        combine_editorial_timeline_batches(
+            sections,
+            authority,
+            timelines,
+            canonical_json({"title": "Story", "summary": "Overview"}),
+        )
 
 
 def _placement(
@@ -268,6 +680,34 @@ def test_mapper_validation_overlays_exact_python_mechanics() -> None:
     assert normalized.route_owner == "lane:spine"
     assert normalized.choices[0].canonical_mechanics == plan.choice_parents[0].canonical_mechanics
     assert normalized.choices[0].mechanics_hash == plan.choice_parents[0].mechanics_hash
+
+
+def test_mapper_accepts_the_exact_frozen_placement_count_above_256() -> None:
+    base = _plan(route_events=0, common_events=1)
+    placement_ids = tuple(f"placement:large:{index}" for index in range(300))
+    atomic_group = replace(base.atomic_groups[0], placement_ids=placement_ids)
+    chunk = replace(
+        base.chunks[0],
+        atomic_group_ids=(atomic_group.id,),
+        placement_ids=placement_ids,
+    )
+    plan = replace(
+        base,
+        covered_placement_ids=placement_ids,
+        atomic_groups=(atomic_group,),
+        chunks=(chunk,),
+    )
+
+    validator = Phase04MapperResponseValidator(plan)
+    validated = validator.validate(
+        _job(plan, chunk), _mapper_payload(plan, chunk), cached=False
+    )
+    cached = validator.validate(
+        _job(plan, chunk), validated.normalized_payload, cached=True
+    )
+
+    normalized = deserialize_semantic_chunk(cached.normalized_payload)
+    assert normalized.events[0].placement_ids == chunk.placement_ids
 
 
 @pytest.mark.parametrize("mutation", ["empty", "reordered", "foreign", "missing", "duplicate"])
@@ -800,7 +1240,7 @@ class _MemoryGenerationRepository:
         generation_id: str,
         *,
         expected_active_generation_id: str | None,
-        expected_complete_generation_id: str | None | object = _POINTER_EXPECTATION_UNSET,
+        expected_complete_generation_id: str | object | None = _POINTER_EXPECTATION_UNSET,
     ) -> GenerationPointers:
         if self.before_activate_cas is not None:
             hook, self.before_activate_cas = self.before_activate_cas, None
@@ -834,7 +1274,7 @@ class _MemoryGenerationRepository:
         generation_id: str,
         *,
         expected_active_generation_id: str,
-        expected_complete_generation_id: str | None | object = _POINTER_EXPECTATION_UNSET,
+        expected_complete_generation_id: str | object | None = _POINTER_EXPECTATION_UNSET,
         fault: Callable[[str], None] | None = None,
     ) -> GenerationPointers:
         if fault is not None:
