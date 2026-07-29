@@ -868,6 +868,22 @@ function storyBadge(text, kind) {
   return element("span", `story-badge ${kind}`, text);
 }
 
+function humanStoryTarget(value) {
+  if (typeof value !== "string" || !value.startsWith("story:")) return null;
+  const label = value.slice("story:".length).trim();
+  return label || null;
+}
+
+function appendStoryTargets(host, item) {
+  const destination = humanStoryTarget(item.destination_id) || humanStoryTarget(item.binding?.target_id);
+  const rejoin = humanStoryTarget(item.rejoin_node_id) || humanStoryTarget(item.rejoin_binding?.target_id);
+  if (!destination && !rejoin) return;
+  const targets = element("div", "story-targets");
+  if (destination) targets.append(element("p", "story-target destination", `Goes to ${destination}`));
+  if (rejoin) targets.append(element("p", "story-target rejoin", `Rejoins at ${rejoin}`));
+  host.append(targets);
+}
+
 function appendStoryBadges(host, item) {
   const badges = element("div", "story-badges");
   if (item.route_id) badges.append(storyBadge(item.route_id, "route"));
@@ -953,7 +969,8 @@ function appendStoryContinuations(host, bindings, armOwned = false) {
 function renderStoryChoice(choice, nested = false, continuationPlan = null, choicePath = []) {
   const plan = continuationPlan || planStoryContinuations(choice);
   const article = element("section", `story-choice${nested ? " nested" : ""}`);
-  article.append(element("p", "story-choice-label", nested ? "Choice within this path" : "Choice"));
+  const prompt = humanStoryTarget(choice.key) || (nested ? "Choice within this path" : "Choice");
+  article.append(element("p", "story-choice-label", prompt));
   const arms = element("div", "story-arms");
   for (const arm of choice.arms) {
     const armPath = [...choicePath, `arm:${arm.selection_id}`];
@@ -962,7 +979,7 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
     const head = element("div", "story-arm-head");
     const control = storySelectionControl(arm, "story-arm");
     head.append(control, storyDetailControl(arm, control));
-    armArticle.append(head); appendStoryBadges(armArticle, arm); appendStoryWarnings(armArticle, arm.warnings);
+    armArticle.append(head); appendStoryBadges(armArticle, arm); appendStoryTargets(armArticle, arm); appendStoryWarnings(armArticle, arm.warnings);
     (arm.nested_choices || []).forEach((child, index) => armArticle.append(renderStoryChoice(child, true, plan, [...armPath, `choice:${child.key}:${index}`])));
     appendStoryContinuations(armArticle, plan.get(JSON.stringify(armPath)), true);
     arms.append(armArticle);
@@ -1706,9 +1723,10 @@ function renderStoryMapV2(page) {
   invalidateStoryDetail();
   state.storyPage = page; state.storyItems = new Map(); state.storySelectionId = null; state.storySelectionItem = null; state.storySelectionControl = null; state.storyPath = null;
   const storyBrowser = $("#storyBrowser"); const fallback = page.status === "fallback"; storyBrowser.classList.toggle("is-fallback", fallback);
+  const progressive = (page.analysis_notes || []).some((note) => note.startsWith("Phase 05 progressive story walk"));
   $("#storyTitle").textContent = page.title;
   $("#storyOverview").textContent = page.overview;
-  $("#storyMapStatus").textContent = page.status === "synthesized" ? "Whole-story guide" : "Deterministic story";
+  $("#storyMapStatus").textContent = progressive ? "Progressive proof" : page.status === "synthesized" ? "Whole-story guide" : "Deterministic story";
   const index = $("#storySectionIndex"); const sections = $("#storySections"); index.replaceChildren(); sections.replaceChildren(); let eventOrdinal = 0;
   page.sections.forEach((section, sectionIndex) => {
     const id = `story-section-${sectionIndex + 1}`;
@@ -1868,14 +1886,17 @@ function returnToStorySelection(scroll = true) {
 }
 
 async function loadStoryMapV2() {
-  if (api.storyReaderRoutes) return loadStoryReader();
-  if (!api.storyMapV2Routes?.map) return false;
+  if (!api.storyMapV2Routes?.map) return api.storyReaderRoutes ? loadStoryReader() : false;
   invalidateStoryDetail();
   try {
     const page = await api.storyMapV2();
+    const progressive = page.status !== "unavailable" && (page.analysis_notes || []).some((note) => note.startsWith("Phase 05 progressive story walk"));
+    if (progressive) { renderStoryMapV2(page); return true; }
+    if (api.storyReaderRoutes) return loadStoryReader();
     if (page.status === "unavailable") { state.storyPage = null; state.storySelectionId = null; state.storySelectionItem = null; state.storySelectionControl = null; showStorySurface(false); return false; }
     renderStoryMapV2(page); return true;
   } catch (error) {
+    if (api.storyReaderRoutes) return loadStoryReader();
     state.storyPage = null; state.storySelectionId = null; state.storySelectionItem = null; state.storySelectionControl = null; showStorySurface(false); toast(error.message); return false;
   }
 }

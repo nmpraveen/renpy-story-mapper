@@ -165,11 +165,11 @@ def _strings(
     value: object,
     label: str,
     *,
-    maximum_items: int = 256,
+    maximum_items: int | None = 256,
     maximum_length: int = 200,
 ) -> tuple[str, ...]:
     items = _array(value, label)
-    if len(items) > maximum_items:
+    if maximum_items is not None and len(items) > maximum_items:
         raise SemanticValidationError(f"{label} contains too many items")
     result = tuple(
         _string(item, f"{label}[{index}]", maximum=maximum_length)
@@ -407,7 +407,9 @@ def deserialize_semantic_chunk(payload: bytes | str) -> SemanticChunk:
                 event_id=_string(event["event_id"], "event ID"),
                 scope_id=_string(event["scope_id"], "event scope ID"),
                 route_owner=_string(event["route_owner"], "event route owner"),
-                placement_ids=_strings(event["placement_ids"], "event placements"),
+                placement_ids=_strings(
+                    event["placement_ids"], "event placements", maximum_items=None
+                ),
                 title=_string(event["title"], "event title", maximum=80),
                 summary=_string(event["summary"], "event summary", maximum=320),
                 characters=_strings(
@@ -553,7 +555,11 @@ class Phase04MapperResponseValidator:
             if key in provider_keys:
                 raise SemanticValidationError("mapper event keys must be unique")
             provider_keys.add(key)
-            placements = _strings(event["placement_ids"], "mapper event placements")
+            placements = _strings(
+                event["placement_ids"],
+                "mapper event placements",
+                maximum_items=len(descriptor.placement_ids),
+            )
             events.append(
                 SemanticEvent(
                     event_id=_event_identity(self._plan.identity, placements),

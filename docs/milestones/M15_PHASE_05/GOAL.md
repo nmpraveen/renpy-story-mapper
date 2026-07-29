@@ -1,134 +1,98 @@
-# M15.1 Phase 05 - Whole-story extraction and readable timeline
+# M15.1 Phase 05 - Progressive state-aware story timeline
 
-Status: In progress (Codex CLI regeneration after extraction/coverage `PASS`)
+Status: Vertical Terrance reader correction in progress
 
-Scope authority: `docs/MASTER_PLAN.md`, M15 / M15.1 semantic Story Map correction
+## User outcome
 
-Planning authority: `docs/MILESTONE_PLANNING_RULES.md`
-
-## Simplicity rule
-
-Fix the demonstrated missing-story input first. Use Ren'Py only where it is the smallest reliable
-way to understand the trusted current game, keep Python responsible for the story graph, and do
-not regenerate summaries or change the reader until one real missing slice passes.
+Give the app a Ren'Py game folder or script and read its story as a clean, full-width desktop
+timeline. Linear story, choices, conditions, state-dependent routes, important effects, rejoins, and
+endings must be understandable while scrolling.
 
 ## Done condition
 
-Opening the MsDenvers project shows a clean chronological vertical timeline that represents the
-whole parsed game rather than only the old 425-section projection. Important choices, branch
-outcomes, routes, state changes, rejoins, and endings are easy to follow while scrolling. A
-matching Ren'Py SDK checks the trusted game from a disposable copy, Python builds the deterministic
-story structure, local-only AI audits extraction coverage, and the user-approved Codex CLI run
-organizes the readable story prose. Any summary prompt Codex rejects as sensitive remains isolated
-for a later local-only pass instead of blocking the rest of the timeline.
+Starting from the game's entry label, Python progressively builds the real execution and state flow;
+AI summarizes those Python-owned corridors; and the existing desktop reader shows a coherent
+whole-game timeline with correct branch membership, nesting, state back-links, destinations, and
+rejoins.
 
-## Objective
+## First proof
 
-Recover the story content omitted before the 24-group timeline was built, prove the correction on
-one small real-game slice, then regenerate and reuse the existing grouped reader only if that proof
-succeeds.
+Before full-game work, rebuild the Terrance section from its actual labels and jumps:
 
-## Must work now
+- show only its genuine menus and every arm;
+- keep `Keep going / Take things to the next level` nested under `Say No`;
+- follow `Do nothing` into the storage-room continuation;
+- show the common continuation into the Lois story;
+- use human destination and rejoin names;
+- show relevant state effects without combining mutually exclusive outcomes; and
+- contain no Gene/Faye choices or false ending.
 
-- Determine whether the matching Ren'Py SDK needs the complete game project or can faithfully use
-  one script. Prefer the smallest input that preserves the game's real labels, dialogue, menus,
-  jumps, calls, and custom statements.
-- Run Ren'Py only against a disposable copy of the trusted input. The supplied original game
-  folder, scripts, and archive remain read-only and are fingerprinted before and after the proof.
-- On one known missing real-game label or similarly small slice, compare Ren'Py's label,
-  dialogue/menu, and structural output with the existing Python extraction. Correct the smallest
-  demonstrated Python omission; if one focused correction is insufficient, use a tiny temporary
-  Ren'Py AST exporter on the disposable copy instead of repeatedly expanding the parser.
-- Send the source/Ren'Py/Python comparison only to the configured loopback local model. Its audit
-  result is exactly one of `PASS`, `PARTIAL`, `LOW`, or `FAIL`. Deterministic missing-content facts
-  cap the grade; AI may lower but never raise that evidence-based ceiling.
-- Only after the slice earns `PASS`, rerun the affected extraction, Codex CLI summaries, editorial
-  grouping, and the existing scrolling reader. Do not automatically resend a rejected prompt to
-  another provider; record it for a later local-only pass. The old 425 summaries and 24 groups are
-  reusable implementation inputs, not authoritative whole-game coverage.
+The user inspects this rendered proof before the same method is applied to the full game.
 
-## Useful later
+The first rendered proof exposed two concrete product failures: the outline stacked large technical
+cards without a clear branch tree, and long story corridors were reduced to vague consequences such
+as "the encounter escalates." The corrected proof must preserve the same mechanics while restoring
+the actual story.
 
-- Broader support for unrelated Ren'Py versions or unusual third-party frameworks.
-- Human-edited day/chapter names where the game has no authoritative hierarchy.
-- Exact imitation of an old mock's colors and broader visual polish.
+## Implementation contract
 
-## Do not build in this milestone
+- Python follows labels, fallthrough, jumps, calls, returns, menus, conditions, and direct state
+  changes in execution order.
+- Linear statements between control points become story corridors.
+- Every branch carries its path condition and state provenance.
+- A later condition links back to the earlier choices or assignments that can establish it.
+- Routes merge only at demonstrated rejoins. Loops and unresolved dynamic behavior remain explicit.
+- AI names and summarizes corridors after mechanics are frozen. AI does not own membership or edges.
 
-- A new database, migration, scheduler, workflow, API version, schema family, or recovery system.
-- A general Ren'Py compatibility framework, SDK installer, or version-adapter matrix.
-- Cloud story-content AI other than the explicitly approved Codex CLI summary/grouping run, or
-  automatic local-model installation/loading/fallback.
-- A freeform graph canvas, formal proof system, exhaustive semantic replay, or
-  publication-grade prose guarantees.
-- AI-invented mechanics or game-specific hard-coded day assumptions.
-- Broad UI or summary work before the one-slice extraction gate passes.
+## AI and execution
 
-## Acceptance criteria
+- Cloud AI is the default. Use a local LLM only when the user explicitly requests it.
+- Game and script content may be sent to cloud AI.
+- Trusted games may execute; prefer a disposable headless run.
+- Original game inputs remain read-only.
+- For full-game bulk summaries, inspect the first 10 results, then split the remainder approximately
+  evenly across three or four user-visible `gpt-5.6-sol` High Codex tasks unless the user says
+  otherwise. These are app-created sidebar tasks/threads, not internal subagents.
 
-1. A focused experiment records whether a full game project or lone script is the faithful Ren'Py
-   input for this game, and all Ren'Py-created files stay inside a disposable working copy.
-2. For one real slice that the old projection missed, Ren'Py reports substantive story content and
-   Python reports matching labels plus substantive dialogue/menu/structure instead of an empty
-   shell.
-3. The loopback local-AI audit returns exactly `PASS`, `PARTIAL`, `LOW`, or `FAIL`; the corrected
-   real slice returns `PASS`, while an in-memory comparison with one material item removed cannot
-   return `PASS`.
-4. After criteria 1-3 pass, the full current game is re-extracted and regenerated without treating
-   425/425 as a frozen target; deterministic coverage diagnostics and the AI audit identify any
-   remaining incomplete areas, while the approved Codex CLI run records accepted and rejected
-   summary jobs separately before publication.
-5. The regenerated project opens as a readable whole-story vertical timeline with visible
-   choices/routes/rejoins and direct Detail/Evidence access; focused checks, one integrated Story
-   Map gate, final review, sharded PR CI, and one final Windows Release/package gate pass while
-   original inputs remain unchanged and only the explicitly approved Codex CLI summary/grouping
-   run transmits story content.
+## Interface
 
-## Required evidence
+- Full-width desktop scrolling timeline on the user's current screen.
+- No pan, zoom, fit, semantic zoom, 100%/200% variants, or mobile optimization.
+- The initial view is a compact top-to-bottom outline with a shared vertical trunk and clear fork
+  connectors for sibling choices. Branches never compete in narrow side-by-side columns.
+- Clicking an outline node expands a full-width story detail directly beneath it without losing the
+  reader's place.
+- Short summaries remain concrete. Expanded summaries state what actually happens in each captured
+  corridor; placeholders such as "it escalates" or "the encounter continues" are not acceptable.
+- Immediate rejoins appear once after their sibling arms. Persistent routes remain visibly separate
+  until their demonstrated rejoin.
+- State variables, reachability, source lines, and Detail/Evidence controls live in a separate
+  secondary disclosure rather than the default story flow.
 
-| Criterion | Evidence required | Result / durable location |
-|---|---|---|
-| 1 | SDK/version discovery, input comparison, disposable-copy path, and original-input fingerprints | PASS: bundled Ren'Py 8.5.3 requires a project root; Day 1 smoke and matching full archives ran under `tmp/m15-phase05-renpy-probe-20260728-124621`; original executable/archive/source size, mtime, and SHA-256 matched before/after. Sanitized evidence: `output/m15-phase05-renpy-probe-20260728-124621` |
-| 2 | One label-sized Ren'Py/Python comparison with private prose omitted from reports | PASS at `9d496e5`: `_8_3_5_wf_clean_fg_3` changed from 0 body statements to 305 source statements; Ren'Py independently reports the same 305 after excluding 92 implicit `With` nodes. Menu/if/jump/Python counts match and diagnostics are zero |
-| 3 | Local-only audit transcript/receipt for the real and deliberately incomplete comparisons | PASS: 131,072-context loopback audit returned `PASS` for the 90,251-token real comparison and `PARTIAL` after one menu choice was removed; strict four-grade fake tests pass and cloud calls are zero. Evidence: `output/m15-phase05-renpy-probe-20260728-124621/coverage-audit.json` |
-| 4 | Full-game extraction counts, coverage grades, Codex provider/call/refusal accounting, and regenerated artifact identity | In progress; criteria 1-3 passed; user explicitly approved Codex CLI summaries and deferred rejected prompts to local-only handling |
-| 5 | Current browser walkthrough/screenshots plus focused, integrated, review, CI, and Release results | Pending; blocked on criterion 4 |
+## Acceptance checks
 
-## Superseded evidence
-
-- Generation `5daf4e7e...bab7857` exactly covers all 425 previously accepted sections in 24 groups,
-  but this proves only projection coverage. It does not prove whole-game narrative coverage because
-  substantial later-game sources were parsed as empty label shells.
-- The existing grouped reader, path rail, and Detail/Evidence work remain useful and should be
-  reused after extraction is corrected.
+1. The Terrance proof matches the script's menu nesting, route destinations, state effects, and
+   Lois rejoin.
+2. The compact initial outline shows the Terrance tree vertically without horizontal squeeze.
+3. Every substantial captured corridor, including the storage-room continuation, has concrete
+   expandable story detail at the correct place in the tree.
+4. Technical evidence is available on demand but absent from the default reading surface.
+5. The rendered Terrance section is understandable by scrolling and is accepted by the user.
+6. The full-game walker covers every reachable label or marks it unresolved without using AI chunks
+   as story boundaries.
+7. The first 10 AI summaries are useful before the remainder is parallelized.
+8. The final desktop timeline preserves Python-owned branches, conditions, state provenance,
+   destinations, rejoins, loops, and endings.
 
 ## Exclusions
 
-- No promise that the game contains authoritative Day 1/Day 2 names.
-- No cloud story-content transmission except the user-approved Codex CLI summary/grouping run; no
-  automatic resubmission of rejected prompts and no other cloud provider.
-- No broad cleanup merely because existing Phase 04/05 code is complex.
-- No writes to the supplied original game folder/archive and no merge without separate explicit
-  user approval.
+- No repair of the rejected 34-section chunk-owned grouping as the final architecture.
+- No arbitrary event/group count.
+- No mobile UI, zoom modes, giant graph canvas, packaging, Release, broad CI, PR preparation, or
+  production hardening before story acceptance.
+- No privacy/consent workflow or mandatory local/cloud fallback system.
 
-## Dispatch settings
+## Handoff
 
-- Orchestra: this user-visible task; its runtime model and fast-mode state are not exposed here and
-  are not claimed.
-- Every new worker and reviewer uses explicit `gpt-5.6-sol` with High reasoning. No new Ultra task
-  is allowed. The task API exposes no fast-mode selector, so fast mode is unavailable/unverified.
-- One Orchestra and at most two concurrent workers. Use one early semantic review and one final
-  integrated review by default.
-
-## Handoff rules
-
-- Stop at the one-slice proof and report the result before broad regeneration if it does not earn
-  `PASS` or reveals a materially different architecture choice.
-- Prefer Ren'Py's built-in `lint`, `dialogue`, and label inventory first. Add one temporary
-  no-display AST exporter only if the built-ins cannot prove the slice.
-- Reuse the existing Python graph, Codex CLI workflow adapter, reader/API shapes, and grouped UI;
-  pause before any new contract family.
-- Run affected checks while editing, one focused integration gate, sharded CI once at the PR
-  candidate, and one final Release/package gate.
-- Keep the native Codex goal active through implementation, integration, verification, user
-  acceptance, and PR preparation. Complete it only when the PR is genuinely ready.
+Stop first at the rendered Terrance proof. After user acceptance, continue to the whole game and the
+first-10 AI-summary canary.

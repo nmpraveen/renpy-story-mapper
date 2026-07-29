@@ -682,6 +682,34 @@ def test_mapper_validation_overlays_exact_python_mechanics() -> None:
     assert normalized.choices[0].mechanics_hash == plan.choice_parents[0].mechanics_hash
 
 
+def test_mapper_accepts_the_exact_frozen_placement_count_above_256() -> None:
+    base = _plan(route_events=0, common_events=1)
+    placement_ids = tuple(f"placement:large:{index}" for index in range(300))
+    atomic_group = replace(base.atomic_groups[0], placement_ids=placement_ids)
+    chunk = replace(
+        base.chunks[0],
+        atomic_group_ids=(atomic_group.id,),
+        placement_ids=placement_ids,
+    )
+    plan = replace(
+        base,
+        covered_placement_ids=placement_ids,
+        atomic_groups=(atomic_group,),
+        chunks=(chunk,),
+    )
+
+    validator = Phase04MapperResponseValidator(plan)
+    validated = validator.validate(
+        _job(plan, chunk), _mapper_payload(plan, chunk), cached=False
+    )
+    cached = validator.validate(
+        _job(plan, chunk), validated.normalized_payload, cached=True
+    )
+
+    normalized = deserialize_semantic_chunk(cached.normalized_payload)
+    assert normalized.events[0].placement_ids == chunk.placement_ids
+
+
 @pytest.mark.parametrize("mutation", ["empty", "reordered", "foreign", "missing", "duplicate"])
 def test_mapper_rejects_invalid_empty_reordered_hallucinated_and_incomplete_membership(
     mutation: str,

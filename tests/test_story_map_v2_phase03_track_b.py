@@ -216,7 +216,8 @@ def test_story_browser_is_a_two_level_normal_flow_surface() -> None:
     assert 'element("ol", "story-events")' in assets
     assert 'number.setAttribute("aria-label", `Event ${ordinal}`)' in assets
     assert "grid-template-columns: minmax(0, 1fr)" in css
-    assert "@media (min-width: 1100px)" in css
+    assert "@media (min-width: 1100px)" not in css
+    assert ".story-choice:not(.nested) > .story-arms" not in css
     assert "repeat(2, minmax(0, 1fr))" in css
     assert ".story-path-panel :where" in css and "overflow-wrap: anywhere" in css
     assert "@media (max-width: 780px)" in css
@@ -228,7 +229,7 @@ def test_story_browser_is_a_two_level_normal_flow_surface() -> None:
         story_surface.index('id="storyPathPanel"') : story_surface.index("</aside>")
     ]
     assert '<details id="storyPathAnalysisNotes"' in path_surface
-    assert "<summary>Analysis notes</summary>" in path_surface
+    assert "<summary>Analysis / technical details</summary>" in path_surface
     assert not re.search(r'id="storyPathAnalysisNotes"[^>]*\bopen\b', path_surface)
     mechanics = (
         path_surface.index('id="storyPathChoicesGroup"'),
@@ -238,7 +239,8 @@ def test_story_browser_is_a_two_level_normal_flow_surface() -> None:
         path_surface.index('id="storyPathUncertaintyGroup"'),
     )
     assert list(mechanics) == sorted(mechanics)
-    assert mechanics[-1] < path_surface.index('id="storyPathAnalysisNotes"')
+    technical_details = path_surface.index('id="storyPathAnalysisNotes"')
+    assert mechanics[2] < technical_details < mechanics[3]
     assert path_surface.index('id="storyPathAnalysisNotes"') < path_surface.index(
         'id="storyPathScenes"'
     )
@@ -593,6 +595,29 @@ def test_story_map_v2_is_primary_without_removing_compatibility_maps() -> None:
         "rejoin_node_id"
         not in app[app.index("function renderStoryChoice") : app.index("function renderStoryEvent")]
     )
+
+
+def test_phase05_progressive_page_precedes_reader_and_shows_human_targets() -> None:
+    app = _text("app.js")
+    css = _text("styles.css")
+    story_loader = app[
+        app.index("async function loadStoryMapV2") : app.index(
+            "async function enterAvailableWorkspace"
+        )
+    ]
+
+    marker = 'note.startsWith("Phase 05 progressive story walk")'
+    assert marker in story_loader
+    assert story_loader.index(marker) < story_loader.index(
+        "if (api.storyReaderRoutes) return loadStoryReader();"
+    )
+    assert 'value.startsWith("story:")' in app
+    assert "humanStoryTarget(choice.key)" in app
+    assert 'progressive ? "Progressive proof"' in app
+    assert "Goes to ${destination}" in app
+    assert "Rejoins at ${rejoin}" in app
+    assert ".story-targets" in css
+    assert ".story-reader-shell { display: grid; width: calc(100% - 2rem);" in css
 
 
 def test_story_selection_path_detail_and_scroll_context_are_explicit() -> None:

@@ -1,114 +1,53 @@
-# **PLAN THE SIMPLEST USEFUL SCRIPT-TO-STORY RESULT**
+# Plan the simplest useful story result
 
-These rules apply to Phase 04 and every future Ren'Py Story Mapper milestone.
+## 1. Start with the rendered outcome
 
-## 1. Start with the user outcome
+The user should be able to select a Ren'Py game or script and read its story as a full-width desktop
+timeline. The timeline must make linear progression, choices, conditions, routes, important state
+changes, rejoins, and endings understandable while scrolling.
 
-Write one plain-language sentence describing what the user will be able to do. For this project the
-default outcome is:
+## 2. Build progressively from execution flow
 
-> Load Ren'Py game files and quickly read a rough whole-story overview with the important choices,
-> routes, state changes, and rejoins.
+- Follow labels, fallthrough, jumps, calls, and returns from the entry point.
+- Collapse linear statements between control points into story corridors.
+- Split at menus and conditions.
+- Track assignments and increments so later conditions link back to the choices or events that made
+  them possible.
+- Preserve nested choices and merge routes only at demonstrated rejoins.
+- Use AI after this structure exists, never as the owner of mechanics.
 
-Anything that does not directly support that sentence begins outside the phase.
+## 3. Prove one real section first
 
-## 2. Define three scope lists
+Build and render one representative real-game section before processing the full game. Correct the
+packet shape, branch tree, state tracking, and AI prompt there. Do not compensate for a failed proof
+with more grouping, post-processing, or tests.
 
-Every phase plan must state:
+## 4. AI provider and parallelism
 
-- **Must work now:** the smallest real end-to-end behavior the user needs.
-- **Useful later:** improvements that are deliberately deferred.
-- **Do not build:** production hardening, theoretical edge cases, and unrelated architecture.
+- Cloud AI is the default. Use a local LLM only when the user asks for it.
+- Game and script content may be sent to cloud AI.
+- "Codex task" and "Codex thread" mean app-created, user-visible tasks in the sidebar, not internal
+  subagents. If the user asks for tasks/threads, never substitute subagents.
+- When work has independent parts, use separate user-visible `gpt-5.6-sol` High Codex tasks unless
+  the user says otherwise.
+- For bulk cloud summaries, process and inspect the first 10 items first. If they are useful, split
+  the remainder approximately evenly across three or four user-visible Sol/High tasks.
 
-Do not promote an item from the second or third list because it seems elegant, standard, safer in
-the abstract, or already exists in an older plan. Require a demonstrated current-product blocker or
-new explicit user approval.
+## 5. Desktop-only interface
 
-## 3. Test the real example early
+Use the full width of the user's desktop screen and normal vertical scrolling. Do not plan pan, zoom,
+fit, semantic zoom, 100%/200% variants, mobile layouts, or mobile optimization.
 
-Choose the smallest real acceptance example before designing internals. Run it as soon as the
-shortest vertical path exists. For story mapping, inspect whether the output gives:
+## 6. Testing and checkpoints
 
-- a readable chronological story overview;
-- visible choices and branch outcomes;
-- persistent routes and proven rejoins where available;
-- important state changes that explain how a route is reached; and
-- a usable link back to detail/source evidence.
+- Run focused tests for changed code while building.
+- Inspect the rendered real section at the first useful checkpoint.
+- After user acceptance, process the full game and run one focused integrated browser check.
+- CI, Release, packaging, PR work, broad reviews, and repeated full suites are not prerequisites for
+  showing or improving the story.
 
-The output is for quick personal checking. Approximate summaries are acceptable. Perfect wording,
-publication accuracy, reproducible AI prose, exhaustive line ownership, and formal proof are not
-default requirements.
+## 7. Keep rules current
 
-## 4. Use three to five gates
-
-A normal phase should have no more than five gates:
-
-1. Freeze the smallest scope and pass one lightweight semantic review.
-2. Build the shortest end-to-end path with at most two independent workers.
-3. Run the real example and let the user inspect it.
-4. Fix only blockers found in that inspection.
-5. Run one final integrated review, sharded CI, and one Release/package gate.
-
-Stop after each user-visible gate. Do not automatically begin the next gate if the outcome raises a
-scope question.
-
-## 5. One Orchestra, few workers
-
-- One user-visible Orchestra task owns the goal, scope decisions, worker briefs, integration, and
-  checkpoint reports.
-- The Orchestra guards against diversion and overengineering; it does not implement every track
-  itself.
-- Use at most two concurrent workers unless the user explicitly approves more.
-- Every worker receives an exact base, owned files, one bounded output, exclusions, and focused
-  checks.
-- Use one early semantic reviewer and one final integrated reviewer by default. Do not create a
-  reviewer for every worker unless a concrete risk requires it.
-- Monitor only completion, blocking findings, or user-decision checkpoints. Do not burn quota on
-  minute-by-minute polling or commentary.
-
-## 6. The user chooses models each time
-
-At the start of every phase or resumption, record the user-selected settings separately for:
-
-- the planning/Orchestra task;
-- implementation workers; and
-- reviewers, if different.
-
-Do not inherit settings from an earlier phase and do not silently escalate reasoning. Repository
-text cannot set the running model, so each task creation must pass the settings explicitly and
-report when a selector is unavailable.
-
-For the next Phase 04 resumption, workers and reviewers use `gpt-5.6-sol`, Medium reasoning, and
-fast mode disabled. The user intends to create the new planning/Orchestra chat with Ultra
-reasoning; the chat must verify its actual setting rather than claiming the repository changed it.
-
-## 7. Use a quota-aware test ladder
-
-- **While editing:** run the directly affected tests and lint/type checks for changed files.
-- **At one integration checkpoint:** run the focused Story Map V2 workflow/browser set.
-- **At PR candidate:** push once and use the repository-wide timing-balanced sharded CI.
-- **At final intended head:** run the Windows Release/package gate once.
-
-Do not run the entire suite after every worker, correction, commit, or push. Do not keep an agent
-active merely to watch healthy CI. If a cheap check fails, fix it before starting the expensive
-gate.
-
-## 8. Pause and ask when scope starts growing
-
-The Orchestra must pause the goal and ask the user before:
-
-- adding a new database schema, protocol version, scheduler, migration, or recovery subsystem;
-- creating a new product workflow when an existing path could be made good enough;
-- adding extreme-scale or exhaustive crash/tamper matrices not triggered by the real game;
-- creating more than two concurrent workers or more than the two default reviews;
-- starting a second correction loop for the same design problem;
-- changing the user-selected model/reasoning settings;
-- making a private provider call not already covered by an exact preview and consent; or
-- expanding the phase beyond the one-sentence user outcome.
-
-## 9. Completion means useful, not perfect
-
-A milestone is ready when the real user workflow works, the output is useful for rough personal
-story checking, privacy/read-only boundaries hold, blocking findings are resolved, and the lean
-final gates pass. It is not blocked by missing production-grade guarantees that the user did not
-request.
+Current user instructions outrank repository history. Keep current authority files concise. Historical
+milestone reports may remain as evidence but must not impose active scope, provider, model, privacy,
+testing, or UI requirements.

@@ -1,37 +1,28 @@
-# M15.1 Phase 05 semantic review
+# M15.1 Phase 05 readiness review
 
-Review target: revised `MASTER_PLAN.md`, `GOAL.md`, `TASKS.md`, and `PROJECT_STATE.md`.
+The previous saved-summary recovery `PASS` is revoked as product acceptance. The resulting
+34-section reader was structurally incorrect.
 
-Status: REVISE (Codex CLI summary-provider delta awaiting review)
+The replacement contract directly matches the user's requested workflow:
 
-## Required decision
+- Python progressively follows execution and state.
+- Branches appear at menus and conditions.
+- Later state gates link back to their establishing decisions.
+- AI summarizes only Python-owned corridors.
+- The desktop UI is a full-width scrolling timeline.
+- The Terrance section is the narrow proof before full-game processing.
+- Cloud AI is default, local LLM is explicit, and bulk summaries use a first-10 canary before
+  parallel processing in user-visible Sol/High Codex tasks. Internal subagents do not count as
+  requested Codex tasks/threads.
 
-- Does the contract correct the demonstrated incomplete-parser blocker before more grouping/UI
-  work?
-- Is trusted Ren'Py use confined to a disposable copy while supplied originals remain unchanged?
-- Is the first proof small enough: one real omitted slice, one focused correction, and one local
-  four-grade audit?
-- Are Ren'Py, Python, and AI responsibilities clear without adding a platform layer?
-- Does broader regeneration remain gated on the real slice earning `PASS`?
-- Are any P0, P1, or P2 scope, correctness, privacy, or safety problems present?
+Rendered evidence:
 
-## Current evidence
+- Python walk: 66 nodes, 75 edges, 8 menus, 16 menu arms, 3 conditions, and 7 upstream state links.
+- Reader: 11 prompts and 22 arms with exact nested menus, readable state gates, the storage-room
+  destination, and the Lois rejoin.
+- Browser: 1920-by-1080 inspection found no horizontal overflow. The asymmetric root branches are
+  stacked vertically so the deep route keeps the available desktop width.
+- AI structure check: PASS. AI supplied prose only; Python retained mechanical ownership.
 
-- The old 24 groups exactly cover the 425-section projection, but later-game source files contain
-  many parsed labels with empty bodies. Therefore the former 425/425 claim is not whole-game proof.
-- The user explicitly approved trusted Ren'Py execution and asked to try the smallest useful real
-  slice before deciding how much input Ren'Py needs.
-- The existing reader and loopback local-model transport are reusable; no new database, workflow,
-  API, or UI family is proposed.
-
-## Review result
-
-- Exact target: `17f8400b089f7bf7cb3004058d14a961720b998c`.
-- Reviewer: `/root/phase05_extraction_semantic_review`, explicit `gpt-5.6-sol` High; fast mode
-  unavailable/unverified.
-- Verdict: `PASS` (`P0=0`, `P1=0`, `P2=0`).
-- The contract fixes extraction before grouping, confines Ren'Py-created files to a disposable
-  copy, keeps Python/AI authority bounded, gates regeneration on one real omitted slice, reuses
-  existing seams, and maps all five acceptance criteria to lean evidence.
-
-REVISE
+Decision: PASS for the narrow Terrance proof only. User review remains pending, and full-game
+expansion waits for user acceptance of this rendered proof.

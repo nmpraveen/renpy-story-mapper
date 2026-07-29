@@ -1,19 +1,19 @@
 # M15.1 Phase 05 task ledger
 
-Baseline: merged `main` at `268d30ed15d50136be5a88d464f79adaf7f32f9e`
+| Task | Status | Next evidence |
+|---|---|---|
+| Replace stale rule stack and Phase 05 contract | Complete | Current authority files describe the progressive walker workflow |
+| Build deterministic Terrance story walk | Complete | 66 nodes, 75 edges, 8 menus, 16 menu arms, 3 conditions, and 7 upstream state links |
+| Render the Terrance proof | Complete | 11 prompts and 22 arms in a full-width scrolling page with no horizontal overflow |
+| Add AI prose to the proven structure | Complete | Human titles, summaries, and consequences added without changing mechanics; AI structure grade PASS |
+| Review first Terrance proof | Complete | User identified over-compressed story prose and an unreadable stacked-card hierarchy |
+| Build compact vertical outline tree | In progress | Shared trunks and fork connectors with no side-by-side squeeze |
+| Add concrete expandable story detail | In progress | Existing corridors, including the storage room, described at their exact branch positions |
+| Separate technical evidence | Pending | Variables, reachability, source, and evidence hidden from the initial reading surface |
+| User review of corrected Terrance proof | Pending | Acceptance or one concrete remaining comprehension problem |
+| Walk the full game | Pending | Reachable-label coverage with unresolved items reported honestly |
+| Validate first 10 bulk summaries | Pending | Ten inspected useful results before parallel expansion |
+| Parallelize remaining summaries | Pending | Roughly equal work across three or four user-visible Sol/High sidebar tasks; no subagent substitution |
+| Publish and inspect full desktop timeline | Pending | Correct story order, branches, conditions, state links, rejoins, and endings |
 
-| Task | Owner | Scope / affected area | Dependencies | Status | Evidence / handoff |
-|---|---|---|---|---|---|
-| Contract correction | Orchestra | Replace the false 425/425 whole-game assumption; allow trusted Ren'Py use only on disposable copies | User approval | Complete | Revised `GOAL.md`, `MASTER_PLAN.md`, and current project pointer |
-| Semantic review | `/root/phase05_extraction_semantic_review`, Sol/High | Check the extraction-first scope, authority split, exclusions, and lean evidence | Corrected contract | Complete | Exact head `17f8400`; `PASS`, P0=P1=P2=0 |
-| Ren'Py input/runtime proof | `/root/renpy_runtime_probe` plus Orchestra | Locate matching SDK and game inputs; determine full-project versus lone-script fidelity; prepare disposable-copy command | Semantic `PASS` | Complete | Bundled Ren'Py 8.5.3 ran Day 1 and matching full archives from disposable project roots; originals matched before/after; sanitized evidence under `output/m15-phase05-renpy-probe-20260728-124621` |
-| Missing-slice parser proof | `/root/known_label_probe` plus `/root/flat_recovery_parser` | Identify one omitted real label, correct the smallest parser seam, compare against Ren'Py | Semantic `PASS` and runtime proof | Complete | Commit `9d496e5`; Python and Ren'Py both report 305 source statements for the known omitted label, with matching structure and zero diagnostics |
-| Local coverage grade | `/root/coverage_grade_transport` plus Orchestra | Reuse loopback transport for exact four-grade audit; prove real `PASS` and missing-item non-PASS | Corrected slice | Complete | Commit `9d496e5`; real audit `PASS`, one-choice-removed audit `PARTIAL`, 180,037 total input tokens, and zero cloud calls; exact counts/hashes in `coverage-audit.json` |
-| Codex CLI contract delta | Orchestra plus one Sol/High reviewer | Record explicit Codex summary consent, keep local extraction audit, and isolate refusals for later local handling | User direction | In progress | Replaces local summary generation only; no new workflow/schema and no automatic fallback |
-| Full regeneration and reader check | `/root/full_reextract_path`, `/root/whole_game_coverage_batch`, then at most two implementation workers plus Orchestra | Re-extract whole game, regenerate summaries/groups through Codex CLI, isolate refusals, reuse current grouped reader, inspect real result | Coverage `PASS` and Codex delta `PASS` | In progress | Fresh authority has 149 substantive Python labels and zero diagnostics; large-context preview target is 103 mapping jobs plus 7 editorial calls |
-| Integration and PR readiness | Orchestra plus one final Sol/High reviewer | Focused/integrated checks, browser acceptance, final review, Release, push, sharded CI, PR | Useful regenerated result | Pending | No merge without explicit user approval |
-
-Use only factual statuses: `Pending`, `In progress`, `Blocked`, or `Complete`.
-
-Every new worker/reviewer uses explicit `gpt-5.6-sol` with High reasoning. No new Ultra task is
-allowed. The task API exposes no fast-mode selector, so fast mode is unavailable/unverified.
+Use only `Pending`, `In progress`, `Blocked`, or `Complete`.

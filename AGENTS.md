@@ -1,55 +1,69 @@
-# Repository workflow instructions
+# Ren'Py Story Mapper repository rules
 
-## Product simplicity authority
+## Product outcome
 
-- **THE PRODUCT IS A QUICK, CRUDE SCRIPT-TO-STORY CHECKER, NOT A PRODUCTION-GRADE SYSTEM.**
-- The primary outcome is simple: load Ren'Py files and quickly see the rough whole story, choices,
-  branch routes, important state changes, and rejoins.
-- Build the smallest thing that makes that outcome work on the current real game. Do not add
-  enterprise durability, exhaustive proof, extreme-scale infrastructure, new protocol versions,
-  or defensive matrices unless a demonstrated current-game blocker requires them.
-- Preserve useful existing implementation, but do not finish previously planned complexity merely
-  because it already appears in an old contract or design.
-- If a proposed change does not directly improve script-to-story output, remove a demonstrated
-  blocker, or protect private read-only inputs, stop and ask the user before proceeding.
+- This is a quick script/game-to-story checker for desktop use.
+- The primary result is a clean, full-width scrolling story timeline showing the linear story,
+  choices, conditions, branch routes, important state changes, rejoins, and endings.
+- Build the story progressively from Ren'Py execution flow. Do not use AI request chunks, source
+  files, token limits, or arbitrary group counts as story-event boundaries.
+- Prefer the smallest direct implementation that improves the real story output. Do not add
+  production infrastructure, exhaustive safeguards, or process ceremony without a demonstrated
+  product need.
 
-## Milestone authority
+## Story authority
 
-- Treat `docs/MASTER_PLAN.md` as product-scope authority.
-- Treat `docs/PROJECT_STATE.md` as the current milestone pointer and lifecycle record.
-- Use `.agents/skills/renpy-milestone` whenever starting, executing, reviewing, handing off, or closing a milestone.
-- Keep exactly one active milestone contract. Do not infer approval from a branch name or add future product scope.
-- Follow the skill's single early semantic-review gate before broad implementation.
+- Python owns factual structure: labels, menus, nested choices, conditions, jumps, calls, returns,
+  assignments, state provenance, branch destinations, rejoins, loops, terminals, and source lines.
+- A branch is drawn where a menu or condition is evaluated. If an earlier choice or assignment
+  enabled it, retain a dependency link back to that earlier point.
+- Linear statements between control points may be collapsed into a readable story corridor.
+- AI may name, summarize, explain, and editorially group Python-built corridors. AI must not invent
+  or move choices, conditions, edges, effects, or rejoins.
+- Dynamic behavior that cannot be established should be labeled unresolved, not guessed.
 
-## Dispatch policy
+## Inputs and execution
 
-- The user selects the coordinator and worker model/reasoning settings for each phase or resumption.
-  Never inherit model settings from an earlier milestone or silently escalate them.
-- For the next Phase 04 resumption, implementation and review tasks must explicitly use
-  `gpt-5.6-sol` with Medium reasoning and fast mode disabled. If a selector is unavailable, report
-  that limitation instead of claiming the setting.
-- Use one user-visible Orchestra task to guard scope, make decisions, integrate, and report at
-  milestone checkpoints. It may dispatch at most two independent implementation tasks at once
-  unless the user explicitly approves a different topology.
-- The Orchestra must not perform continuous commentary monitoring or start speculative work while
-  another task runs. When scope, necessity, or product value is uncertain, pause the goal and ask.
-- Repository prose cannot change Codex client settings. The dispatcher, thread creator, or tool invocation must pass model, reasoning effort, and fast-mode settings explicitly. Never claim these files changed the running model; if settings cannot be selected or verified, state that limitation rather than silently downgrading.
+- Original supplied game files remain read-only.
+- Trusted games may be executed when useful. Prefer a disposable copy and headless execution so no
+  visible game window appears. Files produced by Ren'Py stay outside the original game directory.
+- Game scripts and story content in this project are not private and may be sent to cloud AI.
+- Cloud AI is the default. Use a local LLM only when the user explicitly asks for local processing.
+- Do not add consent manifests, privacy gates, provider fallback matrices, or cloud/local separation
+  beyond the user's requested provider choice.
 
-## Quota-aware testing and review
+## Desktop interface
 
-- During implementation, run only tests and static checks that cover the changed files and direct
-  integration seam.
-- Run one focused integrated Story Map gate at a meaningful checkpoint. Use the repository-wide
-  sharded CI workflow only for a PR candidate or another explicitly useful integration boundary.
-- Run the full Windows Release/package gate once on the final intended PR head, not after every
-  worker, correction, commit, or push.
-- Use one early semantic review and one final integrated review by default. Add another review only
-  for a concrete unresolved correctness, privacy, or safety risk.
-- Do not spend agent quota waiting on healthy CI. Check it once after completion or when it needs
-  action.
+- Support the user's current desktop screen with a full-width scrolling timeline.
+- Do not build pan, zoom, fit-to-screen, semantic zoom, 100%/200% variants, mobile layouts, or mobile
+  optimization.
+- Keep the main story readable while scrolling. Show branches locally, and use clear back-links or
+  route badges for conditions caused many scenes earlier.
+- Keep helper text minimal. Technical diagnostics and source evidence are secondary details.
 
-## Completion discipline
+## Codex collaboration and AI summaries
 
-- Keep acceptance criteria and evidence in the active milestone contract, not only in chat or a task ledger.
-- Do not mark planned checks as passed. Record commands, outcomes, artifacts, review findings, integration state, and PR state.
-- Keep a milestone's native Codex goal active through implementation, integration, verification, and PR preparation. Complete it only when the PR is genuinely ready under the milestone contract.
+- In this repository, **Codex task** and **Codex thread** mean a separate user-visible task created
+  with the Codex app's thread/task tools and shown in the sidebar. They do not mean an internal
+  subagent.
+- When the user asks to split work into Codex tasks or threads, create those user-visible tasks.
+  Never substitute internal subagents for requested Codex tasks/threads or count subagents as them.
+- When work contains multiple independent investigations or implementation areas, split them into
+  separate user-visible Codex tasks using `gpt-5.6-sol` with High reasoning unless the user says
+  otherwise.
+- The coordinator owns scope, integration, and the final user-facing result. Parallel tasks receive
+  bounded, non-overlapping work.
+- For a bulk cloud-summary workload, the coordinator first processes and inspects the first 10
+  items. Once those results are useful, divide the remaining items approximately evenly across
+  three or four user-visible Sol/High Codex tasks and run them in parallel.
+- Do not repeat a failed bulk pattern at scale. Correct the first-10 prompt or packet shape first.
+
+## Validation and delivery
+
+- Prove a new story-building approach on one real section before applying it to the whole game.
+- During implementation, run only focused checks for the changed story/parser/UI seam.
+- The key acceptance test is the rendered real story: correct branch membership, nesting,
+  conditions, state back-links, destinations, and rejoins.
+- Do not run broad CI, Release/package gates, repeated reviews, or PR preparation before the user
+  accepts the story result or explicitly asks to ship it.
+- Preserve unrelated user changes and never treat old milestone prose as current authority.

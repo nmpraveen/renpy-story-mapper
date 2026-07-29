@@ -4,11 +4,11 @@
   "assets": {
     "API_CONTRACT.md": "7e343208784580b2c8de2e06260fbd6c1840f802efb60defb09355c70cab6e8d",
     "api.js": "82189179d7e22536616b4d85c758f63ea679127d5e2d114a7cd3bbd546f9c3ff",
-    "app.js": "93948c6857098d4bd1cb066800d3b1839096a49f0ac6c93d72af44ab2f83e462",
+    "app.js": "c032d8b7dca6308f9d321ff999677f7557b3c5fc7bddf993b9fdefe1efc88e24",
     "contract.js": "5543acf213ce71831c73eac8edf5f4838e415f9dd582243c0a7237b121212003",
     "graph.js": "4fecfeddd9a0c584ffbb40c9df9b80ecda131672cf0bdd90902beb0b3278bc3d",
-    "index.html": "fc60577ebb3f2648e7d9216154d04b171a57656abd3905e063c4a5c6d5833e9a",
+    "index.html": "5210ab22751147795c38c776d13d6af0b4eda675e035fea24771e4d21ca7f24a",
     "story-map-v2-diff.js": "a4841bf6952793df7886a6a0e56ca64689efb2cb4ff76f921f6883483144afb4",
-    "styles.css": "8e4d53fdc4fc8fbfc09a9e05995af625f3e1701a969f729dd83dbbd9e7bdecee"
+    "styles.css": "7f0357d695d3fa856d1ea9e60e7989c2a5a0603ad988a50e9c25a5588330b6f3"
   }
 }
