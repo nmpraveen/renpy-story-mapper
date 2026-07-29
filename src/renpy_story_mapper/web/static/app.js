@@ -882,6 +882,23 @@ function progressiveStoryActive() {
   return $("#storyBrowser").classList.contains("is-progressive-story");
 }
 
+const STORY_CHOICE_KINDS = new Map([
+  ["decision", "decision"],
+  ["condition", "condition"],
+]);
+
+const STORY_OUTCOME_KINDS = new Map([
+  ["continues", "continuation"],
+  ["rejoins", "rejoin"],
+  ["ends", "ending"],
+  ["unresolved", "unresolved"],
+]);
+
+function storySemanticKind(value, kinds) {
+  if (typeof value !== "string") return "neutral";
+  return kinds.get(value.trim().toLocaleLowerCase()) || "neutral";
+}
+
 function storyBadge(text, kind) {
   return element("span", `story-badge ${kind}`, text);
 }
@@ -897,8 +914,14 @@ function appendStoryTargets(host, item) {
   const rejoin = humanStoryTarget(item.rejoin_node_id) || humanStoryTarget(item.rejoin_binding?.target_id);
   if (!destination && !rejoin) return;
   const targets = element("div", "story-targets");
-  if (destination) targets.append(element("p", "story-target destination", `Goes to ${destination}`));
-  if (rejoin) targets.append(element("p", "story-target rejoin", `Rejoins at ${rejoin}`));
+  if (destination) {
+    const target = element("p", "story-target destination", `Goes to ${destination}`);
+    target.dataset.targetKind = "destination"; targets.append(target);
+  }
+  if (rejoin) {
+    const target = element("p", "story-target rejoin", `Rejoins at ${rejoin}`);
+    target.dataset.targetKind = "rejoin"; targets.append(target);
+  }
   host.append(targets);
 }
 
@@ -1005,6 +1028,7 @@ function appendStoryContinuations(host, bindings, armOwned = false) {
     };
     state.storyItems.set(continuation.selection_id, continuation);
     const row = element("div", "story-continuation");
+    row.dataset.outcomeKind = "rejoin";
     const control = storySelectionControl(continuation, "story-continuation");
     row.append(control);
     if (progressiveStoryActive()) appendProgressiveStoryDetail(row, continuation, control);
@@ -1016,13 +1040,21 @@ function appendStoryContinuations(host, bindings, armOwned = false) {
 function renderStoryChoice(choice, nested = false, continuationPlan = null, choicePath = []) {
   const plan = continuationPlan || planStoryContinuations(choice);
   const article = element("section", `story-choice${nested ? " nested" : ""}`);
+  article.dataset.choiceKind = storySemanticKind(choice.control_kind, STORY_CHOICE_KINDS);
   const prompt = humanStoryTarget(choice.key) || (nested ? "Choice within this path" : "Choice");
-  article.append(element("p", "story-choice-label", prompt));
+  const choiceControl = element("div", "story-choice-control");
+  choiceControl.append(element("p", "story-choice-label", prompt));
+  article.append(choiceControl);
   const arms = element("div", "story-arms");
-  for (const arm of choice.arms) {
+  arms.dataset.armCount = String(choice.arms.length);
+  arms.style.setProperty("--story-arm-count", String(choice.arms.length));
+  const descendants = element("div", "story-descendants");
+  choice.arms.forEach((arm, armIndex) => {
     const armPath = [...choicePath, `arm:${arm.selection_id}`];
     state.storyItems.set(arm.selection_id, arm);
     const armArticle = element("article", "story-arm"); armArticle.dataset.storySelectionId = arm.selection_id;
+    armArticle.dataset.outcomeKind = storySemanticKind(arm.outcome_kind, STORY_OUTCOME_KINDS);
+    armArticle.dataset.hasDescendants = String(Boolean(arm.nested_choices?.length));
     const head = element("div", "story-arm-head");
     const control = storySelectionControl(arm, "story-arm");
     head.append(control);
@@ -1030,11 +1062,26 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
     armArticle.append(head); appendStoryTargets(armArticle, arm);
     if (progressiveStoryActive()) appendProgressiveStoryDetail(armArticle, arm, control);
     else { appendStoryBadges(armArticle, arm); appendStoryWarnings(armArticle, arm.warnings); }
-    (arm.nested_choices || []).forEach((child, index) => armArticle.append(renderStoryChoice(child, true, plan, [...armPath, `choice:${child.key}:${index}`])));
-    appendStoryContinuations(armArticle, plan.get(JSON.stringify(armPath)), true);
+    const armContinuations = plan.get(JSON.stringify(armPath));
+    if (!arm.nested_choices?.length) appendStoryContinuations(armArticle, armContinuations, true);
     arms.append(armArticle);
-  }
+    if (arm.nested_choices?.length) {
+      const route = element("div", "story-descendant-route");
+      route.dataset.ownerSelectionId = arm.selection_id;
+      const ownerPosition = ((armIndex + 0.5) / choice.arms.length) * 100;
+      route.style.setProperty("--story-owner-x", `${ownerPosition}%`);
+      route.style.setProperty("--story-owner-left", `${Math.min(ownerPosition, 50)}%`);
+      route.style.setProperty("--story-owner-width", `${Math.abs(ownerPosition - 50)}%`);
+      const connector = element("div", "story-owner-connector"); connector.setAttribute("aria-hidden", "true"); connector.append(element("span"));
+      route.append(connector, element("p", "story-descendant-owner", `From ${storyItemTitle(arm)}`));
+      const sequence = element("div", "story-choice-sequence");
+      sequence.dataset.sequenceLength = String(arm.nested_choices.length);
+      arm.nested_choices.forEach((child, index) => sequence.append(renderStoryChoice(child, true, plan, [...armPath, `choice:${child.key}:${index}`])));
+      route.append(sequence); appendStoryContinuations(route, armContinuations, true); descendants.append(route);
+    }
+  });
   article.append(arms);
+  if (descendants.children.length) article.append(descendants);
   appendStoryContinuations(article, plan.get(JSON.stringify(choicePath)));
   return article;
 }

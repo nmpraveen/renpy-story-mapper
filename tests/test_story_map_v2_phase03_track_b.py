@@ -217,7 +217,9 @@ def test_story_browser_is_a_two_level_normal_flow_surface() -> None:
     assert 'number.setAttribute("aria-label", `Event ${ordinal}`)' in assets
     assert "grid-template-columns: minmax(0, 1fr)" in css
     assert "@media (min-width: 1100px)" not in css
-    assert ".story-choice:not(.nested) > .story-arms" not in css
+    assert "repeat(var(--story-arm-count), minmax(0, 1fr))" in css
+    assert "story-descendant-route" in assets and "story-choice-sequence" in assets
+    assert "choice.control_kind" in assets and "arm.outcome_kind" in assets
     assert "repeat(2, minmax(0, 1fr))" in css
     assert ".story-path-panel :where" in css and "overflow-wrap: anywhere" in css
     assert "@media (max-width: 780px)" in css
@@ -979,6 +981,15 @@ def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline
     )
     arm["destination_id"] = "story:Storage-room continuation"
     arm["rejoin_node_id"] = "story:Lois continuation"
+    nested_owner = event["choices"][0]["arms"][1]
+    second_nested = json.loads(json.dumps(nested_owner["nested_choices"][0]))
+    second_nested["key"] = "nested-choice-after-dawn"
+    second_nested_arm = second_nested["arms"][0]
+    second_nested_arm["selection_id"] = "arm-nested-b"
+    second_nested_arm["caption"] = "Continue after dawn"
+    second_nested_arm["binding"]["selection_id"] = "arm-nested-b"
+    second_nested_arm["binding"]["detail_id"] = "arm-nested-b"
+    nested_owner["nested_choices"].append(second_nested)
 
     driver = _browser_driver()
     _SyntheticStoryHandler.story_page = page
@@ -999,11 +1010,11 @@ def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline
             )
             session.evaluate("document.querySelector('.recent-card').click()")
             session.wait(
-                "document.querySelector('#storyBrowser').classList.contains('is-progressive-story') && document.querySelectorAll('.story-arm').length === 5"
+                "document.querySelector('#storyBrowser').classList.contains('is-progressive-story') && document.querySelectorAll('.story-arm').length === 6"
             )
             initial = session.evaluate(
                 """(() => {
-                  const arms = [...document.querySelectorAll('.story-choice:not(.nested) > .story-arms > .story-arm')];
+                  const arms = [...document.querySelector('.story-choice:not(.nested) > .story-arms').children];
                   const rects = arms.map(node => node.getBoundingClientRect());
                   const selected = document.querySelector('.story-arm-select[data-story-selection-id="arm-bridge"]');
                   const owner = selected.closest('.story-arm');
@@ -1016,9 +1027,14 @@ def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline
                     technicalOpen:technical.open,
                     technicalVisible:technical.checkVisibility(),
                     pathHidden:document.querySelector('#storyPathPanel').hidden,
-                    stacked:rects.every((rect, index) => index === 0 || rect.top >= rects[index - 1].bottom - 1),
+                    columns:rects.length === 2 && Math.abs(rects[0].top - rects[1].top) <= 1 && rects[1].left > rects[0].left,
                     destinations:[...owner.querySelectorAll('.story-target')].map(node => node.textContent),
-                    nestedOwner:document.querySelector('.story-choice.nested')?.closest('.story-arm')?.dataset.storySelectionId,
+                    nestedOwner:document.querySelector('.story-choice.nested')?.closest('.story-descendant-route')?.dataset.ownerSelectionId,
+                    sequenceLength:document.querySelector('.story-choice-sequence')?.dataset.sequenceLength,
+                    sequenceVertical:(() => { const nodes=[...document.querySelectorAll('.story-choice-sequence > .story-choice')]; const boxes=nodes.map(node => node.getBoundingClientRect()); return nodes.length === 2 && boxes[1].top >= boxes[0].bottom - 1; })(),
+                    descendantFullWidth:document.querySelector('.story-descendant-route').getBoundingClientRect().width >= document.querySelector('.story-choice:not(.nested)').getBoundingClientRect().width - 2,
+                    neutralFallback:[...document.querySelectorAll('.story-choice')].every(node => node.dataset.choiceKind === 'neutral') && [...document.querySelectorAll('.story-arm')].every(node => node.dataset.outcomeKind === 'neutral'),
+                    continuationKind:document.querySelector('.story-continuation')?.dataset.outcomeKind,
                     overflow:document.documentElement.scrollWidth - document.documentElement.clientWidth,
                   };
                 })()"""
@@ -1030,12 +1046,17 @@ def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline
                 "technicalOpen": False,
                 "technicalVisible": False,
                 "pathHidden": True,
-                "stacked": True,
+                "columns": True,
                 "destinations": [
                     "Goes to Storage-room continuation",
                     "Rejoins at Lois continuation",
                 ],
                 "nestedOwner": "arm-tunnel",
+                "sequenceLength": "2",
+                "sequenceVertical": True,
+                "descendantFullWidth": True,
+                "neutralFallback": True,
+                "continuationKind": "rejoin",
                 "overflow": 0,
             }
 
@@ -1145,7 +1166,7 @@ def _browser_measurement(session: Any) -> dict[str, object]:
             eventIds: [...document.querySelectorAll('.story-event')].map(node => node.dataset.storySelectionId),
             eventNumbers: [...document.querySelectorAll('.story-event-number')].map(node => node.textContent.trim()),
             eventSemantics: {listTag:document.querySelector('.story-events')?.tagName, itemTags:[...document.querySelectorAll('.story-event')].map(node => node.tagName), ordinalLabels:[...document.querySelectorAll('.story-event-number')].map(node => node.getAttribute('aria-label'))},
-            nestedOwner: document.querySelector('.story-choice.nested')?.closest('.story-arm')?.dataset.storySelectionId,
+            nestedOwner: document.querySelector('.story-choice.nested')?.closest('.story-descendant-route')?.dataset.ownerSelectionId,
             nestedArms: document.querySelectorAll('.story-choice.nested .story-arm').length,
             continuations: document.querySelectorAll('.story-continuation').length,
             continuationTargets: document.querySelectorAll('[data-story-selection-id="story-map-v2-continuation:c2cdc2d22eefd73445bb724831489c2d55b7b3b450e55408c4369396980f487a"][aria-selected]').length,
