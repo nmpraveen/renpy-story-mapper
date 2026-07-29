@@ -253,6 +253,13 @@ def test_progressive_terrance_walk_preserves_real_nesting_and_rejoin(tmp_path) -
         assert sum(len(choice["arms"]) for choice in projected_choices) == 21
         assert all(choice["key"].startswith("story:") for choice in projected_choices)
         assert len(choices) == 1  # the entry state gate owns the visible route tree
+        event = page["sections"][0]["events"][0]  # type: ignore[index]
+        assert event["outline_summary"] == "Terrance reappears after work."
+        assert "Terrance reappears after work." in event["detail_summary"]
+        projected_arms = [arm for choice in projected_choices for arm in choice["arms"]]
+        assert all(arm["outline_summary"] for arm in projected_arms)
+        assert all(arm["detail_summary"] for arm in projected_arms)
+        assert "The route continues to the next story beat." not in str(page)
         lunch = next(
             choice
             for choice in projected_choices
@@ -264,6 +271,21 @@ def test_progressive_terrance_walk_preserves_real_nesting_and_rejoin(tmp_path) -
             "story:Wanda reads Terrance's diner behavior",
             "story:Wanda responds when he leads her to storage",
         }
+        proposal_choice = next(
+            choice
+            for choice in projected_choices
+            if choice["key"] == "story:Wanda responds when he leads her to storage"
+        )
+        do_nothing = next(
+            arm for arm in proposal_choice["arms"] if arm["caption"] == "Do nothing"
+        )
+        assert do_nothing["outline_summary"] == "They enter the storage room."
+        assert do_nothing["detail_summary"].splitlines() == [
+            "Diner storage room",
+            "They enter the storage room.",
+            "Wanda eventually leaves Terrance behind.",
+            "Lois continuation",
+        ]
         assert project.payload("story_map_v2", "phase05_progressive") == page
     finally:
         project.close()

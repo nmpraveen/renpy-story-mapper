@@ -240,7 +240,8 @@ def _project_reader_page(
             arm_summary = (
                 (arm_summaries or {}).get(summary_key)
                 or (arm_summaries or {}).get(caption)
-                or str(trace["summary"])
+                or str(trace["outline_summary"])
+                or caption
             )
             nested = sorted(
                 nested_children.get((control_id, arm_id), ()),
@@ -255,6 +256,8 @@ def _project_reader_page(
                     "selection_id": arm_id,
                     "caption": caption,
                     "outcome_summary": arm_summary,
+                    "outline_summary": str(trace["outline_summary"]) or caption,
+                    "detail_summary": str(trace["detail_summary"]) or caption,
                     "condition": (
                         edge.get("condition")
                         if isinstance(edge.get("condition"), str)
@@ -315,6 +318,9 @@ def _project_reader_page(
     ]
     event_id = f"walk:event:{entry_label}"
     event_source = _reader_source(_mapping(entry_node.get("source"), "entry source"))
+    event_trace = _trace_arm(
+        _text(entry_node.get("id"), "entry node id"), nodes, outgoing, control_ids
+    )
     return {
         "schema": "story-map-v2-page-v1",
         "status": "synthesized",
@@ -334,6 +340,12 @@ def _project_reader_page(
                         "selection_id": event_id,
                         "title": page_title,
                         "summary": page_overview,
+                        "outline_summary": (
+                            str(event_trace["outline_summary"]) or page_overview
+                        ),
+                        "detail_summary": (
+                            str(event_trace["detail_summary"]) or page_overview
+                        ),
                         "characters": [],
                         "reachability": "reachable",
                         "warnings": warnings,
@@ -409,7 +421,8 @@ def _trace_arm(
 ) -> dict[str, object]:
     pending = deque([start])
     seen: set[str] = set()
-    summaries: list[str] = []
+    story_material: list[str] = []
+    corridor_material: list[str] = []
     effects: list[str] = []
     boundaries: list[tuple[str, int]] = []
     while pending:
@@ -420,13 +433,18 @@ def _trace_arm(
         node = nodes[node_id]
         kind = node.get("type")
         if kind == "corridor" and isinstance(node.get("text"), str):
-            summaries.append(str(node["text"]))
+            text = str(node["text"]).strip()
+            if text:
+                story_material.append(text)
+                corridor_material.append(text)
         elif kind == "effect":
             effects.append(_text(node.get("title"), "effect title"))
+        elif kind in {"destination", "label"}:
+            story_material.append(_text(node.get("title"), f"{kind} title"))
         elif kind in {"rejoin", "terminal", "unresolved"}:
             source = _mapping(node.get("source"), "boundary source")
             boundaries.append((node_id, _integer(source.get("start_line"), "boundary line")))
-            summaries.append(_text(node.get("title"), "boundary title"))
+            story_material.append(_text(node.get("title"), "boundary title"))
             continue
         pending.extend(
             _text(edge.get("target"), "walk edge target")
@@ -435,9 +453,18 @@ def _trace_arm(
     boundary_id, boundary_line = (
         min(boundaries, key=lambda item: item[1]) if boundaries else (None, None)
     )
-    summary = " ".join(dict.fromkeys(summaries)) or "The route continues to the next story beat."
+    material: list[str] = []
+    for item in story_material:
+        if not material or material[-1] != item:
+            material.append(item)
+    concrete = list(dict.fromkeys(corridor_material))
+    outline_source = concrete[0] if concrete else (material[0] if material else "")
+    outline_summary = next(
+        (line.strip() for line in outline_source.splitlines() if line.strip()), ""
+    )
     return {
-        "summary": summary,
+        "outline_summary": outline_summary,
+        "detail_summary": "\n".join(material),
         "effects": list(dict.fromkeys(effects)),
         "boundary_id": boundary_id,
         "boundary_line": boundary_line,
