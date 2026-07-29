@@ -7,8 +7,8 @@ Updated: 2026-07-28
 - Active milestone: M15.1 Phase 05 progressive story walker.
 - Contract: [`docs/milestones/M15_PHASE_05/GOAL.md`](milestones/M15_PHASE_05/GOAL.md).
 - Task ledger: [`docs/milestones/M15_PHASE_05/TASKS.md`](milestones/M15_PHASE_05/TASKS.md).
-- Branch: `codex/m15-phase05-story-timeline`.
-- Status: Terrance family-tree proof is rendered and awaiting user acceptance.
+- Branch: `main` after the accepted-proof integration.
+- Status: Terrance family-tree proof accepted; full-game progressive walk is next.
 - Native Codex goal: none.
 
 ## Current product decision
@@ -23,8 +23,8 @@ Build the story progressively from actual Ren'Py execution flow and state:
 - detect demonstrated rejoins and endings; and
 - let AI summarize only after Python has built this structure.
 
-The first proof is the Terrance route. Full-game processing waits until that rendered section is
-useful to the user.
+The first proof is the Terrance route. The user accepted its family-tree reader on 2026-07-28;
+full-game processing is now the next product step.
 
 The current correction keeps the existing 66-node, 75-edge structural walk authoritative while
 replacing the stacked outline with a polished family-tree reader. Direct sibling routes fork

@@ -1,6 +1,6 @@
 # M15.1 Phase 05 - Progressive state-aware story timeline
 
-Status: Terrance family-tree proof ready for user acceptance
+Status: Terrance family-tree proof accepted; full-game walk pending
 
 ## User outcome
 
@@ -27,7 +27,8 @@ Before full-game work, rebuild the Terrance section from its actual labels and j
 - show relevant state effects without combining mutually exclusive outcomes; and
 - contain no Gene/Faye choices or false ending.
 
-The user inspects this rendered proof before the same method is applied to the full game.
+The user accepted this rendered proof on 2026-07-28. The same progressive method can now be applied
+to the full game.
 
 The first rendered proof exposed three concrete product failures: the outline stacked large
 technical cards without a clear branch tree, long story corridors were reduced to vague
@@ -102,5 +103,5 @@ family-tree relationships.
 
 ## Handoff
 
-Stop first at the rendered Terrance proof. After user acceptance, continue to the whole game and the
-first-10 AI-summary canary.
+The Terrance acceptance gate is complete. Continue next with the whole-game walk and the first-10
+AI-summary canary; Phase 05 remains active until the coherent whole-game timeline is delivered.
