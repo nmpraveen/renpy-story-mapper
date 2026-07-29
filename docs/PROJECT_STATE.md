@@ -8,7 +8,7 @@ Updated: 2026-07-29
 - Contract: [`docs/milestones/M15_PHASE_05/GOAL.md`](milestones/M15_PHASE_05/GOAL.md).
 - Task ledger: [`docs/milestones/M15_PHASE_05/TASKS.md`](milestones/M15_PHASE_05/TASKS.md).
 - Branch: `codex/m15-phase05-whole-game-skeleton`.
-- Status: structure, first-10 AI canary, and corrected corridor packets complete; bulk summaries pending.
+- Status: structure and 597/597 AI corridor summaries complete; whole-game reader assembly active.
 - Native Codex goal: none.
 
 ## Current product decision
@@ -35,6 +35,14 @@ prompt/refusal, four save reminders, and the credits patron thank-you). All 1,82
 control/effect facts remain available, including 205 direct state effects and 6 unresolved
 mechanics. Packets include every incoming M06 rejoin origin and the next Python control point with
 its arms; future AI beats remain presentation children of their original corridor.
+
+The four user-visible Sol/High bulk tasks completed the remaining 587 summaries with zero deferrals.
+Together with the accepted first 10, all 597 corridors grade PASS for factual fidelity. Packet shape
+grades are 488 PASS, 80 PARTIAL, 26 LOW, and 3 FAIL. The three FAIL items are two old-save warnings
+and one developer error, so they remain in coverage accounting but are excluded from the default
+reader. A nine-corridor cross-game sample review passed. The 26 LOW items are mostly exact but
+context-poor fragments and must be stitched into their owning branch or continuation rather than
+rendered as standalone event cards.
 
 The current correction keeps the existing 66-node, 75-edge structural walk authoritative while
 replacing the stacked outline with a polished family-tree reader. Direct sibling routes fork

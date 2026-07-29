@@ -1,6 +1,6 @@
 # M15.1 Phase 05 - Progressive state-aware story timeline
 
-Status: whole-game structure, first-10 AI canary, and corrected corridor packets complete
+Status: whole-game structure and all 597 AI corridor summaries complete; reader assembly active
 
 ## User outcome
 
@@ -103,7 +103,8 @@ family-tree relationships.
 
 ## Handoff
 
-The Terrance acceptance gate, graph-backed whole-game structure coverage, first-10 AI-summary
-canary, and deterministic 597-packet narrative projection from 604 Python-owned source chains are
-complete. Parallelize the remaining summaries from these packets; Phase 05 remains active until the
-coherent whole-game timeline is delivered.
+The Terrance acceptance gate, graph-backed whole-game structure coverage, deterministic 597-packet
+narrative projection, and cloud-AI summaries for all 597 packets are complete. All summaries passed
+fidelity review; 594 story corridors remain reader-visible after three technical-only packets are
+excluded. Phase 05 remains active until those summaries are assembled under their Python-owned
+controls and the coherent whole-game desktop timeline is inspected.
