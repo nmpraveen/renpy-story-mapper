@@ -864,6 +864,24 @@ function storyItemTitle(item) {
   return item.title || item.caption || "Story moment";
 }
 
+function storyOutlineSummary(item) {
+  if (item.outline_summary) return item.outline_summary;
+  const value = String(item.summary || item.outcome_summary || item.text || "").replace(/\s+/gu, " ").trim();
+  if (value.length <= 180) return value;
+  const firstSentence = value.match(/^.{1,180}?[.!?](?=\s|$)/u)?.[0];
+  if (firstSentence) return firstSentence;
+  const compact = value.slice(0, 180).replace(/\s+\S*$/u, "").trim();
+  return `${compact || value.slice(0, 180)}…`;
+}
+
+function storyDetailSummary(item) {
+  return item.detail_summary || item.summary || item.outcome_summary || item.text || storyOutlineSummary(item);
+}
+
+function progressiveStoryActive() {
+  return $("#storyBrowser").classList.contains("is-progressive-story");
+}
+
 function storyBadge(text, kind) {
   return element("span", `story-badge ${kind}`, text);
 }
@@ -910,8 +928,16 @@ function storySelectionControl(item, kind) {
   const control = element("button", `${kind}-select`); control.type = "button";
   control.dataset.storySelectionId = item.selection_id;
   control.setAttribute("aria-selected", "false");
-  control.append(element("strong", "", storyItemTitle(item)), element("span", "", item.summary || item.outcome_summary || ""));
-  control.addEventListener("click", () => selectStoryItem(item, control));
+  control.setAttribute("aria-expanded", "false");
+  control.append(element("strong", "", storyItemTitle(item)), element("span", "", storyOutlineSummary(item)));
+  control.addEventListener("click", () => {
+    if (!progressiveStoryActive()) { selectStoryItem(item, control); return; }
+    activateStoryItem(item, control); closeStoryPathForOutline();
+    const detail = control.closest(".story-event,.story-arm,.story-continuation")?.querySelector(":scope > .story-inline-detail");
+    if (!detail) return;
+    const expanded = detail.hidden;
+    detail.hidden = !expanded; control.setAttribute("aria-expanded", String(expanded));
+  });
   return control;
 }
 
@@ -922,6 +948,25 @@ function storyDetailControl(item, control) {
     await openStoryDetail(item.selection_id);
   });
   return button;
+}
+
+function closeStoryPathForOutline() {
+  state.storyPathToken += 1; clearStoryPathWitness(); $("#storyPathPanel").hidden = true;
+}
+
+function appendProgressiveStoryDetail(host, item, control) {
+  const detail = element("div", "story-inline-detail"); detail.hidden = true;
+  detail.append(element("p", "story-inline-summary", storyDetailSummary(item)));
+  const technical = element("details", "story-technical-disclosure");
+  technical.append(element("summary", "", "Technical"));
+  const body = element("div", "story-technical-body");
+  appendStoryBadges(body, item); appendStoryWarnings(body, item.warnings || item.unresolved_warnings);
+  if (item.selection_id) {
+    const source = element("button", "quiet-button story-detail-button", "Source / Evidence"); source.type = "button";
+    source.addEventListener("click", async () => { if (state.storySelectionId !== item.selection_id || state.storySelectionControl !== control) activateStoryItem(item, control); await openStoryDetail(item.selection_id); });
+    body.append(source);
+  }
+  technical.append(body); detail.append(technical); host.append(detail);
 }
 
 function planStoryContinuations(rootChoice) {
@@ -961,7 +1006,9 @@ function appendStoryContinuations(host, bindings, armOwned = false) {
     state.storyItems.set(continuation.selection_id, continuation);
     const row = element("div", "story-continuation");
     const control = storySelectionControl(continuation, "story-continuation");
-    row.append(control, storyDetailControl(continuation, control));
+    row.append(control);
+    if (progressiveStoryActive()) appendProgressiveStoryDetail(row, continuation, control);
+    else row.append(storyDetailControl(continuation, control));
     host.append(row);
   }
 }
@@ -978,8 +1025,11 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
     const armArticle = element("article", "story-arm"); armArticle.dataset.storySelectionId = arm.selection_id;
     const head = element("div", "story-arm-head");
     const control = storySelectionControl(arm, "story-arm");
-    head.append(control, storyDetailControl(arm, control));
-    armArticle.append(head); appendStoryBadges(armArticle, arm); appendStoryTargets(armArticle, arm); appendStoryWarnings(armArticle, arm.warnings);
+    head.append(control);
+    if (!progressiveStoryActive()) head.append(storyDetailControl(arm, control));
+    armArticle.append(head); appendStoryTargets(armArticle, arm);
+    if (progressiveStoryActive()) appendProgressiveStoryDetail(armArticle, arm, control);
+    else { appendStoryBadges(armArticle, arm); appendStoryWarnings(armArticle, arm.warnings); }
     (arm.nested_choices || []).forEach((child, index) => armArticle.append(renderStoryChoice(child, true, plan, [...armPath, `choice:${child.key}:${index}`])));
     appendStoryContinuations(armArticle, plan.get(JSON.stringify(armPath)), true);
     arms.append(armArticle);
@@ -995,8 +1045,11 @@ function renderStoryEvent(event, ordinal) {
   const number = element("span", "story-event-number", String(ordinal).padStart(2, "0")); number.setAttribute("aria-label", `Event ${ordinal}`); article.append(number);
   const head = element("div", "story-event-head");
   const control = storySelectionControl(event, "story-event");
-  head.append(control, storyDetailControl(event, control));
-  article.append(head); appendStoryBadges(article, event); appendStoryWarnings(article, event.warnings);
+  head.append(control);
+  if (!progressiveStoryActive()) head.append(storyDetailControl(event, control));
+  article.append(head);
+  if (progressiveStoryActive()) appendProgressiveStoryDetail(article, event, control);
+  else { appendStoryBadges(article, event); appendStoryWarnings(article, event.warnings); }
   if (event.characters?.length) {
     const characters = element("div", "story-characters");
     for (const character of event.characters) characters.append(element("span", "", character));
@@ -1049,7 +1102,7 @@ function readerItemControl(item, ordinal) {
   control.dataset.storySelectionId = item.selection_id;
   control.setAttribute("aria-selected", "false");
   const title = element("strong", "", storyItemTitle(item)); appendStoryReaderNew(title, item);
-  control.append(title, element("span", "", item.summary || item.text || ""));
+  control.append(title, element("span", "", storyOutlineSummary(item)));
   control.setAttribute("aria-label", `${ordinal ? `Story moment ${ordinal}: ` : ""}${storyItemTitle(item)}`);
   control.addEventListener("click", () => selectStoryReaderItem(item, control));
   return control;
@@ -1071,7 +1124,7 @@ function renderStoryReaderItem(item, ordinal) {
   } else {
     const copy = element("div", "story-event-select");
     const title = element("strong", "", storyItemTitle(item)); appendStoryReaderNew(title, item);
-    copy.append(title, element("span", "", item.summary || item.text || "")); head.append(copy);
+    copy.append(title, element("span", "", storyOutlineSummary(item))); head.append(copy);
   }
   const marker = { choice: "Choice", arm: "Outcome", ending: "Ending" }[item.kind];
   if (marker) article.append(element("span", "story-item-marker", marker));
@@ -1152,7 +1205,7 @@ function renderStoryReaderSection(page, section, { append = false, ordinalStart 
   card.id = storyReaderSectionDomId(section.id) || "";
   const header = element("header", "story-section-header");
   const title = element("h2", "", section.title); appendStoryReaderNew(title, section);
-  header.append(title, element("p", "story-section-summary", section.summary)); card.append(header);
+  header.append(title, element("p", "story-section-summary", storyOutlineSummary(section))); card.append(header);
   const grouped = storyReaderGroupedTimeline();
   const content = grouped ? element("details", "story-group-details") : card;
   if (grouped) {
@@ -1295,6 +1348,7 @@ function renderStoryReaderManifest(manifest) {
   $("#storyPrepareAction").disabled = !api.storyWorkflowRoutes || state.storyWorkflow.busy;
   const index = $("#storySectionIndex"); index.replaceChildren();
   const grouped = storyReaderGroupedTimeline();
+  $("#storyBrowser").classList.remove("is-progressive-story");
   $("#storyBrowser").classList.toggle("is-grouped-timeline", grouped);
   index.setAttribute("aria-label", grouped ? "Major story events" : "Story sections");
   for (const section of orderedStoryReaderSections()) {
@@ -1652,7 +1706,7 @@ function renderStoryReaderDetail(page) {
   reserveStoryProjection("detail", page.rendered_item_count);
   const summary = page.items.find((item) => ["summary", "event", "arm", "choice"].includes(item.kind)) || page.items[0] || {};
   $("#detailTitle").textContent = summary.title || storyItemTitle(state.storySelectionItem || {}); $("#detailKind").textContent = String(summary.kind || "story moment").replaceAll("_", " ");
-  $("#detailSummary").textContent = summary.text || summary.summary || "Exact local story evidence."; $("#pathStrip").replaceChildren(element("strong", "path-stop current", $("#detailTitle").textContent));
+  $("#detailSummary").textContent = storyDetailSummary(summary) || "Exact local story evidence."; $("#pathStrip").replaceChildren(element("strong", "path-stop current", $("#detailTitle").textContent));
   $("#technicalMembers").hidden = true; $("#derivationPanel").hidden = true; $("#canonicalEscapeButton").hidden = true; $("#interpretationPanel").hidden = true; $("#detailFacts").replaceChildren();
   const evidence = $("#evidenceList"); evidence.replaceChildren();
   for (const record of page.items.filter((item) => item.kind === "evidence" || item.relative_path)) {
@@ -1724,13 +1778,15 @@ function renderStoryMapV2(page) {
   state.storyPage = page; state.storyItems = new Map(); state.storySelectionId = null; state.storySelectionItem = null; state.storySelectionControl = null; state.storyPath = null;
   const storyBrowser = $("#storyBrowser"); const fallback = page.status === "fallback"; storyBrowser.classList.toggle("is-fallback", fallback);
   const progressive = (page.analysis_notes || []).some((note) => note.startsWith("Phase 05 progressive story walk"));
+  storyBrowser.classList.remove("is-grouped-timeline");
+  storyBrowser.classList.toggle("is-progressive-story", progressive);
   $("#storyTitle").textContent = page.title;
   $("#storyOverview").textContent = page.overview;
   $("#storyMapStatus").textContent = progressive ? "Progressive proof" : page.status === "synthesized" ? "Whole-story guide" : "Deterministic story";
   const index = $("#storySectionIndex"); const sections = $("#storySections"); index.replaceChildren(); sections.replaceChildren(); let eventOrdinal = 0;
   page.sections.forEach((section, sectionIndex) => {
     const id = `story-section-${sectionIndex + 1}`;
-    const duplicateFallbackWrapper = fallback && page.sections.length === 1 && section.title.trim() === page.title.trim() && section.summary.trim() === page.overview.trim();
+    const duplicateFallbackWrapper = (fallback || progressive) && page.sections.length === 1 && section.title.trim() === page.title.trim() && section.summary.trim() === page.overview.trim();
     if (!duplicateFallbackWrapper) { const link = element("a", "", section.title); link.href = `#${id}`; index.append(link); }
     const card = element("section", "story-section"); card.id = id;
     card.classList.toggle("story-section--duplicate-wrapper", duplicateFallbackWrapper);
@@ -1742,6 +1798,7 @@ function renderStoryMapV2(page) {
   index.hidden = !index.children.length;
   const notes = $("#storyAnalysisNotesList"); notes.replaceChildren();
   for (const note of page.analysis_notes || []) notes.append(element("p", "", note));
+  $("#storyAnalysisNotes > summary").textContent = progressive ? "Technical" : "Analysis notes";
   $("#storyAnalysisNotes").hidden = !notes.children.length;
   $("#storyPathPanel").hidden = true; clearStoryPathWitness();
   showStorySurface(true);
@@ -1816,7 +1873,7 @@ function renderStoryDetail(envelope) {
   const item = state.storySelectionItem || state.storyItems.get(state.storySelectionId) || {};
   $("#detailTitle").textContent = detail.title || detail.element?.title || detail.scene?.title || storyItemTitle(item);
   $("#detailKind").textContent = String(unresolved ? "unresolved detail" : detail.level || "story moment").replaceAll("_", " ");
-  $("#detailSummary").textContent = envelope.reason || detail.summary || detail.element?.summary || detail.scene?.summary || item.summary || item.outcome_summary || "Exact local story evidence.";
+  $("#detailSummary").textContent = envelope.reason || detail.detail_summary || detail.summary || detail.element?.detail_summary || detail.element?.summary || detail.scene?.detail_summary || detail.scene?.summary || storyDetailSummary(item) || "Exact local story evidence.";
   $("#pathStrip").replaceChildren(element("strong", "path-stop current", $("#detailTitle").textContent));
   $("#technicalMembers").hidden = true; $("#derivationPanel").hidden = true; $("#canonicalEscapeButton").hidden = true; $("#interpretationPanel").hidden = true; $("#detailFacts").replaceChildren();
   const evidence = $("#evidenceList"); evidence.replaceChildren();

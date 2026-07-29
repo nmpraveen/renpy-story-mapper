@@ -616,7 +616,15 @@ def test_phase05_progressive_page_precedes_reader_and_shows_human_targets() -> N
     assert 'progressive ? "Progressive proof"' in app
     assert "Goes to ${destination}" in app
     assert "Rejoins at ${rejoin}" in app
+    assert "item.outline_summary" in app
+    assert "item.detail_summary" in app
+    assert 'element("div", "story-inline-detail")' in app
+    assert 'element("details", "story-technical-disclosure")' in app
+    assert '"Source / Evidence"' in app
     assert ".story-targets" in css
+    assert ".story-browser.is-progressive-story .story-arms" in css
+    assert ".story-browser.is-progressive-story .story-arm::before" in css
+    assert ".story-inline-summary" in css
     assert ".story-reader-shell { display: grid; width: calc(100% - 2rem);" in css
 
 
@@ -899,6 +907,148 @@ class _SyntheticStoryHandler(http.server.BaseHTTPRequestHandler):
                 self.detail_finished.set()
         else:
             self.send_error(404)
+
+
+@pytest.mark.hardware_sensitive
+@pytest.mark.skipif(
+    os.environ.get("RSM_RUN_BROWSER_ACCEPTANCE") != "1",
+    reason="set RSM_RUN_BROWSER_ACCEPTANCE=1 for the provider-free real-browser smoke",
+)
+def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline() -> None:
+    page = _story_page()
+    page["status"] = "synthesized"
+    page["analysis_notes"] = [
+        "Phase 05 progressive story walk projected from parser-owned control flow."
+    ]
+    event = page["sections"][0]["events"][0]
+    arm = event["choices"][0]["arms"][0]
+    arm["outcome_summary"] = (
+        "Wanda refuses Terrance's proposal. "
+        "Wanda says no to Terrance's proposal. He keeps pressing, forcing her to decide "
+        "whether the encounter continues, while she makes clear that his assumptions and "
+        "pressure have made the situation uncomfortable."
+    )
+    arm["destination_id"] = "story:Storage-room continuation"
+    arm["rejoin_node_id"] = "story:Lois continuation"
+
+    driver = _browser_driver()
+    _SyntheticStoryHandler.story_page = page
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _SyntheticStoryHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    origin = f"http://127.0.0.1:{server.server_port}/"
+    with tempfile.TemporaryDirectory(prefix="rsm-m15-p5-progressive-reader-") as temporary:
+        process, session = driver._session(driver._browser(), 100, Path(temporary))
+        try:
+            session.command(
+                "Emulation.setDeviceMetricsOverride",
+                {"width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": False},
+            )
+            session.command("Page.navigate", {"url": origin})
+            session.wait(
+                "document.readyState === 'complete' && !!document.querySelector('.recent-card')"
+            )
+            session.evaluate("document.querySelector('.recent-card').click()")
+            session.wait(
+                "document.querySelector('#storyBrowser').classList.contains('is-progressive-story') && document.querySelectorAll('.story-arm').length === 5"
+            )
+            initial = session.evaluate(
+                """(() => {
+                  const arms = [...document.querySelectorAll('.story-choice:not(.nested) > .story-arms > .story-arm')];
+                  const rects = arms.map(node => node.getBoundingClientRect());
+                  const selected = document.querySelector('.story-arm-select[data-story-selection-id="arm-bridge"]');
+                  const owner = selected.closest('.story-arm');
+                  const inline = owner.querySelector(':scope > .story-inline-detail');
+                  const technical = inline.querySelector('.story-technical-disclosure');
+                  return {
+                    outline:selected.querySelector('span').textContent,
+                    expanded:selected.getAttribute('aria-expanded'),
+                    inlineHidden:inline.hidden,
+                    technicalOpen:technical.open,
+                    technicalVisible:technical.checkVisibility(),
+                    pathHidden:document.querySelector('#storyPathPanel').hidden,
+                    stacked:rects.every((rect, index) => index === 0 || rect.top >= rects[index - 1].bottom - 1),
+                    destinations:[...owner.querySelectorAll('.story-target')].map(node => node.textContent),
+                    nestedOwner:document.querySelector('.story-choice.nested')?.closest('.story-arm')?.dataset.storySelectionId,
+                    overflow:document.documentElement.scrollWidth - document.documentElement.clientWidth,
+                  };
+                })()"""
+            )
+            assert initial == {
+                "outline": "Wanda refuses Terrance's proposal.",
+                "expanded": "false",
+                "inlineHidden": True,
+                "technicalOpen": False,
+                "technicalVisible": False,
+                "pathHidden": True,
+                "stacked": True,
+                "destinations": [
+                    "Goes to Storage-room continuation",
+                    "Rejoins at Lois continuation",
+                ],
+                "nestedOwner": "arm-tunnel",
+                "overflow": 0,
+            }
+
+            session.evaluate(
+                'document.querySelector(\'.story-arm-select[data-story-selection-id="arm-bridge"]\').click()'
+            )
+            expanded = session.evaluate(
+                """(() => {
+                  const selected = document.querySelector('.story-arm-select[data-story-selection-id="arm-bridge"]');
+                  const owner = selected.closest('.story-arm');
+                  const inline = owner.querySelector(':scope > .story-inline-detail');
+                  const technical = inline.querySelector('.story-technical-disclosure');
+                  const inlineRect = inline.getBoundingClientRect(); const controlRect = selected.getBoundingClientRect();
+                  return {
+                    detail:inline.querySelector('.story-inline-summary').textContent,
+                    expanded:selected.getAttribute('aria-expanded'),
+                    inlineHidden:inline.hidden,
+                    technicalOpen:technical.open,
+                    reachabilityVisible:inline.querySelector('.story-reachability').checkVisibility(),
+                    pathHidden:document.querySelector('#storyPathPanel').hidden,
+                    fullWidth:inlineRect.width >= controlRect.width - 2,
+                  };
+                })()"""
+            )
+            assert expanded == {
+                "detail": (
+                    "Wanda refuses Terrance's proposal. Wanda says no to Terrance's proposal. "
+                    "He keeps pressing, forcing her to decide whether the encounter continues, "
+                    "while she makes clear that his assumptions and pressure have made the "
+                    "situation uncomfortable."
+                ),
+                "expanded": "true",
+                "inlineHidden": False,
+                "technicalOpen": False,
+                "reachabilityVisible": False,
+                "pathHidden": True,
+                "fullWidth": True,
+            }
+
+            session.evaluate(
+                "document.querySelector('.story-arm-select[data-story-selection-id=\"arm-bridge\"]')"
+                ".closest('.story-arm').querySelector('.story-technical-disclosure').open=true"
+            )
+            technical = session.evaluate(
+                """(() => {
+                  const detail = document.querySelector('.story-arm-select[data-story-selection-id="arm-bridge"]').closest('.story-arm').querySelector('.story-technical-disclosure');
+                  return {reachability:detail.querySelector('.story-reachability').textContent.trim(),source:detail.querySelector('.story-detail-button').textContent,visible:detail.querySelector('.story-detail-button').checkVisibility()};
+                })()"""
+            )
+            assert technical == {
+                "reachability": "Unreachable",
+                "source": "Source / Evidence",
+                "visible": True,
+            }
+            driver._browser_diagnostics(session)
+        finally:
+            session.close()
+            process.terminate()
+            process.wait(timeout=10)
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
 
 
 def _browser_measurement(session: Any) -> dict[str, object]:
