@@ -664,7 +664,8 @@ def test_phase05_progressive_page_precedes_reader_and_shows_human_targets() -> N
     )
     assert 'value.startsWith("story:")' in app
     assert "humanStoryTarget(choice.key)" in app
-    assert 'progressive ? "Progressive proof"' in app
+    assert 'wholeGame ? "Whole story" : progressive ? "Progressive proof"' in app
+    assert "if (!progressiveStoryActive()) await restoreStoryWorkflow();" in app
     assert "Goes to ${destination}" in app
     assert 'targetKind === "ending" ? "Ends at"' in app
     assert 'targetKind === "unresolved" ? "Unresolved at" : "Rejoins at"' in app

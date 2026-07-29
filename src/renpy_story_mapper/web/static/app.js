@@ -1857,11 +1857,13 @@ function renderStoryMapV2(page) {
   state.storyPage = page; state.storyItems = new Map(); state.storySelectionId = null; state.storySelectionItem = null; state.storySelectionControl = null; state.storyPath = null;
   const storyBrowser = $("#storyBrowser"); const fallback = page.status === "fallback"; storyBrowser.classList.toggle("is-fallback", fallback);
   const progressive = (page.analysis_notes || []).some((note) => note.startsWith("Phase 05 progressive story walk"));
+  const wholeGame = (page.analysis_notes || []).some((note) => note.startsWith("Phase 05 progressive story walk: whole-game reader"));
   storyBrowser.classList.remove("is-grouped-timeline");
   storyBrowser.classList.toggle("is-progressive-story", progressive);
+  storyBrowser.classList.toggle("is-whole-game-story", wholeGame);
   $("#storyTitle").textContent = page.title;
   $("#storyOverview").textContent = page.overview;
-  $("#storyMapStatus").textContent = progressive ? "Progressive proof" : page.status === "synthesized" ? "Whole-story guide" : "Deterministic story";
+  $("#storyMapStatus").textContent = wholeGame ? "Whole story" : progressive ? "Progressive proof" : page.status === "synthesized" ? "Whole-story guide" : "Deterministic story";
   const index = $("#storySectionIndex"); const sections = $("#storySections"); index.replaceChildren(); sections.replaceChildren(); let eventOrdinal = 0;
   page.sections.forEach((section, sectionIndex) => {
     const id = `story-section-${sectionIndex + 1}`;
@@ -2041,7 +2043,11 @@ async function loadStoryMapV2() {
 async function enterAvailableWorkspace() {
   showPrimary("workspace"); showLevel("route_map");
   const storyAvailable = await loadStoryMapV2();
-  if (storyAvailable) { $("#projectBadge").textContent = "Story Map V2"; await restoreStoryWorkflow(); return true; }
+  if (storyAvailable) {
+    $("#projectBadge").textContent = "Story Map V2";
+    if (!progressiveStoryActive()) await restoreStoryWorkflow();
+    return true;
+  }
   showStorySurface(false);
   const available = await resetRoutePaging();
   await loadNarrative();

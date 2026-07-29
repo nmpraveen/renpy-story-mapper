@@ -8,7 +8,7 @@ Updated: 2026-07-29
 - Contract: [`docs/milestones/M15_PHASE_05/GOAL.md`](milestones/M15_PHASE_05/GOAL.md).
 - Task ledger: [`docs/milestones/M15_PHASE_05/TASKS.md`](milestones/M15_PHASE_05/TASKS.md).
 - Branch: `codex/m15-phase05-whole-game-skeleton`.
-- Status: structure and 597/597 AI corridor summaries complete; whole-game reader assembly active.
+- Status: whole-game reader assembled and browser-inspected; awaiting user acceptance.
 - Native Codex goal: none.
 
 ## Current product decision
@@ -51,6 +51,16 @@ route that owns them. Python classifies the 22 projected arms as 12 continuation
 1 true ending, and 0 unresolved. The reader uses blue decisions, amber conditions, green continuing
 paths, purple rejoins, and red only for the true unavailable ending. Concrete story detail still
 opens inline, while variables, reachability, source lines, and evidence remain secondary.
+
+The whole-game reader assembly now attaches all 594 reader-visible corridor summaries exactly once
+under 111 Python-owned label events and their owning route flow. The full authority remains 324
+controls and 700 menu/condition arms. The default story tree shows 260 controls and 571 arms; 64
+startup, developer, and hint controls remain preserved in expandable technical detail instead of
+interrupting the story. A real 1920x1080 browser inspection measured zero horizontal overflow for
+both the page and the 101,155px scrolling story surface. Three sibling arms measured 544, 528, and
+375 pixels, concrete event and arm detail expanded in place, and decision, condition, continuation,
+rejoin, ending, and unresolved colors remained distinct. The review copy and evidence are under
+`output/m15-phase05-whole-game-reader-20260729` in the main Renpy checkout.
 
 ## User-selected operating rules
 

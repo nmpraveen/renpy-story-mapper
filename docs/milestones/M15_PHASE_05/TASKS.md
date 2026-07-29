@@ -17,6 +17,6 @@
 | Validate first 10 bulk summaries | Complete | 10/10 fidelity PASS; 7 packet shapes PASS and 3 PARTIAL with bounded cleanup identified |
 | Correct whole-game corridor packets | Complete | 597 narrative packets from 604 graph-backed chains; 12,183 included + 8 reasoned non-story exclusions = all 12,191 reachable statements; all incoming rejoin origins and next controls retained |
 | Parallelize remaining summaries | Complete | Four user-visible Sol/High tasks produced 587/587 summaries with zero deferrals; combined result is 597/597 fidelity PASS |
-| Publish and inspect full desktop timeline | In progress | Attach corridor prose to Python controls, stitch context-poor fragments into their owning branch, and inspect the real browser timeline |
+| Publish and inspect full desktop timeline | Complete | 594 corridor summaries attached exactly once under 111 Python label events; 1920px browser proof has scrolling, content-sized sibling forks, expandable detail, semantic colors, and zero horizontal overflow |
 
 Use only `Pending`, `In progress`, `Blocked`, or `Complete`.
