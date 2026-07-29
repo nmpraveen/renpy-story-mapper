@@ -10,6 +10,8 @@
 | Build compact vertical outline tree | Complete | Shared trunks and fork connectors render top-to-bottom with no side-by-side squeeze or nested frame wall |
 | Add concrete expandable story detail | Complete | All 22 projected arms have short outlines and concrete click-to-expand prose, including the storage-room path |
 | Separate technical evidence | Complete | Variables, reachability, source, and evidence remain closed inside each node's Technical disclosure |
+| Add Python-owned semantic visual roles | Complete | 11 controls and 22 arms use graph-owned roles; 12 continue, 9 rejoin, 1 ends, and 0 are unresolved |
+| Build the Terrance family-tree reader | Complete | Colored sibling forks, content-sized boxes, full-width owned descendants, labeled multi-route handoffs, expandable detail, and no 1920px page overflow |
 | User review of corrected Terrance proof | In progress | Acceptance or one concrete remaining comprehension problem |
 | Walk the full game | Pending | Reachable-label coverage with unresolved items reported honestly |
 | Validate first 10 bulk summaries | Pending | Ten inspected useful results before parallel expansion |

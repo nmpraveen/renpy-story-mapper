@@ -899,6 +899,27 @@ function storySemanticKind(value, kinds) {
   return kinds.get(value.trim().toLocaleLowerCase()) || "neutral";
 }
 
+function storyControlPresentation(kind) {
+  if (kind === "decision") return { label: "Decision", icon: "◆" };
+  if (kind === "condition") return { label: "Condition", icon: "!" };
+  return { label: "Branch", icon: "•" };
+}
+
+function storyArmPresentation(controlKind, outcomeKind) {
+  if (outcomeKind === "rejoin") return "Rejoin route";
+  if (outcomeKind === "ending") return "End";
+  if (outcomeKind === "unresolved") return "Unresolved";
+  return controlKind === "condition" ? "Condition path" : controlKind === "decision" ? "Choice" : "Story path";
+}
+
+function storySemanticLegend() {
+  const legend = element("div", "story-tree-key"); legend.setAttribute("aria-label", "Story color key");
+  for (const [kind, label] of [["decision", "Decision"], ["condition", "Condition"], ["continuation", "Continues"], ["rejoin", "Rejoin"], ["ending", "End"]]) {
+    const item = element("span", "story-tree-key-item", label); item.dataset.storyKind = kind; legend.append(item);
+  }
+  return legend;
+}
+
 function storyBadge(text, kind) {
   return element("span", `story-badge ${kind}`, text);
 }
@@ -911,16 +932,19 @@ function humanStoryTarget(value) {
 
 function appendStoryTargets(host, item) {
   const destination = humanStoryTarget(item.destination_id) || humanStoryTarget(item.binding?.target_id);
-  const rejoin = humanStoryTarget(item.rejoin_node_id) || humanStoryTarget(item.rejoin_binding?.target_id);
-  if (!destination && !rejoin) return;
+  const boundary = humanStoryTarget(item.rejoin_node_id) || humanStoryTarget(item.rejoin_binding?.target_id);
+  if (!destination && !boundary) return;
   const targets = element("div", "story-targets");
   if (destination) {
     const target = element("p", "story-target destination", `Goes to ${destination}`);
     target.dataset.targetKind = "destination"; targets.append(target);
   }
-  if (rejoin) {
-    const target = element("p", "story-target rejoin", `Rejoins at ${rejoin}`);
-    target.dataset.targetKind = "rejoin"; targets.append(target);
+  if (boundary) {
+    const outcomeKind = storySemanticKind(item.outcome_kind, STORY_OUTCOME_KINDS);
+    const targetKind = outcomeKind === "ending" ? "ending" : outcomeKind === "unresolved" ? "unresolved" : "rejoin";
+    const prefix = targetKind === "ending" ? "Ends at" : targetKind === "unresolved" ? "Unresolved at" : "Rejoins at";
+    const target = element("p", `story-target ${targetKind}`, `${prefix} ${boundary}`);
+    target.dataset.targetKind = targetKind; targets.append(target);
   }
   host.append(targets);
 }
@@ -1040,10 +1064,15 @@ function appendStoryContinuations(host, bindings, armOwned = false) {
 function renderStoryChoice(choice, nested = false, continuationPlan = null, choicePath = []) {
   const plan = continuationPlan || planStoryContinuations(choice);
   const article = element("section", `story-choice${nested ? " nested" : ""}`);
-  article.dataset.choiceKind = storySemanticKind(choice.control_kind, STORY_CHOICE_KINDS);
+  const controlKind = storySemanticKind(choice.control_kind, STORY_CHOICE_KINDS);
+  article.dataset.choiceKind = controlKind;
   const prompt = humanStoryTarget(choice.key) || (nested ? "Choice within this path" : "Choice");
   const choiceControl = element("div", "story-choice-control");
-  choiceControl.append(element("p", "story-choice-label", prompt));
+  const presentation = storyControlPresentation(controlKind);
+  const icon = element("span", "story-control-icon", presentation.icon); icon.setAttribute("aria-hidden", "true");
+  const copy = element("div", "story-choice-copy");
+  copy.append(element("span", "story-control-type", presentation.label), element("p", "story-choice-label", prompt));
+  choiceControl.append(icon, copy);
   article.append(choiceControl);
   const arms = element("div", "story-arms");
   arms.dataset.armCount = String(choice.arms.length);
@@ -1053,10 +1082,12 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
     const armPath = [...choicePath, `arm:${arm.selection_id}`];
     state.storyItems.set(arm.selection_id, arm);
     const armArticle = element("article", "story-arm"); armArticle.dataset.storySelectionId = arm.selection_id;
-    armArticle.dataset.outcomeKind = storySemanticKind(arm.outcome_kind, STORY_OUTCOME_KINDS);
+    const outcomeKind = storySemanticKind(arm.outcome_kind, STORY_OUTCOME_KINDS);
+    armArticle.dataset.outcomeKind = outcomeKind;
     armArticle.dataset.hasDescendants = String(Boolean(arm.nested_choices?.length));
     const head = element("div", "story-arm-head");
     const control = storySelectionControl(arm, "story-arm");
+    control.prepend(element("span", "story-arm-kind", storyArmPresentation(controlKind, outcomeKind)));
     head.append(control);
     if (!progressiveStoryActive()) head.append(storyDetailControl(arm, control));
     armArticle.append(head); appendStoryTargets(armArticle, arm);
@@ -1068,12 +1099,13 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
     if (arm.nested_choices?.length) {
       const route = element("div", "story-descendant-route");
       route.dataset.ownerSelectionId = arm.selection_id;
+      route.dataset.ownerOutcomeKind = outcomeKind;
       const ownerPosition = ((armIndex + 0.5) / choice.arms.length) * 100;
       route.style.setProperty("--story-owner-x", `${ownerPosition}%`);
       route.style.setProperty("--story-owner-left", `${Math.min(ownerPosition, 50)}%`);
       route.style.setProperty("--story-owner-width", `${Math.abs(ownerPosition - 50)}%`);
       const connector = element("div", "story-owner-connector"); connector.setAttribute("aria-hidden", "true"); connector.append(element("span"));
-      route.append(connector, element("p", "story-descendant-owner", `From ${storyItemTitle(arm)}`));
+      route.append(connector, element("p", "story-descendant-owner", `Continues from ${storyItemTitle(arm)}`));
       const sequence = element("div", "story-choice-sequence");
       sequence.dataset.sequenceLength = String(arm.nested_choices.length);
       arm.nested_choices.forEach((child, index) => sequence.append(renderStoryChoice(child, true, plan, [...armPath, `choice:${child.key}:${index}`])));
@@ -1081,7 +1113,7 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
     }
   });
   article.append(arms);
-  if (descendants.children.length) article.append(descendants);
+  if (descendants.children.length) { descendants.dataset.routeCount = String(descendants.children.length); article.append(descendants); }
   appendStoryContinuations(article, plan.get(JSON.stringify(choicePath)));
   return article;
 }
@@ -1838,6 +1870,7 @@ function renderStoryMapV2(page) {
     const card = element("section", "story-section"); card.id = id;
     card.classList.toggle("story-section--duplicate-wrapper", duplicateFallbackWrapper);
     if (!duplicateFallbackWrapper) { const header = element("header", "story-section-header"); header.append(element("h2", "", section.title), element("p", "story-section-summary", section.summary)); card.append(header); }
+    if (progressive && sectionIndex === 0) card.append(storySemanticLegend());
     const events = element("ol", "story-events");
     for (const event of section.events) events.append(renderStoryEvent(event, ++eventOrdinal));
     card.append(events); sections.append(card);

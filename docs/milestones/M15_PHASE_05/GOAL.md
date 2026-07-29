@@ -1,6 +1,6 @@
 # M15.1 Phase 05 - Progressive state-aware story timeline
 
-Status: Corrected Terrance proof ready for user acceptance
+Status: Terrance family-tree proof ready for user acceptance
 
 ## User outcome
 
@@ -29,10 +29,11 @@ Before full-game work, rebuild the Terrance section from its actual labels and j
 
 The user inspects this rendered proof before the same method is applied to the full game.
 
-The first rendered proof exposed two concrete product failures: the outline stacked large technical
-cards without a clear branch tree, and long story corridors were reduced to vague consequences such
-as "the encounter escalates." The corrected proof must preserve the same mechanics while restoring
-the actual story.
+The first rendered proof exposed three concrete product failures: the outline stacked large
+technical cards without a clear branch tree, long story corridors were reduced to vague
+consequences such as "the encounter escalates," and direct sibling routes did not read as a visible
+fork. The corrected proof must preserve the same mechanics while restoring the actual story and its
+family-tree relationships.
 
 ## Implementation contract
 
@@ -58,8 +59,12 @@ the actual story.
 
 - Full-width desktop scrolling timeline on the user's current screen.
 - No pan, zoom, fit, semantic zoom, 100%/200% variants, or mobile optimization.
-- The initial view is a compact top-to-bottom outline with a shared vertical trunk and clear fork
-  connectors for sibling choices. Branches never compete in narrow side-by-side columns.
+- The initial view is a compact top-to-bottom family tree. A control sits above its direct sibling
+  routes, which fork horizontally; downstream controls remain beneath the exact route that owns
+  them and receive enough width to remain readable.
+- Semantic box roles are restrained and consistent: blue decisions, amber conditions, green story
+  continuations, purple links or rejoins, neutral unresolved routes, and red only for a true ending.
+- Colors are assigned from Python-owned graph facts, never inferred from dramatic prose.
 - Clicking an outline node expands a full-width story detail directly beneath it without losing the
   reader's place.
 - Short summaries remain concrete. Expanded summaries state what actually happens in each captured
@@ -73,15 +78,18 @@ the actual story.
 
 1. The Terrance proof matches the script's menu nesting, route destinations, state effects, and
    Lois rejoin.
-2. The compact initial outline shows the Terrance tree vertically without horizontal squeeze.
+2. The compact initial outline shows the Terrance family tree without horizontal page overflow or
+   squeezed story text.
 3. Every substantial captured corridor, including the storage-room continuation, has concrete
    expandable story detail at the correct place in the tree.
 4. Technical evidence is available on demand but absent from the default reading surface.
-5. The rendered Terrance section is understandable by scrolling and is accepted by the user.
-6. The full-game walker covers every reachable label or marks it unresolved without using AI chunks
+5. Proven Lois continuations render as purple rejoins or links, while only true branch endings are
+   red.
+6. The rendered Terrance section is understandable by scrolling and is accepted by the user.
+7. The full-game walker covers every reachable label or marks it unresolved without using AI chunks
    as story boundaries.
-7. The first 10 AI summaries are useful before the remainder is parallelized.
-8. The final desktop timeline preserves Python-owned branches, conditions, state provenance,
+8. The first 10 AI summaries are useful before the remainder is parallelized.
+9. The final desktop timeline preserves Python-owned branches, conditions, state provenance,
    destinations, rejoins, loops, and endings.
 
 ## Exclusions

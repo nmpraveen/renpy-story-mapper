@@ -666,7 +666,8 @@ def test_phase05_progressive_page_precedes_reader_and_shows_human_targets() -> N
     assert "humanStoryTarget(choice.key)" in app
     assert 'progressive ? "Progressive proof"' in app
     assert "Goes to ${destination}" in app
-    assert "Rejoins at ${rejoin}" in app
+    assert 'targetKind === "ending" ? "Ends at"' in app
+    assert 'targetKind === "unresolved" ? "Unresolved at" : "Rejoins at"' in app
     assert "item.outline_summary" in app
     assert "item.detail_summary" in app
     assert 'element("div", "story-inline-detail")' in app
@@ -972,7 +973,11 @@ def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline
         "Phase 05 progressive story walk projected from parser-owned control flow."
     ]
     event = page["sections"][0]["events"][0]
-    arm = event["choices"][0]["arms"][0]
+    root_choice = event["choices"][0]
+    root_choice["control_kind"] = "decision"
+    arm = root_choice["arms"][0]
+    arm["outcome_kind"] = "rejoins"
+    root_choice["arms"][1]["outcome_kind"] = "continues"
     arm["outcome_summary"] = (
         "Wanda refuses Terrance's proposal. "
         "Wanda says no to Terrance's proposal. He keeps pressing, forcing her to decide "
@@ -984,9 +989,13 @@ def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline
     nested_owner = event["choices"][0]["arms"][1]
     second_nested = json.loads(json.dumps(nested_owner["nested_choices"][0]))
     second_nested["key"] = "nested-choice-after-dawn"
+    second_nested["control_kind"] = "decision"
     second_nested_arm = second_nested["arms"][0]
     second_nested_arm["selection_id"] = "arm-nested-b"
     second_nested_arm["caption"] = "Continue after dawn"
+    second_nested_arm["outcome_kind"] = "ends"
+    second_nested_arm["rejoin_node_id"] = "story:Winter route ends"
+    second_nested_arm["rejoin_binding"] = None
     second_nested_arm["binding"]["selection_id"] = "arm-nested-b"
     second_nested_arm["binding"]["detail_id"] = "arm-nested-b"
     nested_owner["nested_choices"].append(second_nested)
@@ -1021,7 +1030,7 @@ def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline
                   const inline = owner.querySelector(':scope > .story-inline-detail');
                   const technical = inline.querySelector('.story-technical-disclosure');
                   return {
-                    outline:selected.querySelector('span').textContent,
+                    outline:selected.querySelector('span:not(.story-arm-kind)').textContent,
                     expanded:selected.getAttribute('aria-expanded'),
                     inlineHidden:inline.hidden,
                     technicalOpen:technical.open,
@@ -1033,7 +1042,13 @@ def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline
                     sequenceLength:document.querySelector('.story-choice-sequence')?.dataset.sequenceLength,
                     sequenceVertical:(() => { const nodes=[...document.querySelectorAll('.story-choice-sequence > .story-choice')]; const boxes=nodes.map(node => node.getBoundingClientRect()); return nodes.length === 2 && boxes[1].top >= boxes[0].bottom - 1; })(),
                     descendantFullWidth:document.querySelector('.story-descendant-route').getBoundingClientRect().width >= document.querySelector('.story-choice:not(.nested)').getBoundingClientRect().width - 2,
-                    neutralFallback:[...document.querySelectorAll('.story-choice')].every(node => node.dataset.choiceKind === 'neutral') && [...document.querySelectorAll('.story-arm')].every(node => node.dataset.outcomeKind === 'neutral'),
+                    choiceKind:document.querySelector('.story-choice:not(.nested)').dataset.choiceKind,
+                    outcomeKind:owner.dataset.outcomeKind,
+                    armRole:selected.querySelector('.story-arm-kind').textContent,
+                    neutralFallback:document.querySelector('.story-choice.nested').dataset.choiceKind === 'neutral',
+                    legend:[...document.querySelectorAll('.story-tree-key-item')].map(node => node.textContent),
+                    endingRole:document.querySelector('[data-story-selection-id="arm-nested-b"] .story-arm-kind').textContent,
+                    endingTarget:document.querySelector('[data-story-selection-id="arm-nested-b"] .story-target').textContent,
                     continuationKind:document.querySelector('.story-continuation')?.dataset.outcomeKind,
                     overflow:document.documentElement.scrollWidth - document.documentElement.clientWidth,
                   };
@@ -1055,7 +1070,13 @@ def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline
                 "sequenceLength": "2",
                 "sequenceVertical": True,
                 "descendantFullWidth": True,
+                "choiceKind": "decision",
+                "outcomeKind": "rejoin",
+                "armRole": "Rejoin route",
                 "neutralFallback": True,
+                "legend": ["Decision", "Condition", "Continues", "Rejoin", "End"],
+                "endingRole": "End",
+                "endingTarget": "Ends at Winter route ends",
                 "continuationKind": "rejoin",
                 "overflow": 0,
             }
