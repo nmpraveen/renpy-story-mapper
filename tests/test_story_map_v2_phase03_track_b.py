@@ -217,7 +217,12 @@ def test_story_browser_is_a_two_level_normal_flow_surface() -> None:
     assert 'number.setAttribute("aria-label", `Event ${ordinal}`)' in assets
     assert "grid-template-columns: minmax(0, 1fr)" in css
     assert "@media (min-width: 1100px)" not in css
-    assert "repeat(var(--story-arm-count), minmax(0, 1fr))" in css
+    assert ".story-browser.is-progressive-story .story-arms" in css
+    assert "display: flex" in css
+    assert "flex-wrap: wrap" in css
+    assert "width: max-content" in css
+    assert "flex: 0 1 auto" in css
+    assert "repeat(var(--story-arm-count), minmax(0, 1fr))" not in css
     assert "story-descendant-route" in assets and "story-choice-sequence" in assets
     assert "choice.control_kind" in assets and "arm.outcome_kind" in assets
     assert "repeat(2, minmax(0, 1fr))" in css
