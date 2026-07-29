@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from collections import Counter
+
 from renpy_story_mapper.story_map_v2.whole_game_reader import (
     WHOLE_GAME_READER_MARKER,
     build_whole_game_reader_page,
@@ -37,6 +40,8 @@ def _fixture() -> tuple[dict[str, object], ...]:
         _node("menu", "menu", 3, "menu:"),
         _node("yes", "menu_choice", 4, '"Yes":', metadata={"caption": "Yes"}),
         _node("no", "menu_choice", 5, '"No":', metadata={"caption": "No"}),
+        _node("maybe", "menu_choice", 5, '"Maybe":', metadata={"caption": "Maybe"}),
+        _node("mystery", "unresolved", 6, "unresolved dynamic jump"),
         _node("branch_story", "statement", 6, '"Branch"'),
         _node("gate", "if", 7, "if trust:"),
         _node("true", "if_branch", 8, "if trust:", metadata={"condition": "trust"}),
@@ -52,6 +57,8 @@ def _fixture() -> tuple[dict[str, object], ...]:
             _edge("opening", "menu"),
             _edge("menu", "yes"),
             _edge("menu", "no"),
+            _edge("menu", "maybe"),
+            _edge("maybe", "mystery"),
             _edge("yes", "branch_story"),
             _edge("branch_story", "gate"),
             _edge("gate", "true"),
@@ -81,6 +88,15 @@ def _fixture() -> tuple[dict[str, object], ...]:
             "terminal_node_ids": ["end"],
         },
         {
+            "id": "menu_maybe",
+            "entry_node_id": "maybe",
+            "node_ids": ["maybe", "mystery"],
+            "ordinal": 2,
+            "state_reads": [],
+            "state_writes": [],
+            "terminal_node_ids": [],
+        },
+        {
             "id": "gate_true",
             "entry_node_id": "true",
             "node_ids": ["true"],
@@ -105,7 +121,7 @@ def _fixture() -> tuple[dict[str, object], ...]:
             {
                 "id": "menu_region",
                 "split_node_id": "menu",
-                "arm_ids": ["menu_yes", "menu_no"],
+                "arm_ids": ["menu_yes", "menu_no", "menu_maybe"],
                 "merge_node_id": None,
                 "parent_region_id": None,
             },
@@ -184,22 +200,34 @@ def test_whole_game_reader_stitches_corridors_under_python_owned_routes() -> Non
         "sections",
     }
     event = page["sections"][0]["events"][0]
+    assert event["title"] == "Routes: Yes / No / Maybe"
+    assert event["summary"] == ""
+    assert event["detail_summary"] == ""
     menu = event["choices"][0]
-    yes, no = menu["arms"]
-    assert [arm["caption"] for arm in menu["arms"]] == ["Yes", "No"]
+    yes, no, maybe = menu["arms"]
+    assert [arm["caption"] for arm in menu["arms"]] == ["Yes", "No", "Maybe"]
     assert no["outcome_kind"] == "ends"
+    assert maybe["outcome_kind"] == "unresolved"
+    assert maybe["outline_summary"] == "Unresolved at start."
     assert len(yes["nested_choices"]) == 1
     gate = yes["nested_choices"][0]
     assert gate["control_kind"] == "condition"
     assert [arm["caption"] for arm in gate["arms"]] == ["Requires: trust", "Otherwise"]
     assert {arm["outcome_kind"] for arm in gate["arms"]} == {"rejoins"}
     assert "Detail 3." in yes["detail_summary"]
+    assert "Detail 3." not in event["detail_summary"]
 
     details = [event["detail_summary"]]
     pending = [menu]
+    controls = 0
+    arms = 0
+    outcomes: Counter[str] = Counter()
     while pending:
         choice = pending.pop()
+        controls += 1
         for arm in choice["arms"]:
+            arms += 1
+            outcomes[arm["outcome_kind"]] += 1
             details.append(arm["detail_summary"])
             pending.extend(arm["nested_choices"])
     combined = "\n".join(details)
@@ -207,3 +235,7 @@ def test_whole_game_reader_stitches_corridors_under_python_owned_routes() -> Non
     assert "Detail 0." not in combined
     assert "Detail 1." not in combined
     assert "Detail 2." not in combined
+    assert controls == 2
+    assert arms == 5
+    assert outcomes == {"continues": 1, "rejoins": 2, "ends": 1, "unresolved": 1}
+    assert "Continue through this Python-owned story point" not in json.dumps(page)

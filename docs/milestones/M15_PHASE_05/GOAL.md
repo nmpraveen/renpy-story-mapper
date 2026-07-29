@@ -110,5 +110,8 @@ control arm, or continuation after three technical-only packets are excluded. Th
 renders 111 label events and retains all 324 story controls and 700 arms: 260 controls and 571 arms
 remain in the default family-tree flow, while 64 startup, developer, and hint controls stay in
 secondary detail. The 1920px browser inspection found no page or story-scroller horizontal overflow,
-content-sized sibling routes, concrete expandable prose, and distinct semantic colors. Phase 05
-remains active only for user acceptance of the assembled whole-game reader.
+content-sized sibling routes, concrete expandable prose, and distinct semantic colors. A focused
+coordinator correction replaced all structure-only fallback copy with proven next-state facts and
+turned 29 labels without shared corridor prose into neutral control-derived gates; no parent event
+borrows a child route summary. Phase 05 remains active only for user acceptance of the assembled
+whole-game reader.

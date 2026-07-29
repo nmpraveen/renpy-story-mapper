@@ -57,10 +57,17 @@ under 111 Python-owned label events and their owning route flow. The full author
 controls and 700 menu/condition arms. The default story tree shows 260 controls and 571 arms; 64
 startup, developer, and hint controls remain preserved in expandable technical detail instead of
 interrupting the story. A real 1920x1080 browser inspection measured zero horizontal overflow for
-both the page and the 101,155px scrolling story surface. Three sibling arms measured 544, 528, and
+both the page and the scrolling story surface. Three sibling arms measured 544, 528, and
 375 pixels, concrete event and arm detail expanded in place, and decision, condition, continuation,
 rejoin, ending, and unresolved colors remained distinct. The review copy and evidence are under
 `output/m15-phase05-whole-game-reader-20260729` in the main Renpy checkout.
+
+The coordinator correction removes the repeated structure-only fallback from all 202 affected arms.
+Those arms now describe only their proven destination, next control, rejoin, ending, unresolved point,
+or state change. The 29 labels without shared corridor prose render as neutral Python-control gates
+with no borrowed child-route summary. The regenerated page and 1920px browser contain zero instances
+of the rejected fallback or the former `Open the owning route below` helper, with structural and
+outcome counts unchanged.
 
 ## User-selected operating rules
 

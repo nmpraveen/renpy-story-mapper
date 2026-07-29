@@ -250,8 +250,24 @@ def build_whole_game_reader_page(
         else:
             outcome = "continues"
         caption, condition = _arm_caption(control, entry)
-        _title, outline, detail = _prose(assigned, results, fallback_title=caption)
         effect_text = [_effect_text(item) for item in effects_by_arm.get(arm_id, ())]
+        rejoin_title = (
+            merge_titles.get(merge_id) or f"Shared {_humanize(label)} continuation"
+            if merge_id
+            else None
+        )
+        if assigned:
+            _title, outline, detail = _prose(assigned, results)
+        else:
+            outline = _structure_arm_summary(
+                destination=destination,
+                rejoin_title=rejoin_title,
+                outcome=outcome,
+                nested_choices=children,
+                label=label,
+                effects=effect_text,
+            )
+            detail = outline
         secondary_notes = secondary_by_arm.get(arm_id, ())
         if secondary_notes:
             detail = f"{detail}\n\nTechnical controls\n" + "\n".join(secondary_notes)
@@ -270,9 +286,7 @@ def build_whole_game_reader_page(
         selection_id = f"whole-game:arm:{arm_id}"
         binding_target = destination or entry_id
         rejoin_binding = None
-        rejoin_title = None
         if merge_id:
-            rejoin_title = merge_titles.get(merge_id) or f"Shared {_humanize(label)} continuation"
             rejoin_source = (
                 _flat_source(nodes[merge_id]) if merge_id in nodes else _flat_source(control)
             )
@@ -325,22 +339,18 @@ def build_whole_game_reader_page(
     included_corridors: list[str] = []
     for label in label_order:
         assigned = packets_by_label.get(label, [])
-        label_packets = sorted(
-            [packet for packet in packets if packet.get("owning_label") == label],
-            key=lambda packet: packet_order[_text(packet.get("corridor_id"), "label packet")],
-        )
-        title, outline, detail = _prose(
-            assigned,
-            results,
-            fallback_title=_humanize(label),
-        )
-        if not assigned and label_packets:
-            title, outline, _borrowed_detail = _prose(
-                label_packets,
-                results,
-                fallback_title=_humanize(label),
+        choices = [
+            project_choice(control_id, label, frozenset())
+            for control_id in controls_by_label.get(label, ())
+        ]
+        if assigned:
+            title, outline, detail = _prose(assigned, results)
+        else:
+            title = (
+                f"Routes: {_projected_control_title(choices[0])}" if choices else _humanize(label)
             )
-            detail = f"{outline}\n\nOpen the owning route below for the complete corridor detail."
+            outline = ""
+            detail = ""
         source = _label_source(label, nodes, flow_order)
         selection_id = f"whole-game:label:{label}"
         label_effects = [_effect_text(item) for item in effects_by_label.get(label, ())]
@@ -349,10 +359,6 @@ def build_whole_game_reader_page(
         secondary_notes = secondary_by_label.get(label, ())
         if secondary_notes:
             detail = f"{detail}\n\nTechnical controls\n" + "\n".join(secondary_notes)
-        choices = [
-            project_choice(control_id, label, frozenset())
-            for control_id in controls_by_label.get(label, ())
-        ]
         included_corridors.extend(
             _text(packet.get("corridor_id"), "event corridor") for packet in assigned
         )
@@ -467,11 +473,9 @@ def _validate_inputs(
 def _prose(
     packets: Sequence[Mapping[str, object]],
     results: Mapping[str, Mapping[str, object]],
-    *,
-    fallback_title: str,
 ) -> tuple[str, str, str]:
     if not packets:
-        return fallback_title, "Continue through this Python-owned story point.", fallback_title
+        raise ValueError("reader prose requires an assigned corridor")
     values = [results[_text(packet.get("corridor_id"), "prose corridor")] for packet in packets]
     preferred = next(
         (item for item in values if item.get("packet_shape_grade") != "LOW"), values[0]
@@ -489,6 +493,36 @@ def _prose(
                 f"{_text(child.get('summary'), 'child summary')}"
             )
     return title, outline, "\n\n".join(detail_parts)
+
+
+def _projected_control_title(choice: Mapping[str, object]) -> str:
+    key = _text(choice.get("key"), "projected control key")
+    return key.removeprefix("story:").strip()
+
+
+def _structure_arm_summary(
+    *,
+    destination: str | None,
+    rejoin_title: str | None,
+    outcome: str,
+    nested_choices: Sequence[Mapping[str, object]],
+    label: str,
+    effects: Sequence[str],
+) -> str:
+    if destination:
+        return f"Continues to {_humanize(destination)}."
+    if nested_choices:
+        titles = [_projected_control_title(choice) for choice in nested_choices]
+        return f"Next: {'; '.join(titles)}."
+    if rejoin_title:
+        return f"Rejoins at {rejoin_title}."
+    if outcome == "ends":
+        return f"Ends at {_humanize(label)}."
+    if outcome == "unresolved":
+        return f"Unresolved at {_humanize(label)}."
+    if effects:
+        return f"State change: {'; '.join(effects)}."
+    return ""
 
 
 def _secondary_control(

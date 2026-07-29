@@ -671,6 +671,7 @@ def test_phase05_progressive_page_precedes_reader_and_shows_human_targets() -> N
     assert 'targetKind === "unresolved" ? "Unresolved at" : "Rejoins at"' in app
     assert "item.outline_summary" in app
     assert "item.detail_summary" in app
+    assert 'if (summary && summary.trim() !== title.trim())' in app
     assert 'element("div", "story-inline-detail")' in app
     assert 'element("details", "story-technical-disclosure")' in app
     assert '"Source / Evidence"' in app

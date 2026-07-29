@@ -976,7 +976,9 @@ function storySelectionControl(item, kind) {
   control.dataset.storySelectionId = item.selection_id;
   control.setAttribute("aria-selected", "false");
   control.setAttribute("aria-expanded", "false");
-  control.append(element("strong", "", storyItemTitle(item)), element("span", "", storyOutlineSummary(item)));
+  const title = storyItemTitle(item); const summary = storyOutlineSummary(item);
+  control.append(element("strong", "", title));
+  if (summary && summary.trim() !== title.trim()) control.append(element("span", "", summary));
   control.addEventListener("click", () => {
     if (!progressiveStoryActive()) { selectStoryItem(item, control); return; }
     activateStoryItem(item, control); closeStoryPathForOutline();
