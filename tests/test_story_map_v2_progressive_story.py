@@ -118,6 +118,19 @@ label history_lois:
 """
 
 
+UNRESOLVED_SOURCE = """
+label start:
+    menu:
+        "This route ends":
+            $ dynamic_story_action()
+        "Known continuation":
+            "The known story continues."
+
+label shared:
+    "Both known routes meet here."
+"""
+
+
 def _outgoing(walk: dict[str, object]) -> dict[str, list[dict[str, object]]]:
     result: dict[str, list[dict[str, object]]] = defaultdict(list)
     for edge in walk["edges"]:  # type: ignore[index]
@@ -136,6 +149,29 @@ def _reachable(walk: dict[str, object], start: str) -> set[str]:
         seen.add(node_id)
         pending.extend(str(edge["target"]) for edge in outgoing.get(node_id, ()))
     return seen
+
+
+def test_progressive_outcome_kind_uses_unresolved_graph_fact_not_caption(tmp_path) -> None:
+    game = tmp_path / "game"
+    game.mkdir()
+    (game / "unresolved.rpy").write_text(UNRESOLVED_SOURCE, encoding="utf-8")
+
+    project = create_folder_project(tmp_path / "unresolved.rsmproj", game)
+    try:
+        page = persist_progressive_story_page(
+            project,
+            entry_label="start",
+            stop_labels={"shared"},
+            source_paths={"unresolved.rpy"},
+        )
+        choice = page["sections"][0]["events"][0]["choices"][0]  # type: ignore[index]
+        arms = {arm["caption"]: arm for arm in choice["arms"]}
+
+        assert choice["control_kind"] == "decision"
+        assert arms["This route ends"]["outcome_kind"] == "unresolved"
+        assert arms["Known continuation"]["outcome_kind"] == "rejoins"
+    finally:
+        project.close()
 
 
 def test_progressive_terrance_walk_preserves_real_nesting_and_rejoin(tmp_path) -> None:
@@ -252,11 +288,20 @@ def test_progressive_terrance_walk_preserves_real_nesting_and_rejoin(tmp_path) -
         assert len(projected_choices) == 10  # eight menus plus two state gates
         assert sum(len(choice["arms"]) for choice in projected_choices) == 21
         assert all(choice["key"].startswith("story:") for choice in projected_choices)
+        assert {choice["control_kind"] for choice in projected_choices} == {
+            "decision",
+            "condition",
+        }
         assert len(choices) == 1  # the entry state gate owns the visible route tree
         event = page["sections"][0]["events"][0]  # type: ignore[index]
         assert event["outline_summary"] == "Terrance reappears after work."
         assert "Terrance reappears after work." in event["detail_summary"]
         projected_arms = [arm for choice in projected_choices for arm in choice["arms"]]
+        assert {arm["outcome_kind"] for arm in projected_arms} == {
+            "continues",
+            "rejoins",
+            "ends",
+        }
         assert all(arm["outline_summary"] for arm in projected_arms)
         assert all(arm["detail_summary"] for arm in projected_arms)
         assert "The route continues to the next story beat." not in str(page)
@@ -287,6 +332,19 @@ def test_progressive_terrance_walk_preserves_real_nesting_and_rejoin(tmp_path) -
             "Lois continuation",
         ]
         assert do_nothing["rejoin_node_id"] == "story:Lois continuation"
+        encounter_extent = next(
+            choice
+            for choice in projected_choices
+            if choice["key"] == "story:Wanda decides how far the encounter continues"
+        )
+        next_level = next(
+            arm
+            for arm in encounter_extent["arms"]
+            if arm["caption"] == "Take things to the next level"
+        )
+        assert next_level["outcome_kind"] == "rejoins"
+        true_ends = [arm for arm in projected_arms if arm["outcome_kind"] == "ends"]
+        assert [arm["caption"] for arm in true_ends] == ["not (loi >= 2)"]
         assert project.payload("story_map_v2", "phase05_progressive") == page
     finally:
         project.close()

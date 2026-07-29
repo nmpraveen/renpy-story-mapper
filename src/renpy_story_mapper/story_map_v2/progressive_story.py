@@ -255,6 +255,7 @@ def _project_reader_page(
                 {
                     "selection_id": arm_id,
                     "caption": caption,
+                    "outcome_kind": trace["outcome_kind"],
                     "outcome_summary": arm_summary,
                     "outline_summary": str(trace["outline_summary"]) or caption,
                     "detail_summary": str(trace["detail_summary"]) or caption,
@@ -288,7 +289,12 @@ def _project_reader_page(
                     ],
                 }
             )
-        return {"key": choice_title, "source": source, "arms": arms}
+        return {
+            "key": choice_title,
+            "control_kind": "condition" if node.get("type") == "condition" else "decision",
+            "source": source,
+            "arms": arms,
+        }
 
     entry_label = _text(walk.get("entry_label"), "walk entry label")
     entry_node = next(
@@ -429,6 +435,7 @@ def _trace_arm(
     corridor_material: list[str] = []
     effects: list[str] = []
     boundaries: list[tuple[str, int, str]] = []
+    boundary_kinds: set[str] = set()
     while pending:
         node_id = pending.popleft()
         if node_id in seen or node_id not in nodes or node_id in choice_ids:
@@ -446,6 +453,7 @@ def _trace_arm(
         elif kind in {"destination", "label"}:
             story_material.append(_text(node.get("title"), f"{kind} title"))
         elif kind in {"rejoin", "terminal", "unresolved"}:
+            boundary_kinds.add(str(kind))
             source = _mapping(node.get("source"), "boundary source")
             current_boundary_title = _text(node.get("title"), "boundary title")
             boundaries.append(
@@ -474,6 +482,15 @@ def _trace_arm(
         (line.strip() for line in outline_source.splitlines() if line.strip()), ""
     )
     return {
+        "outcome_kind": (
+            "unresolved"
+            if "unresolved" in boundary_kinds
+            else "ends"
+            if "terminal" in boundary_kinds
+            else "rejoins"
+            if "rejoin" in boundary_kinds
+            else "continues"
+        ),
         "outline_summary": outline_summary,
         "detail_summary": "\n".join(material),
         "effects": list(dict.fromkeys(effects)),

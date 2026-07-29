@@ -362,6 +362,47 @@ def test_story_map_contract_accepts_nested_local_choices_and_rejects_duplicate_t
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required")
+def test_story_map_contract_accepts_only_known_optional_semantic_roles() -> None:
+    module_uri = (STATIC / "contract.js").as_uri()
+    page = _story_page()
+    script = f"""
+      import {{ assertStoryMapV2 }} from {json.dumps(module_uri)};
+      const valid = {json.dumps(page)};
+      const choice = valid.sections[0].events[0].choices[0];
+      choice.control_kind = "decision";
+      choice.arms[0].outcome_kind = "rejoins";
+      const accepted = assertStoryMapV2(valid);
+      let invalidControlRejected = false;
+      const invalidControl = structuredClone(valid);
+      invalidControl.sections[0].events[0].choices[0].control_kind = "menu";
+      try {{ assertStoryMapV2(invalidControl); }} catch (_error) {{ invalidControlRejected = true; }}
+      let invalidOutcomeRejected = false;
+      const invalidOutcome = structuredClone(valid);
+      invalidOutcome.sections[0].events[0].choices[0].arms[0].outcome_kind = "ending";
+      try {{ assertStoryMapV2(invalidOutcome); }} catch (_error) {{ invalidOutcomeRejected = true; }}
+      process.stdout.write(JSON.stringify({{
+        controlKind: accepted.sections[0].events[0].choices[0].control_kind,
+        outcomeKind: accepted.sections[0].events[0].choices[0].arms[0].outcome_kind,
+        invalidControlRejected,
+        invalidOutcomeRejected,
+      }}));
+    """
+    completed = subprocess.run(
+        [shutil.which("node") or "node", "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    assert json.loads(completed.stdout) == {
+        "controlKind": "decision",
+        "outcomeKind": "rejoins",
+        "invalidControlRejected": True,
+        "invalidOutcomeRejected": True,
+    }
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required")
 def test_story_map_path_contract_is_exact_and_deeply_bounded() -> None:
     module_uri = (STATIC / "contract.js").as_uri()
     assert API_CONTRACT_FIXTURE.is_file()
