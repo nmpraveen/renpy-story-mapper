@@ -8,7 +8,7 @@ Updated: 2026-07-29
 - Contract: [`docs/milestones/M15_PHASE_05/GOAL.md`](milestones/M15_PHASE_05/GOAL.md).
 - Task ledger: [`docs/milestones/M15_PHASE_05/TASKS.md`](milestones/M15_PHASE_05/TASKS.md).
 - Branch: `codex/m15-phase05-whole-game-skeleton`.
-- Status: Terrance proof accepted; whole-game structure and first-10 AI canary complete.
+- Status: structure, first-10 AI canary, and corrected corridor packets complete; bulk summaries pending.
 - Native Codex goal: none.
 
 ## Current product decision
@@ -27,9 +27,14 @@ The first proof is the Terrance route. The user accepted its family-tree reader 
 The whole-game structure projection now accounts for all 149 parser labels: 134 are statically
 reachable from `start`, 15 are unreachable, and all 6 reachable unresolved mechanics remain
 explicit. Parser extraction and story coverage both grade PASS; resolution remains partial.
-The first 10 cloud-AI corridor summaries also passed factual review. Before bulk summary work, the
-packetizer needs three small corrections: remove UI helper lines, include every rejoin origin and
-next control point, and retain AI-created beats as children of their Python-owned corridor.
+The first 10 cloud-AI corridor summaries also passed factual review. The corrected graph-backed
+packetizer finds 604 Python-owned story-bearing chains and emits 597 narrative packets after seven
+non-story-only chains are excluded. It accounts for all 12,191 reachable narrative statements
+exactly once: 12,183 are included and 8 are explicitly excluded (the settings hint, adult setup
+prompt/refusal, four save reminders, and the credits patron thank-you). All 1,823 reachable
+control/effect facts remain available, including 205 direct state effects and 6 unresolved
+mechanics. Packets include every incoming M06 rejoin origin and the next Python control point with
+its arms; future AI beats remain presentation children of their original corridor.
 
 The current correction keeps the existing 66-node, 75-edge structural walk authoritative while
 replacing the stacked outline with a polished family-tree reader. Direct sibling routes fork

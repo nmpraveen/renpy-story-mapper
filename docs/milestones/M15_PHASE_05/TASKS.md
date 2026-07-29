@@ -15,6 +15,7 @@
 | User review of corrected Terrance proof | Complete | User accepted the family-tree reader after the content-sized box correction |
 | Walk the full game | Complete | 149/149 labels accounted; 134 reachable, 15 unreachable, and 6 reachable unresolved mechanics explicit |
 | Validate first 10 bulk summaries | Complete | 10/10 fidelity PASS; 7 packet shapes PASS and 3 PARTIAL with bounded cleanup identified |
+| Correct whole-game corridor packets | Complete | 597 narrative packets from 604 graph-backed chains; 12,183 included + 8 reasoned non-story exclusions = all 12,191 reachable statements; all incoming rejoin origins and next controls retained |
 | Parallelize remaining summaries | Pending | Roughly equal work across three or four user-visible Sol/High sidebar tasks; no subagent substitution |
 | Publish and inspect full desktop timeline | Pending | Correct story order, branches, conditions, state links, rejoins, and endings |
 
