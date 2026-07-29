@@ -8,7 +8,7 @@ Updated: 2026-07-28
 - Contract: [`docs/milestones/M15_PHASE_05/GOAL.md`](milestones/M15_PHASE_05/GOAL.md).
 - Task ledger: [`docs/milestones/M15_PHASE_05/TASKS.md`](milestones/M15_PHASE_05/TASKS.md).
 - Branch: `main` after the accepted-proof integration.
-- Status: Terrance family-tree proof accepted; full-game progressive walk is next.
+- Status: Terrance proof accepted; graph-backed whole-game structure coverage complete.
 - Native Codex goal: none.
 
 ## Current product decision
@@ -23,8 +23,10 @@ Build the story progressively from actual Ren'Py execution flow and state:
 - detect demonstrated rejoins and endings; and
 - let AI summarize only after Python has built this structure.
 
-The first proof is the Terrance route. The user accepted its family-tree reader on 2026-07-28;
-full-game processing is now the next product step.
+The first proof is the Terrance route. The user accepted its family-tree reader on 2026-07-28.
+The whole-game structure projection now accounts for all 149 parser labels: 134 are statically
+reachable from `start`, 15 are unreachable, and all 6 reachable unresolved mechanics remain
+explicit. Parser extraction and story coverage both grade PASS; resolution remains partial.
 
 The current correction keeps the existing 66-node, 75-edge structural walk authoritative while
 replacing the stacked outline with a polished family-tree reader. Direct sibling routes fork
