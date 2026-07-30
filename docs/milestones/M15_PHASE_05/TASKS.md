@@ -18,5 +18,9 @@
 | Correct whole-game corridor packets | Complete | 597 narrative packets from 604 graph-backed chains; 12,183 included + 8 reasoned non-story exclusions = all 12,191 reachable statements; all incoming rejoin origins and next controls retained |
 | Parallelize remaining summaries | Complete | Four user-visible Sol/High tasks produced 587/587 summaries with zero deferrals; combined result is 597/597 fidelity PASS |
 | Publish and inspect full desktop timeline | Complete | 594 corridor summaries attached exactly once; zero vague structure fallbacks or borrowed branch summaries; 1920px browser proof preserves 111 events, 260 controls, 571 arms, scrolling, semantic colors, and zero horizontal overflow |
+| Simplify the browser around the scrolling reader | Complete | Obsolete map and workflow surfaces removed; story index, local search, wider forks, collapsible deep branches, and readable prose verified at 1920px |
+| Compose cross-label routes into one progressive tree | Pending | Downstream label events remain beneath the arm that reaches them; sibling routes no longer appear as consecutive chronology |
+| Humanize route gates, rejoins, and state back-links | Pending | Default reader contains story language and links to earlier choices; raw Python remains in Technical detail |
+| User acceptance of the whole-game timeline | Pending | The user can follow the complete story and its routes by scrolling without interpreting code labels |
 
 Use only `Pending`, `In progress`, `Blocked`, or `Complete`.

@@ -1,6 +1,6 @@
 # M15.1 Phase 05 - Progressive state-aware story timeline
 
-Status: whole-game reader assembled and inspected; awaiting user acceptance
+Status: whole-game checkpoint being published; user outcome remains open
 
 ## User outcome
 

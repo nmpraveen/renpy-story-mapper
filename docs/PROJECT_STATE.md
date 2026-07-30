@@ -8,7 +8,7 @@ Updated: 2026-07-29
 - Contract: [`docs/milestones/M15_PHASE_05/GOAL.md`](milestones/M15_PHASE_05/GOAL.md).
 - Task ledger: [`docs/milestones/M15_PHASE_05/TASKS.md`](milestones/M15_PHASE_05/TASKS.md).
 - Branch: `codex/m15-phase05-whole-game-skeleton`.
-- Status: whole-game reader assembled and browser-inspected; awaiting user acceptance.
+- Status: whole-game reader and simplified UI checkpoint are being published; the clean-timeline goal remains open.
 - Native Codex goal: none.
 
 ## Current product decision
@@ -68,6 +68,16 @@ or state change. The 29 labels without shared corridor prose render as neutral P
 with no borrowed child-route summary. The regenerated page and 1920px browser contain zero instances
 of the rejected fallback or the former `Open the owning route below` helper, with structural and
 outcome counts unchanged.
+
+The 2026-07-30 UI rebuild removes the obsolete map, zoom, inspection, route-solver, narrative-job,
+and organization surfaces from the default browser. The remaining reader has a story index,
+client-side event search, wider forks, collapsible deep branches, concise outcome lines, and readable
+expanded prose. It does not change Python story facts.
+
+Current product gaps are now explicit: downstream labels are still appended as top-level events
+instead of remaining beneath the branch that reaches them; machine-derived condition and rejoin
+names remain visible; and state provenance is raw text rather than a back-link to the earlier choice.
+These are the next correction, after the current checkpoint PR.
 
 ## User-selected operating rules
 

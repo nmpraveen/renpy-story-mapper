@@ -300,16 +300,10 @@ def test_superseded_draft_routes_are_absent_but_m07_review_routes_remain(tmp_pat
 
     contract = _text("contract.js")
     api = _text("api.js")
-    app = _text("app.js")
-    html = _text("index.html")
 
     assert 'assemblyApply: "/api/v1/m07/assembly/apply"' in contract
     assert "ENDPOINTS.assemblyApply" in api
     assert "assembly_id: assemblyId" in api
-    assert "api.applyAssembly" in app
-    assert "state.organization?.coverage" in app
-    assert "value.assembly_id" in app
-    assert 'id="reviewPartial"' in html and 'id="applyAssembly"' in html
 
 
 def test_connection_close_header_is_enforced_by_the_http_lifecycle(tmp_path: Path) -> None:
