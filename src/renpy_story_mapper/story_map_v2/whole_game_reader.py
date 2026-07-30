@@ -143,10 +143,12 @@ def build_whole_game_reader_page(
         else:
             controls_by_label[label].append(control_id)
 
-    for values in (*controls_by_label.values(), *children_by_arm.values()):
-        values.sort(key=lambda node_id: flow_order.get(node_id, 10**9))
-    for values in (*packets_by_label.values(), *packets_by_arm.values()):
-        values.sort(key=lambda packet: packet_order[_text(packet.get("corridor_id"), "packet")])
+    for control_ids in (*controls_by_label.values(), *children_by_arm.values()):
+        control_ids.sort(key=lambda node_id: flow_order.get(node_id, 10**9))
+    for owned_packets in (*packets_by_label.values(), *packets_by_arm.values()):
+        owned_packets.sort(
+            key=lambda packet: packet_order[_text(packet.get("corridor_id"), "packet")]
+        )
 
     merge_titles: dict[str, str] = {}
     for packet in packets:
@@ -226,9 +228,8 @@ def build_whole_game_reader_page(
             if child not in ancestors
         ]
         destination = _destination_label(arm, label, nodes, flow_order)
-        merge_id = (
-            region.get("merge_node_id") if isinstance(region.get("merge_node_id"), str) else None
-        )
+        raw_merge_id = region.get("merge_node_id")
+        merge_id = raw_merge_id if isinstance(raw_merge_id, str) else None
         arm_node_ids = {_text(item, "arm node") for item in _list(arm.get("node_ids"), "arm nodes")}
         unresolved = any(
             nodes[node_id].get("kind") == "unresolved"
@@ -409,7 +410,7 @@ def build_whole_game_reader_page(
         if result.get("packet_shape_grade") == "LOW" and corridor_id not in excluded
     }
     counts = _mapping(corridors.get("counts"), "corridor counts")
-    page = {
+    page: dict[str, object] = {
         "schema": "story-map-v2-page-v1",
         "status": "synthesized",
         "reason": None,

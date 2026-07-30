@@ -11,9 +11,8 @@ import ast
 import re
 from collections import defaultdict, deque
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Protocol, cast
-
-from renpy_story_mapper.project import PayloadRecord, Project
 
 PHASE05_PROGRESSIVE_KEY = "phase05_progressive"
 PHASE05_PROGRESSIVE_WALK_KEY = "phase05_progressive_walk"
@@ -48,6 +47,18 @@ class ParsedPayloadProject(Protocol):
     def payload_keys(self, collection: str) -> tuple[str, ...]: ...
 
     def payload(self, collection: str, key: str) -> object | None: ...
+
+
+@dataclass(frozen=True)
+class _ProgressivePayloadRecord:
+    collection: str
+    key: str
+    value: object
+    source_paths: tuple[str, ...] = ()
+
+
+class WritableParsedPayloadProject(ParsedPayloadProject, Protocol):
+    def write_payloads(self, records: Sequence[_ProgressivePayloadRecord]) -> None: ...
 
 
 def build_progressive_story_page(
@@ -88,7 +99,7 @@ def build_progressive_story_page(
 
 
 def persist_progressive_story_page(
-    project: Project,
+    project: WritableParsedPayloadProject,
     *,
     entry_label: str,
     stop_labels: Iterable[str],
@@ -125,13 +136,13 @@ def persist_progressive_story_page(
     dependencies = project.payload_keys("parsed_source")
     project.write_payloads(
         [
-            PayloadRecord(
+            _ProgressivePayloadRecord(
                 "story_map_v2",
                 PHASE05_PROGRESSIVE_WALK_KEY,
                 walk,
                 dependencies,
             ),
-            PayloadRecord(
+            _ProgressivePayloadRecord(
                 "story_map_v2",
                 PHASE05_PROGRESSIVE_KEY,
                 page,

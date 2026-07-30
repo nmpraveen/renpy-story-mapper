@@ -190,12 +190,19 @@ def _session(browser: Path, zoom: int, profile: Path) -> tuple[subprocess.Popen[
     process = _launch(browser, zoom, profile)
     active = profile / "DevToolsActivePort"
     deadline = time.monotonic() + 15
-    while not active.is_file() and time.monotonic() < deadline:
+    port: int | None = None
+    while time.monotonic() < deadline:
+        try:
+            lines = active.read_text(encoding="utf-8").splitlines()
+            if lines:
+                port = int(lines[0])
+                break
+        except (OSError, ValueError):
+            pass
         time.sleep(0.05)
-    if not active.is_file():
+    if port is None:
         process.terminate()
         raise RuntimeError("Chrome did not publish its DevTools port")
-    port = int(active.read_text(encoding="utf-8").splitlines()[0])
     session = M07_HARNESS._Cdp(
         str(M07_HARNESS._devtools_page(port)["webSocketDebuggerUrl"])
     )
