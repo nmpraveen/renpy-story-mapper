@@ -1,6 +1,6 @@
 # M15.1 Phase 05 - Progressive state-aware story timeline
 
-Status: Terrance family-tree proof accepted; full-game walk pending
+Status: whole-game checkpoint being published; user outcome remains open
 
 ## User outcome
 
@@ -103,5 +103,15 @@ family-tree relationships.
 
 ## Handoff
 
-The Terrance acceptance gate is complete. Continue next with the whole-game walk and the first-10
-AI-summary canary; Phase 05 remains active until the coherent whole-game timeline is delivered.
+The Terrance acceptance gate, graph-backed whole-game structure coverage, deterministic 597-packet
+narrative projection, and cloud-AI summaries for all 597 packets are complete. All summaries passed
+fidelity review; 594 story corridors are attached exactly once under their Python-owned label,
+control arm, or continuation after three technical-only packets are excluded. The review project
+renders 111 label events and retains all 324 story controls and 700 arms: 260 controls and 571 arms
+remain in the default family-tree flow, while 64 startup, developer, and hint controls stay in
+secondary detail. The 1920px browser inspection found no page or story-scroller horizontal overflow,
+content-sized sibling routes, concrete expandable prose, and distinct semantic colors. A focused
+coordinator correction replaced all structure-only fallback copy with proven next-state facts and
+turned 29 labels without shared corridor prose into neutral control-derived gates; no parent event
+borrows a child route summary. Phase 05 remains active only for user acceptance of the assembled
+whole-game reader.

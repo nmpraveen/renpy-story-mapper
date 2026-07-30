@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "src" / "renpy_story_mapper" / "web" / "static"
+SCRIPTS = ("app.js", "api.js", "contract.js", "story-map-v2-diff.js")
 
 
 def _text(name: str) -> str:
@@ -20,15 +21,7 @@ def _canonical_text_hash(data: bytes) -> str:
 
 def test_assets_are_local_and_csp_compatible() -> None:
     html = _text("index.html")
-    names = (
-        "index.html",
-        "styles.css",
-        "app.js",
-        "api.js",
-        "contract.js",
-        "graph.js",
-    )
-    assets = "\n".join(_text(name) for name in names)
+    assets = "\n".join(_text(name) for name in ("index.html", "styles.css", *SCRIPTS))
     assert "Content-Security-Policy" in html
     assert "script-src 'self'" in html
     assert not re.search(r"https?://|//cdn", assets, re.IGNORECASE)
@@ -39,8 +32,13 @@ def test_assets_are_local_and_csp_compatible() -> None:
     assert "analytics" not in assets.casefold()
 
 
+def test_no_inline_style_attributes_under_strict_style_src() -> None:
+    """`style-src 'self'` blocks markup style attributes; CSSOM writes stay allowed."""
+    assert not re.search(r"<[^>]+\sstyle=", _text("index.html"), re.IGNORECASE)
+
+
 def test_dom_rendering_is_xss_safe_and_has_no_html_sinks() -> None:
-    javascript = "\n".join(_text(name) for name in ("app.js", "graph.js"))
+    javascript = "\n".join(_text(name) for name in SCRIPTS)
     assert ".textContent" in javascript
     assert "createElement(" in javascript
     assert ".innerHTML" not in javascript
@@ -52,57 +50,26 @@ def test_dom_rendering_is_xss_safe_and_has_no_html_sinks() -> None:
 def test_routes_are_versioned_and_centralized() -> None:
     contract = _text("contract.js")
     assert contract.count('"/api/v1/') >= 17
-    for name in ("app.js", "api.js", "graph.js"):
+    for name in ("app.js", "api.js"):
         assert '"/api/v1/' not in _text(name)
-    routes = (
-        "m07/route-map",
-        "m07/detail",
-        "m07/organization/prepare",
-        "m07/organization/start",
-        "m07/organization/cancel",
-        "m07/assembly/apply",
-    )
-    for route in routes:
-        assert route in contract
     assert 'shutdown: "/api/v1/shutdown"' in contract
     assert 'id="quitButton"' in _text("index.html")
     assert "await api.shutdown()" in _text("app.js")
 
 
-def test_render_boundary_overflow_and_visible_lines_are_explicit() -> None:
-    contract = _text("contract.js")
-    graph = _text("graph.js")
+def test_keyboard_focus_and_two_levels_are_implemented() -> None:
+    html = _text("index.html")
     app = _text("app.js")
-    html = _text("index.html")
-    assert "nodes: 30" in contract and "edges: 180" in contract and "items: 240" in contract
-    assert "Route Map render boundary exceeded" in graph
-    assert "bezierCurveTo" in graph and "stroke()" in graph
-    assert 'id="pageStatus"' in html
-    assert "state.page?.next_offset" in app
-
-
-def test_keyboard_focus_tabs_and_map_commands_are_implemented() -> None:
-    html = _text("index.html")
-    graph = _text("graph.js")
-    for key in ("ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End", "Enter"):
-        assert key in graph
-    assert 'aria-keyshortcuts="/"' in html
-    assert 'id="backToRouteMap"' in html and "Back to Route Map" in html
     assert 'data-level="route_map"' in html and 'data-level="detail_evidence"' in html
+    assert html.count('data-level="') == 2
+    assert 'id="backToRouteMap"' in html
+    assert 'if (event.key === "Escape")' in app
+    assert 'event.key === "/"' in app
     assert ":focus-visible" in _text("styles.css")
+    assert "Skip to story" in html
 
 
-def test_organization_is_never_implicit() -> None:
-    app = _text("app.js")
-    api = _text("api.js")
-    assert "api.prepareOrganization()" in app
-    assert '$("#consentDialog").showModal()' in app
-    assert "api.startOrganization" in app
-    assert "confirm_cloud: true" in api
-    assert "organizationPrepare" in _text("contract.js")
-
-
-def test_production_picker_shape_and_refresh_lifecycle_are_wired() -> None:
+def test_picker_shape_and_refresh_lifecycle_are_wired() -> None:
     app = _text("app.js")
     api = _text("api.js")
     html = _text("index.html")
@@ -113,41 +80,39 @@ def test_production_picker_shape_and_refresh_lifecycle_are_wired() -> None:
     assert 'id="refreshProject"' in html and ">Refresh</button>" in html
     assert '$("#refreshProject").addEventListener("click", async () =>' in app
     assert "await api.refresh()" in app and "const completed = await pollAnalysis()" in app
-    reset = app[app.index("async function resetRoutePaging()") : app.index("function nextCursor()")]
-    assert "state.cursorHistory = []" in reset
-    assert "return loadComparison()" in reset
 
 
-def test_unresolved_filter_uses_only_authoritative_production_field() -> None:
-    app = _text("app.js")
-    assert "if (!state.settings.include_unresolved && node.unresolved)" in app
-    assert "payload.unresolved" not in app
-
-
-def test_production_review_shape_decisions_and_pagination_are_explicit() -> None:
-    app = _text("app.js")
-    api = _text("api.js")
+def test_story_reader_is_the_only_map_surface() -> None:
+    """The loopback story reader is the sole product surface; milestone views are gone."""
     html = _text("index.html")
-    assert "state.organization?.coverage" in app
-    assert "value.assembly_id" in app
-    assert "assembly_id: assemblyId" in api
-    assert "ENDPOINTS.assemblyApply" in api
-    assert "ENDPOINTS.assemblyDiscard" in api
-    assert "api.applyAssembly" in app
-    assert "api.discardAssembly" in app
-    assert 'id="reviewPartial"' in html and 'id="applyAssembly"' in html
+    app = _text("app.js")
+    for removed in (
+        'id="mapLayout"',
+        'id="mapViewport"',
+        'id="edgeCanvas"',
+        'class="commandbar"',
+        'class="view-switch"',
+        'id="routePanel"',
+        'id="narrativeDrawer"',
+        'id="organizationPanel"',
+        'id="consentDialog"',
+        'id="reviewDialog"',
+        'id="zoomIn"',
+        'id="fitMap"',
+    ):
+        assert removed not in html, removed
+    for removed in ("function renderMap(", "function switchMode(", "new RouteGraph("):
+        assert removed not in app, removed
+    assert not (STATIC / "graph.js").exists()
 
 
-def test_responsive_and_200_percent_zoom_contracts_are_present() -> None:
+def test_responsive_reader_breakpoints_are_present() -> None:
     css = _text("styles.css")
-    acceptance = (ROOT / "scripts" / "m07_browser_acceptance.py").read_text(encoding="utf-8")
-    assert "@media (max-width: 780px)" in css
-    assert "@media (max-width: 480px)" in css
+    assert "@media (max-width: 1240px)" in css
+    assert "@media (max-width: 900px)" in css
+    assert "@media (max-width: 620px)" in css
+    assert "@media (prefers-reduced-motion: reduce)" in css
     assert "minmax(0, 1fr)" in css
-    assert 'f"route-map-{zoom}.png"' in acceptance
-    assert 'f"detail-evidence-{zoom}.png"' in acceptance
-    assert '"width": 720 if zoom == 200 else 1440' in acceptance
-    assert "--force-device-scale-factor=2" in acceptance
 
 
 def test_asset_manifest_hashes_are_deterministic() -> None:

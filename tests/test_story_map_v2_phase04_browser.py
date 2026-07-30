@@ -1,4 +1,4 @@
-# ruff:file-ignore[line-too-long]
+# ruff: noqa: E501
 from __future__ import annotations
 
 import copy

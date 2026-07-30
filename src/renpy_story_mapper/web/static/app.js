@@ -1,24 +1,19 @@
-import { DEFAULT_NARRATIVE_BATCH_LIMITS, DEFAULT_NARRATIVE_LIMITS, LocalApi, stableRouteJson } from "./api.js";
-import { ROUTE_EDGE_PAGE_SIZE, ROUTE_PAGE_SIZE, STORY_WORKFLOW_CONTRACT } from "./contract.js";
-import { RouteGraph } from "./graph.js";
+import { LocalApi } from "./api.js";
+import { STORY_WORKFLOW_CONTRACT } from "./contract.js";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const api = new LocalApi();
-const CURSOR_HISTORY_LIMIT = 12;
 const STORY_WORKFLOW_STORAGE_KEY = "rsm.story-map-v2.workflow.v2";
 const STORY_TIMELINE_MIN_GROUPS = 12;
 const STORY_TIMELINE_MAX_GROUPS = 30;
+const STORY_STACK_THRESHOLD = 4;
+const STORY_OPEN_FORK_LIMIT = 2;
 
 const state = {
-  project: null, page: null, scenePage: null, aiPage: null, technicalPage: null, inspectionPage: null, canonicalPage: null, sceneReason: null, aiReason: null, mode: "scenes",
+  project: null,
   analysisStatus: null,
-  offset: 0, edgeOffset: 0, edgeCursor: null, cursorHistory: [], selectedId: null, detail: null, detailRunToken: 0,
-  narrativeEnabled: false, narrativeSnapshot: null, narrativeJobs: [], narrativeByOwner: new Map(),
-  narrativeRun: null, narrativePreparation: null, narrativeLastRequest: null, narrativePollToken: 0, narrativeStatusToken: 0,
-  narrativeCitationSelection: null,
-  organization: null, prepared: null, assemblyId: null, windowResolution: null,
-  route: { sourceItem: null, sourceId: null, activeSourceId: null, destination: null, requestIdentity: null, result: null, phase: "idle", cached: false, stale: false, error: null, runToken: 0 },
+  detail: null,
   storyPage: null, storyItems: new Map(), storySelectionId: null, storySelectionItem: null, storySelectionControl: null, storySelectionScrollY: 0, storySelectionWindowY: 0, storySelectionViewportTop: 0, storyPath: null, storyPathToken: 0, storyDetailToken: 0,
   storyReader: {
     contract: null, manifest: null, status: null, mapRevision: null, generationId: null,
@@ -27,6 +22,7 @@ const state = {
     hideNew: false, restored: false, prefetchedSectionId: null,
   },
   storyWorkflow: { response: null, pollToken: 0, busy: false },
+  storyNav: { chapters: [], eventNodes: [], activeChapterId: null, frame: 0, query: "" },
   settings: { theme: "system", include_technical: true, include_unresolved: true },
 };
 
@@ -37,591 +33,13 @@ function element(tag, className, text) {
   return node;
 }
 
-function narrativeForOwner(ownerId) {
-  return state.narrativeByOwner.get(ownerId)?.artifact || null;
-}
 
-function narrativeForElement(elementId, detail = null) {
-  const pageNode = state.page?.nodes.find((node) => node.id === elementId);
-  const ownerId = pageNode?.scene_id || detail?.scene?.id || elementId;
-  return narrativeForOwner(ownerId) || narrativeForOwner(elementId);
-}
-
-function renderNarrativeCoverage() {
-  const host = $("#narrativeCoverage"); host.replaceChildren();
-  const coverage = state.narrativeSnapshot?.coverage;
-  if (!coverage) { host.append(element("span", "muted", "Narrative authority is unavailable.")); return; }
-  const percent = Number(coverage.scene_coverage_basis_points || 0) / 100;
-  host.append(
-    element("strong", "", `${percent.toLocaleString(undefined, { maximumFractionDigits: 2 })}% scene coverage`),
-    element("span", "", `${coverage.published_scene_jobs || 0} of ${coverage.expected_scene_jobs || 0} scene jobs published`),
-    element("span", "", `${coverage.stale_jobs || 0} stale · ${coverage.unavailable_jobs || 0} unavailable`),
-    element("span", "", `${coverage.m12_selected_results || 0} current M12 result(s) included`),
-  );
-}
-
-function narrativeCitationSelection(claim, response, citation) {
-  return {
-    claim_id: claim.claim_id,
-    claim_path: [...citation.claim_path],
-    traversed_claim_ids: [...response.traversed_claim_ids],
-    citation_count: response.citation_count,
-    authority_labels: [...response.authority_labels],
-    authority: citation.authority,
-    record_kind: citation.record_kind,
-    record_id: citation.record_id,
-    owner_id: citation.owner_id,
-    label: citation.label,
-    navigation: { ...citation.navigation },
-  };
-}
-
-function narrativeCitationControls(claim, response, openCitation) {
-  if (!Array.isArray(response.citations)) throw new TypeError("Resolved citations are unavailable");
-  return response.citations.map((citation) => ({
-    label: citation.label,
-    record_id: citation.record_id,
-    authority: citation.authority,
-    select: (button) => openCitation(claim, response, citation, button),
-  }));
-}
-
-function appendNarrativeClaimPath(host, selection) {
-  const path = element("div", "narrative-claim-path");
-  path.append(element("strong", "", "M13 claim path"));
-  for (const [index, claimId] of selection.claim_path.entries()) {
-    const step = element("span", "narrative-claim-step", `Claim ${index + 1}`); step.title = claimId; step.dataset.claimId = claimId; path.append(step);
-  }
-  host.append(path);
-}
-
-function markNarrativeCitationSelection(selection) {
-  state.narrativeCitationSelection = selection;
-  state.detail = { ...state.detail, citation_selection: selection };
-  state.selectedId = selection.navigation.focus_record_id;
-  const record = element("article", "narrative-citation-selection"); record.dataset.recordId = selection.record_id;
-  record.append(element("strong", "", selection.label), element("span", "", `Selected ${selection.record_kind.replaceAll("_", " ")} ${selection.record_id}`));
-  appendNarrativeClaimPath(record, selection);
-  $("#evidenceList").prepend(record);
-}
-
-function renderM12NarrativeCitation(result, selection) {
-  state.narrativeCitationSelection = selection;
-  state.selectedId = selection.navigation.focus_record_id;
-  state.detail = {
-    level: "m12_result_detail",
-    element: {
-      id: result.request_identity,
-      kind: "M12 route result",
-      title: "Exact M12 route result",
-      summary: `Technical status ${String(result.status).replaceAll("_", " ")} with badge ${String(result.badge).replaceAll("_", " ")}.`,
-    },
-    citation_selection: selection,
-    route_result: result,
-  };
-  $("#detailTitle").textContent = "Exact M12 route result";
-  $("#detailKind").textContent = "M12 route result";
-  $("#detailSummary").textContent = state.detail.element.summary;
-  $("#canonicalEscapeButton").hidden = true;
-  const strip = $("#pathStrip"); strip.replaceChildren(element("strong", "path-stop current", result.request_identity));
-  $("#memberGraph").replaceChildren(); $("#technicalMembers").hidden = true;
-  $("#regionDerivation").replaceChildren(); $("#proofDerivation").replaceChildren(); $("#linkedRecords").replaceChildren(); $("#derivationPanel").hidden = true;
-  const facts = $("#detailFacts"); facts.replaceChildren();
-  addFactGroup(facts, "Exact route-result authority", [
-    { label: "Technical status", expression: result.status },
-    { label: "Badge", expression: result.badge },
-    { label: "Completion", expression: String(result.complete) },
-    { label: "Termination", expression: result.termination_reason || "none" },
-    { label: "Request identity", expression: result.request_identity },
-  ], "gate");
-  const interpretations = $("#interpretations"); interpretations.replaceChildren();
-  const selected = element("article", "interpretation claim"); selected.append(element("strong", "", "Narrative authority selection"), element("p", "", `${selection.label}; deterministic M12 authority remains unchanged.`)); appendNarrativeClaimPath(selected, selection); interpretations.append(selected); $("#interpretationPanel").hidden = false;
-  const evidence = $("#evidenceList"); evidence.replaceChildren();
-  const exact = element("article", "narrative-citation-selection"); exact.dataset.recordId = selection.record_id;
-  exact.append(element("strong", "", selection.label), element("span", "", `Selected exact route result ${result.request_identity}`)); appendNarrativeClaimPath(exact, selection); evidence.append(exact);
-  showLevel("detail_evidence"); $("#backToRouteMap").focus();
-}
-
-async function openNarrativeDetailEvidence(claim, response, citation, button) {
-  const label = button.textContent;
-  button.disabled = true; button.textContent = "Opening…";
-  try {
-    const selection = narrativeCitationSelection(claim, response, citation);
-    $("#narrativeDrawer").hidden = true;
-    const navigation = citation.navigation;
-    if (navigation.mode === "m12_result") {
-      const result = await api.routeResult(navigation.request_identity);
-      renderM12NarrativeCitation(result, selection);
-      return;
-    }
-    const targetMode = navigation.mode === "canonical" ? "canonical" : "scenes";
-    if (state.mode !== targetMode) await switchMode(targetMode);
-    await openDetail(navigation.element_id, true);
-    if (document.documentElement.dataset.activeLevel !== "detail_evidence") throw new TypeError("The cited authority detail is unavailable");
-    markNarrativeCitationSelection(selection);
-  } catch (error) { button.disabled = false; button.textContent = label; toast(error.message); }
-}
-
-async function loadNarrativeCitationControls(claim, host, button) {
-  button.disabled = true; button.textContent = "Loading citations…";
-  try {
-    const response = await api.narrativeCitations(claim.claim_id);
-    const controls = narrativeCitationControls(claim, response, openNarrativeDetailEvidence);
-    if (!controls.length) throw new TypeError("No direct citation leaf was resolved");
-    const group = element("div", "narrative-citation-controls"); group.setAttribute("role", "group"); group.setAttribute("aria-label", "Detail and Evidence citations");
-    for (const control of controls) {
-      const citationButton = element("button", "quiet-button narrative-citation-control", `${control.authority.toUpperCase()} · ${control.label}`);
-      citationButton.type = "button"; citationButton.dataset.recordId = control.record_id; citationButton.setAttribute("aria-label", `Open ${control.label} in Detail and Evidence`);
-      citationButton.addEventListener("click", () => control.select(citationButton)); group.append(citationButton);
-    }
-    host.replaceChildren(group);
-  } catch (error) { button.disabled = false; button.textContent = "Open Detail and Evidence"; toast(error.message); }
-}
-
-function renderNarrativeClaims(host, artifact) {
-  for (const claim of artifact.claims || []) {
-    const article = element("article", "narrative-claim"); article.dataset.claimClass = claim.claim_class;
-    const label = claim.claim_class === "factual" ? "Factual claim" : claim.claim_class === "interpretive" ? "AI interpretation" : "Review suggestion";
-    const scope = claim.context_scope === "comparison" ? " · route comparison" : claim.context_scope === "ordered_summary" ? " · ordered summary" : "";
-    article.append(element("strong", "", `${label}${scope}`), element("p", "", claim.text));
-    const actions = element("div", "narrative-claim-actions");
-    const button = element("button", "quiet-button", "Open Detail and Evidence"); button.type = "button";
-    button.addEventListener("click", () => loadNarrativeCitationControls(claim, actions, button));
-    actions.append(button); article.append(actions); host.append(article);
-  }
-}
-
-function narrativeSectionLabel(entry) {
-  const path = entry?.path || {}; const section = path.section;
-  if (section === "persistent_route") return `Persistent route · ${path.route_id || "unresolved"}`;
-  if (section === "temporary_branch") return `Temporary branch · ${path.temporary_container_id || "bounded detour"}`;
-  if (section === "ending") return `Ending · ${path.ending_id || "unresolved"}${path.route_id ? ` · ${path.route_id}` : ""}`;
-  if (section === "unresolved") return "Unresolved or missing coverage";
-  return "Shared story";
-}
-
-function renderNarrativeHierarchy(host, artifact) {
-  const entries = artifact.hierarchy?.section_entries;
-  if (!Array.isArray(entries) || !entries.length) return;
-  const section = element("section", "narrative-hierarchy");
-  section.append(element("strong", "", "Route-aware structure"));
-  for (const entry of entries.slice(0, 32)) {
-    const stateLabel = entry.available === false ? " · missing" : "";
-    section.append(element("span", "", `${narrativeSectionLabel(entry)}${stateLabel}`));
-  }
-  host.append(section);
-}
-
-async function expandNarrativeJob(job, host, button) {
-  if (!job.artifact) return;
-  button.disabled = true;
-  try {
-    const artifact = await api.narrativeArtifact(job.artifact.artifact_id);
-    host.append(
-      element("strong", "", artifact.summary_class === "interpretive" ? "AI interpretation" : "Narrative summary"),
-      element("p", "", artifact.summary),
-    );
-    renderNarrativeHierarchy(host, artifact);
-    for (const warning of artifact.warnings || []) host.append(element("span", "correction", warning));
-    renderNarrativeClaims(host, artifact); button.remove();
-  } catch (error) { button.disabled = false; toast(error.message); }
-}
-
-function renderNarrativeDrawer() {
-  renderNarrativeCoverage();
-  const host = $("#narrativeJobList"); host.replaceChildren();
-  const jobs = state.narrativeJobs.slice(0, 120);
-  for (const job of jobs) {
-    const record = element("article", "narrative-job");
-    record.append(element("strong", "", job.artifact?.title || job.owner_id), element("span", "", `${job.kind.replaceAll("_", " ")} · ${job.state.replaceAll("_", " ")}`));
-    if (job.artifact) {
-      const button = element("button", "quiet-button", "Open summary and claims"); button.type = "button";
-      button.addEventListener("click", () => expandNarrativeJob(job, record, button)); record.append(button);
-    } else if (job.latest_error?.code) record.append(element("span", "correction", job.latest_error.code.replaceAll("_", " ")));
-    host.append(record);
-  }
-  if (!jobs.length) host.append(element("p", "muted", "No narrative jobs have been published. The deterministic product remains fully available."));
-  if (state.narrativeJobs.length > jobs.length) host.append(element("p", "muted", `${state.narrativeJobs.length - jobs.length} more jobs are retained; this drawer is intentionally bounded.`));
-}
-
-const NARRATIVE_ACTIVE_STATES = new Set(["running", "cancelling"]);
-const NARRATIVE_RETRY_STATES = new Set(["partial", "failed", "cancelled", "hard_limit"]);
-
-function narrativeRunRequest() {
-  const positiveInteger = (selector, label) => {
-    const value = Number($(selector).value);
-    if (!Number.isInteger(value) || value < 1) throw new TypeError(`${label} must be a positive integer`);
-    return value;
-  };
-  const total = positiveInteger("#narrativeTokenLimit", "Total token limit");
-  const input = Math.max(1, Math.floor(total * 5 / 7));
-  const output = Math.max(1, total - input);
-  return {
-    requested_model: $("#narrativeModel").value.trim(),
-    provider_settings: {
-      model_reasoning_effort: $("#narrativeReasoningEffort").value,
-      fast_mode: $("#narrativeFastMode").checked,
-    },
-    mode: $("#narrativeMode").value,
-    include_m12_material: $("#narrativeIncludeM12").checked,
-    limits: {
-      ...DEFAULT_NARRATIVE_LIMITS,
-      max_provider_calls: positiveInteger("#narrativeCallLimit", "Provider call limit"),
-      max_input_tokens: input,
-      max_output_tokens: output,
-      max_total_tokens: total,
-      timeout_seconds: positiveInteger("#narrativeTimeLimit", "Time limit"),
-      max_concurrency: positiveInteger("#narrativeConcurrency", "Concurrency limit"),
-    },
-    batch_limits: { ...DEFAULT_NARRATIVE_BATCH_LIMITS },
-  };
-}
-
-function renderNarrativeRun() {
-  const run = state.narrativeRun; const status = $("#narrativeRunStatus");
-  if (run?.retry_available && run.retry_request) state.narrativeLastRequest = { ...run.retry_request };
-  const active = NARRATIVE_ACTIVE_STATES.has(run?.state);
-  $("#prepareNarrative").disabled = active;
-  $("#cancelNarrative").hidden = !active;
-  $("#retryNarrative").hidden = !NARRATIVE_RETRY_STATES.has(run?.state) || !run?.retry_available || !state.narrativeLastRequest;
-  if (!run || run.state === "disabled") status.textContent = "Cloud AI is off. Preparing a manifest sends no story material.";
-  else if (run.state === "prepared") status.textContent = "Prepared locally. No story material has been sent; confirmation is still required.";
-  else if (run.state === "running") status.textContent = "Narrative jobs are running. Valid results are committed independently.";
-  else if (run.state === "cancelling") status.textContent = "Cancelling provider work. Validated completed artifacts are being preserved.";
-  else {
-    const latest = run.latest_run || {}; const usage = latest.cumulative_usage || latest.usage || {};
-    const counts = `${Number(latest.succeeded_jobs || 0)} complete, ${Number(latest.partial_jobs || 0)} partial, ${Number(latest.failed_jobs || 0) + Number(latest.refused_jobs || 0)} unavailable`;
-    status.textContent = `${run.state.replaceAll("_", " ")} - ${counts}; ${Number(usage.provider_calls || 0)} provider call(s).`;
-  }
-}
-
-function showNarrativeConsent(prepared) {
-  const facts = $("#narrativeConsentFacts"); facts.replaceChildren();
-  const estimate = prepared.estimate; const limits = prepared.limits; const provider = prepared.provider;
-  const cost = estimate.estimated_cost_micros === null ? "Unavailable for this adapter" : `$${(estimate.estimated_cost_micros / 1000000).toFixed(2)} (${estimate.cost_confidence})`;
-  const rows = [
-    ["Provider", `${provider.provider} / ${provider.adapter} ${provider.adapter_version}`],
-    ["Requested / resolved model", `${provider.requested_model} / ${provider.resolved_model}`],
-    ["Provider settings", `${provider.settings.model_reasoning_effort} reasoning / fast mode ${provider.settings.fast_mode ? "on" : "off"}`],
-    ["Consent manifest", prepared.consent_manifest_id],
-    ["Selected scope", prepared.selected_scope_ids.join(", ")],
-    ["Privacy mode", prepared.privacy_mode === "fact_only" ? "Fact only" : "Story text"],
-    ["Logical jobs", estimate.logical_job_count.toLocaleString()],
-    ["Estimated provider calls", estimate.provider_call_count.toLocaleString()],
-    ["Estimated tokens", `${estimate.input_tokens.toLocaleString()} input / ${estimate.output_tokens.toLocaleString()} output`],
-    ["Estimated cost", cost],
-    ["Hard limits", `${limits.max_provider_calls.toLocaleString()} calls / ${limits.max_total_tokens.toLocaleString()} tokens / ${limits.timeout_seconds.toLocaleString()} seconds / ${limits.max_concurrency} concurrent`],
-    ["M12 material", prepared.includes_m12_material ? "Included" : "Not included"],
-  ];
-  for (const [label, value] of rows) facts.append(element("dt", "", label), element("dd", "", value));
-  $("#confirmNarrative").disabled = !prepared.provider_available;
-  $("#narrativeConsentDialog").showModal();
-  if (!prepared.provider_available) toast("The selected provider is unavailable; no story material can be sent");
-}
-
-async function prepareNarrativeRequest(request) {
-  const token = ++state.narrativeStatusToken;
-  state.narrativeLastRequest = request;
-  state.narrativePreparation = await api.prepareNarrative(request);
-  const run = await api.narrativeStatus();
-  if (token !== state.narrativeStatusToken) return;
-  state.narrativeRun = run;
-  renderNarrativeRun(); showNarrativeConsent(state.narrativePreparation);
-}
-
-async function prepareNarrativeRun(event) {
-  event?.preventDefault();
-  try { await prepareNarrativeRequest(narrativeRunRequest()); }
-  catch (error) { toast(error.message); }
-}
-
-async function confirmNarrativeRun(event) {
-  event.preventDefault();
-  ++state.narrativeStatusToken;
-  const preparationId = state.narrativePreparation?.preparation_id;
-  if (!preparationId) { toast("Narrative preparation is unavailable"); return; }
-  $("#narrativeConsentDialog").close();
-  try {
-    state.narrativeRun = await api.startNarrative(preparationId);
-    state.narrativePreparation = null; renderNarrativeRun(); pollNarrativeRun();
-  } catch (error) { toast(error.message); }
-}
-
-async function pollNarrativeRun() {
-  const token = ++state.narrativePollToken; let ticks = 0;
-  while (token === state.narrativePollToken && NARRATIVE_ACTIVE_STATES.has(state.narrativeRun?.state)) {
-    await new Promise((resolve) => setTimeout(resolve, 900));
-    if (token !== state.narrativePollToken) return;
-    try {
-      state.narrativeRun = await api.narrativeStatus(); ticks += 1; renderNarrativeRun();
-      if (ticks % 4 === 0) await loadNarrative();
-    } catch (error) { toast(error.message); return; }
-  }
-  if (token === state.narrativePollToken) { await loadNarrative(); renderNarrativeRun(); }
-}
-
-async function cancelNarrativeRun() {
-  ++state.narrativeStatusToken;
-  try { state.narrativeRun = await api.cancelNarrative(); renderNarrativeRun(); toast("Cancellation requested; validated work is preserved"); }
-  catch (error) { toast(error.message); }
-}
-
-async function retryNarrativeRun() {
-  if (!state.narrativeLastRequest) { toast("No prior Narrative scope is available"); return; }
-  try { await prepareNarrativeRequest(state.narrativeLastRequest); }
-  catch (error) { toast(error.message); }
-}
-
-async function loadNarrativeRunStatus() {
-  const token = state.narrativeStatusToken;
-  try {
-    const run = await api.narrativeStatus();
-    if (token !== state.narrativeStatusToken || state.narrativePreparation) return;
-    state.narrativeRun = run; renderNarrativeRun();
-    if (NARRATIVE_ACTIVE_STATES.has(state.narrativeRun.state)) pollNarrativeRun();
-  } catch (_error) { if (token === state.narrativeStatusToken) { state.narrativeRun = null; renderNarrativeRun(); } }
-}
-
-async function loadNarrative() {
-  const jobs = []; let offset = 0; let first = null; let pages = 0;
-  try {
-    while (pages < 50) {
-      const page = await api.narrativeSnapshot(offset, 200);
-      if (!first) first = page;
-      if (page.status !== "available") break;
-      if (page.authority_hash !== first.authority_hash) throw new Error("Narrative authority changed while paging");
-      jobs.push(...page.jobs); pages += 1;
-      if (page.next_offset === null) break;
-      offset = page.next_offset;
-    }
-    state.narrativeSnapshot = first;
-    state.narrativeJobs = jobs;
-    state.narrativeByOwner = new Map(jobs.map((job) => [job.owner_id, job]));
-  } catch (_error) {
-    state.narrativeSnapshot = null; state.narrativeJobs = []; state.narrativeByOwner = new Map();
-  }
-  $("#narrativeToggle").disabled = !state.narrativeSnapshot || state.narrativeSnapshot.status !== "available";
-  renderNarrativeDrawer();
-}
-
-const graph = new RouteGraph({
-  viewport: $("#mapViewport"), world: $("#mapWorld"), canvas: $("#edgeCanvas"),
-  onSelect: (item) => selectItem(item), onOpen: (item) => openDetail(item.id),
-});
 
 function toast(message) {
   const host = $("#toast"); host.textContent = message; host.hidden = false;
   clearTimeout(toast.timer); toast.timer = setTimeout(() => { host.hidden = true; }, 2800);
 }
 
-function routeText(value) {
-  if (typeof value === "string" || typeof value === "number") return String(value);
-  if (!value || typeof value !== "object") return "Unknown";
-  const primary = value.instruction || value.text || value.label || value.title || value.caption || value.expression || value.variable_name || value.id || "Route item";
-  const condition = value.condition || value.requirement;
-  return condition && !String(primary).includes(String(condition)) ? `${primary} · ${condition}` : String(primary);
-}
-
-function routeArray(value) { return Array.isArray(value) ? value : []; }
-
-function routeScenes(candidate) {
-  const ids = routeArray(candidate.scene_ids);
-  const titles = Array.isArray(candidate.scene_titles) ? candidate.scene_titles : (Array.isArray(candidate.titles) ? candidate.titles : []);
-  return ids.map((id, index) => ({ text: titles[index] || candidate.titles?.[id] || id, scene_id: id }));
-}
-
-function routeStartingAssumptions(candidate) {
-  const direct = candidate.starting_assumptions || candidate.entry_preconditions || candidate.external_preconditions;
-  if (Array.isArray(direct)) return direct;
-  return routeArray(candidate.requirements)
-    .filter((item) => ["entry_precondition", "external_precondition", "starting_assumption"].includes(item?.source || item?.resolution || item?.status || item?.kind))
-    .map((item) => {
-      const entry = item?.entry_precondition; const variable = entry?.variable;
-      if (!entry || !variable?.name) return item;
-      const identity = `${variable.scope || "store"}.${variable.name}`;
-      return { ...item, text: `Start with ${identity} = ${JSON.stringify(entry.value)}.` };
-    });
-}
-
-function routeSatisfyingEffects(candidate) {
-  const direct = candidate.satisfying_effect_claims || candidate.earlier_satisfying_effects || candidate.satisfying_effects || candidate.earlier_effects;
-  if (Array.isArray(direct)) return direct;
-  return routeArray(candidate.requirements).map((item) => {
-    if (item?.satisfying_effect) return item.satisfying_effect;
-    if (item?.satisfying_effect_id) return { text: `${item.expression} - effect ${item.satisfying_effect_id}`, fact_id: item.fact_id, satisfying_effect_id: item.satisfying_effect_id, evidence_ids: item.evidence_ids, variable: item.variable };
-    if (item?.repeated_count) return { text: `${item.expression} - repeated ${item.repeated_count} time(s)`, fact_id: item.fact_id, repeated_count: item.repeated_count, evidence_ids: item.evidence_ids, variable: item.variable };
-    return null;
-  }).filter(Boolean);
-}
-
-function appendRouteSection(host, title, values, ordered = false) {
-  const items = routeArray(values);
-  if (!items.length) return;
-  const section = element("section", "route-section"); section.append(element("h4", "", title));
-  const list = element(ordered ? "ol" : "ul", "route-list");
-  for (const value of items) {
-    const item = element("li");
-    if (value && typeof value === "object") {
-      const claim = element("details", "route-claim");
-      claim.append(element("summary", "", routeText(value)), element("pre", "", stableRouteJson(value)));
-      item.append(claim);
-    } else item.textContent = routeText(value);
-    list.append(item);
-  }
-  section.append(list); host.append(section);
-}
-
-function renderRouteCandidate(host, candidate) {
-  appendRouteSection(host, "Instructions", candidate.instructions, true);
-  appendRouteSection(host, "Starting assumptions", routeStartingAssumptions(candidate));
-  appendRouteSection(host, "Ordered human scenes", candidate.scene_claims || routeScenes(candidate), true);
-  appendRouteSection(host, "Visible choices", candidate.visible_choice_claims || candidate.visible_choices, true);
-  const repeats = candidate.repeated_action_claims || candidate.repeated_actions || candidate.repeats || (candidate.loop_count ? [`Repeat the supported action ${candidate.loop_count} additional time(s).`] : []);
-  appendRouteSection(host, "Repeated actions", repeats, true);
-  appendRouteSection(host, "Requirements", candidate.requirements);
-  appendRouteSection(host, "Earlier satisfying effects", routeSatisfyingEffects(candidate));
-  appendRouteSection(host, "Persistent commitments", candidate.persistent_commitment_claims || candidate.persistent_commitments || candidate.persistent_lane_ids);
-  appendRouteSection(host, "Uncertainty warnings", candidate.uncertainty_claims || candidate.uncertainty_warnings || candidate.warnings);
-}
-
-function renderRouteTechnical(result) {
-  const host = $("#routeTechnicalBody"); host.replaceChildren();
-  const rows = [
-    ["Semantic status", result.status], ["Request", result.request_identity],
-    ["Completion", result.complete ? "Complete" : "Incomplete"], ["Termination", result.termination_reason || "none"],
-    ["Exhaustive", result.exhaustive ? "Yes" : "No"], ["Closed world", result.closed_world ? "Yes" : "No"],
-    ["Selected occurrence", result.recommended?.selected_occurrence_id || "not applicable"],
-  ];
-  const description = element("dl", "route-technical-grid");
-  for (const [term, value] of rows) description.append(element("dt", "", term), element("dd", "", value ?? "unknown"));
-  host.append(description);
-  const provenance = result.recommended?.provenance || result.negative_provenance || result.provenance;
-  if (provenance && typeof provenance === "object") {
-    const exact = element("details", "route-provenance"); exact.append(element("summary", "", "Provenance and evidence"), element("pre", "", stableRouteJson(provenance))); host.append(exact);
-  }
-  const accounting = element("details", "route-accounting"); accounting.append(element("summary", "", "Budgets and diagnostics"), element("pre", "", stableRouteJson({ budget_usage: result.budget_usage, diagnostics: result.diagnostics })));
-  host.append(accounting);
-}
-
-function renderRoutePanel() {
-  const route = state.route; const source = route.sourceItem;
-  $("#routeDestination").textContent = source ? source.title || source.label || source.id : "Select a scene or M10 record.";
-  $("#solveRoute").disabled = !source || ["resolving", "running", "cancelling"].includes(route.phase) || !api.m12Routes;
-  const statuses = {
-    idle: "Select a supported destination.", ready: "Ready to solve locally.", resolving: "Checking the exact destination…",
-    running: route.progressLabel || "Solving locally…", cancelling: "Cancelling safely…", cancelled: "Solve cancelled. No result was replaced.",
-    complete: route.cached ? "Cached route ready." : "Route ready.", stale: "Result is stale for this selection. Solve again.",
-    failure: route.error || "Route solve failed. Retry is safe.",
-  };
-  $("#routeStatus").textContent = statuses[route.phase] || statuses.idle;
-  const busy = ["resolving", "running", "cancelling"].includes(route.phase);
-  $("#routePanel").setAttribute("aria-busy", String(busy));
-  $("#cancelRoute").hidden = !busy; $("#retryRoute").hidden = !["cancelled", "failure", "stale"].includes(route.phase);
-  $("#exportRouteJson").hidden = !route.result;
-  const badge = $("#routeBadge"); badge.hidden = !route.result; badge.textContent = route.result?.badge || "";
-  const resultHost = $("#routeResult"); resultHost.hidden = !route.result;
-  const recommended = $("#recommendedRouteBody"); recommended.replaceChildren();
-  if (route.result?.recommended) renderRouteCandidate(recommended, route.result.recommended);
-  else if (route.result) {
-    const message = route.result.complete === false
-      ? "Search incomplete. No reachability or infeasibility conclusion was published."
-      : route.result.status === "dynamic_or_unknown_possibility"
-        ? "No route is proven; unresolved dynamic or unknown behavior could change the result."
-        : route.result.status === "state_infeasible"
-          ? "The resolved static paths are state-infeasible under exact contradiction evidence."
-          : "No route exists in the exhaustively resolved static graph.";
-    recommended.append(element("p", "muted", message));
-  }
-  const alternatives = $("#routeAlternatives"); alternatives.replaceChildren();
-  for (const [index, candidate] of routeArray(route.result?.alternatives).entries()) {
-    const record = element("details", "route-alternative"); record.append(element("summary", "", candidate.title || `Alternative ${index + 1}`));
-    const body = element("div", "route-alternative-body"); renderRouteCandidate(body, candidate); record.append(body); alternatives.append(record);
-  }
-  $("#routeAlternativesSection").hidden = !alternatives.children.length;
-  if (route.result) renderRouteTechnical(route.result); else $("#routeTechnicalBody").replaceChildren();
-}
-
-function selectRouteSource(item) {
-  const changed = state.route.sourceId && state.route.sourceId !== item.id;
-  state.route.sourceItem = item; state.route.sourceId = item.id; state.route.error = null;
-  if (changed && (state.route.result || state.route.requestIdentity)) { state.route.stale = true; if (state.route.phase !== "running") state.route.phase = "stale"; }
-  else if (!["resolving", "running", "cancelling"].includes(state.route.phase) && !state.route.result) state.route.phase = "ready";
-  renderRoutePanel();
-}
-
-async function resolveRouteDestination(source) {
-  const direct = source.route_destination || (source.destination_kind && source.target_id ? { kind: source.destination_kind, target_id: source.target_id, title: source.title, subtitle: source.summary } : null);
-  if (direct?.kind && direct?.target_id) return direct;
-  const page = await api.routeDestinations(source.id, 0, ROUTE_PAGE_SIZE);
-  const candidates = routeArray(page.nodes || page.destinations);
-  const targetIds = new Set([source.id, source.occurrence_id, source.route_target_id].filter(Boolean));
-  const exact = candidates.filter((item) => targetIds.has(item.target_id) && typeof item.kind === "string");
-  exact.sort((left, right) => String(left.kind).localeCompare(String(right.kind)) || String(left.target_id).localeCompare(String(right.target_id)));
-  if (!exact.length) throw new Error("This selection is not a supported M12 destination");
-  return exact[0];
-}
-
-function routeTask(value) { return value?.task || value || {}; }
-
-async function waitForRouteTask(initial, token) {
-  let task = routeTask(initial);
-  while (["pending", "running", "cancelling"].includes(task.state)) {
-    state.route.progressLabel = String(task.stage || "Solving route").replaceAll("_", " "); renderRoutePanel();
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    if (token !== state.route.runToken) return null;
-    task = routeTask(await api.progress());
-  }
-  return task;
-}
-
-async function runRouteSolve() {
-  const source = state.route.sourceItem; if (!source) return;
-  const token = state.route.runToken + 1; state.route.runToken = token; state.route.activeSourceId = source.id;
-  state.route.phase = "resolving"; state.route.error = null; state.route.progressLabel = null; state.route.stale = Boolean(state.route.result); renderRoutePanel();
-  try {
-    const destination = await resolveRouteDestination(source); if (token !== state.route.runToken) return;
-    state.route.destination = destination; state.route.phase = "running"; renderRoutePanel();
-    const response = await api.solveRoute(destination.kind, destination.target_id); if (token !== state.route.runToken) return;
-    state.route.requestIdentity = response.request_identity; state.route.cached = response.cached;
-    let result = response.result;
-    if (!response.cached) {
-      const terminal = await waitForRouteTask(response.analysis, token); if (!terminal || token !== state.route.runToken) return;
-      if (terminal.state === "cancelled") { state.route.phase = "cancelled"; state.route.stale = Boolean(state.route.result); renderRoutePanel(); return; }
-      if (!["complete", "completed"].includes(terminal.state)) throw new Error(terminal.error?.message || terminal.message || "Route solve failed");
-      result = await api.routeResult(response.request_identity); if (token !== state.route.runToken) return;
-    }
-    state.route.result = result; state.route.stale = state.route.sourceId !== state.route.activeSourceId; state.route.phase = state.route.stale ? "stale" : "complete"; renderRoutePanel();
-  } catch (error) {
-    if (token !== state.route.runToken) return;
-    const stale = String(error.code || "").toLocaleLowerCase().includes("stale");
-    state.route.phase = stale ? "stale" : "failure"; state.route.stale = stale || Boolean(state.route.result); state.route.error = error.message; renderRoutePanel();
-  }
-}
-
-async function cancelRouteSolve() {
-  if (!["resolving", "running"].includes(state.route.phase)) return;
-  const serverTaskStarted = state.route.phase === "running";
-  state.route.runToken += 1; const cancelToken = state.route.runToken;
-  state.route.phase = "cancelling"; renderRoutePanel();
-  if (serverTaskStarted) {
-    try {
-      const cancelling = await api.cancelAnalysis();
-      await waitForRouteTask(cancelling, cancelToken);
-    } catch (error) {
-      if (cancelToken !== state.route.runToken) return;
-      state.route.phase = "failure"; state.route.error = error.message; renderRoutePanel(); return;
-    }
-  }
-  if (cancelToken !== state.route.runToken) return;
-  state.route.phase = "cancelled"; state.route.stale = Boolean(state.route.result); renderRoutePanel();
-}
-
-function exportRouteJson() {
-  const result = state.route.result; if (!result) return;
-  const blob = new Blob([stableRouteJson(result)], { type: "application/json;charset=utf-8" });
-  const url = URL.createObjectURL(blob); const link = element("a"); const identity = String(result.request_identity || "route").replace(/[^a-z0-9._-]+/gi, "-").slice(0, 80);
-  link.href = url; link.download = `route-${identity || "result"}.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 0);
-}
 
 function showPrimary(name) {
   invalidateStoryDetail();
@@ -696,168 +114,24 @@ async function pollAnalysis() {
   return progress;
 }
 
-function aiLane(node) {
-  const role = node.presentation_role || "event";
-  if (role === "detour_annotation") return { id: "ai-detours", kind: "detour", label: "Local detours" };
-  if (role === "persistent_route") return { id: `ai-route-${node.scope_ids?.[0] || "branch"}`, kind: "persistent", label: "Persistent route" };
-  return { id: "ai-story-spine", kind: "spine", label: "Story spine" };
-}
-
-function sceneNodeOrder(node) {
-  const pageOrder = Number(node.page_order);
-  if (node.page_order !== null && node.page_order !== undefined && node.page_order !== "" && Number.isFinite(pageOrder)) return pageOrder;
-  const ordinal = Number(node.ordinal);
-  return Number.isFinite(ordinal) ? ordinal : 0;
-}
-
-function normalizedPage(page, mode = state.mode) {
-  if (mode === "scenes") {
-    const laneLabels = { spine: "Story spine", persistent_route: "Persistent route", terminal_route: "Terminal route" };
-    const lanes = page.lanes.map((lane) => ({ ...lane, label: laneLabels[lane.kind] || String(lane.kind || "story route").replaceAll("_", " ") }));
-    const laneById = new Map(lanes.map((lane) => [lane.id, lane]));
-    const nodes = page.nodes.map((node) => {
-      const lane = laneById.get(node.lane_id) || { kind: "spine", label: "Story spine" };
-      const presentationKind = node.kind;
-      const kind = presentationKind === "temporary_branch" ? "choice" : node.repeatable ? "loop" : "event";
-      const summary = presentationKind === "temporary_branch"
-        ? `${node.arms?.length || 0} temporary arms · rejoins in scene`
-        : node.occurrence_id
-          ? `Call-site occurrence · ${node.referenced_atom_ids?.length || 0} referenced atoms`
-          : `${node.atom_ids?.length || 0} story atoms · ${String(node.boundary_strength || "continuation").replaceAll("_", " ")} boundary`;
-      return { ...node, order: sceneNodeOrder(node), presentation_kind: presentationKind, kind, role: presentationKind, lane_kind: lane.kind === "spine" ? "spine" : "persistent", lane_label: lane.label, summary };
-    });
-    return {
-      ...page,
-      nodes,
-      edges: page.relationships.map((relationship) => ({ ...relationship, role: relationship.kind, source_id: relationship.source_id, target_id: relationship.target_id, interactive: false })),
-      lanes,
-      edge_offset: page.relationship_offset,
-      edge_next_offset: page.relationship_next_offset,
-      page_edge_total: page.page_relationship_total,
-      edge_limit: page.relationship_limit,
-      generation_status: { freshness: "current", analysis_status: "current_complete" },
-      navigation: { next: page.navigation?.next ? { offset: page.navigation.next.offset, edge_offset: page.navigation.next.relationship_offset || 0 } : null },
-    };
-  }
-  if (mode === "ai") {
-    const nodes = page.nodes.map((node) => {
-      const lane = aiLane(node);
-      const kinds = node.route_node_kinds || [];
-      const kind = node.presentation_role === "ending" ? "ending" : node.presentation_role === "loop" ? "loop" : kinds.includes("choice") ? "choice" : kinds.includes("merge") ? "merge" : "event";
-      return { ...node, kind, lane_id: lane.id, lane_kind: lane.kind, lane_label: lane.label, title: node.title || "Untitled story event", summary: node.summary || "" };
-    });
-    const nodeById = new Map(nodes.map((node) => [node.id, node]));
-    const continuationByEndpoint = new Map((page.continuation_endpoints || []).map((item) => [`${item.edge_id}:${item.endpoint}`, item]));
-    const edges = page.edges.map((edge) => ({ ...edge, role: edge.presentation_role || "transition", lane_id: nodeById.get(edge.source_id)?.lane_id || nodeById.get(edge.target_id)?.lane_id || "ai-story-spine", source_title: continuationByEndpoint.get(`${edge.id}:source`)?.title, target_title: continuationByEndpoint.get(`${edge.id}:target`)?.title }));
-    const lanes = [...new Map(nodes.map((node) => [node.lane_id, { id: node.lane_id, kind: node.lane_kind, label: node.lane_label }])).values()];
-    return { ...page, nodes, edges, lanes, offset: page.page.node_offset, edge_offset: page.page.edge_offset, edge_cursor: page.page.edge_cursor, next_offset: page.page.next_node_offset, edge_next_offset: page.page.next_edge_offset, edge_next_cursor: page.page.next_edge_cursor, total_nodes: page.page.total_nodes, page_edge_total: page.page.incident_edge_total, edge_limit: page.page.edge_limit };
-  }
-  return {
-    ...page,
-    nodes: page.nodes.map((node) => ({ ...node, title: node.title || "Untitled technical node", summary: node.summary || "" })),
-    edges: page.edges.map((edge) => ({ ...edge, source_id: edge.source_id || edge.source, target_id: edge.target_id || edge.target })),
-  };
-}
-
-function renderAnalysisAvailability(status, hasMap) {
-  state.analysisStatus = status || null;
-  const failure = status?.failure;
-  const completed = status?.completed_phases || [];
-  $("#analysisFailureBanner").hidden = !failure;
-  if (failure) {
-    const phase = String(failure.phase || "analysis").replaceAll("_", " ");
-    $("#analysisFailureTitle").textContent = `Analysis failed in ${phase}`;
-    const displayed = status.last_known_good ? "Showing last-known-good results" : hasMap ? "Showing current retained results" : "No retained map is available";
-    $("#analysisFailureSummary").textContent = `${displayed} · ${status.freshness || "unavailable"}`;
-    $("#analysisCompletedPhases").textContent = completed.length ? `Completed: ${completed.map((item) => String(item).replaceAll("_", " ")).join(" · ")}` : "No phases completed";
-  }
-  $("#mapLayout").hidden = !hasMap;
-  $("#partialAnalysisPanel").hidden = hasMap;
-  if (!hasMap) $("#partialAnalysisSummary").textContent = completed.length ? `Completed phases: ${completed.map((item) => String(item).replaceAll("_", " ")).join(" · ")}` : "Analysis stopped before a renderable graph was produced.";
-}
-
-async function loadComparison() {
-  let scenes = null; let simplified = null; let canonical = null; let comparison = null;
-  try { scenes = await api.sceneMap(0, ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE); } catch (_error) { scenes = null; }
-  state.scenePage = scenes?.status === "available" ? normalizedPage(scenes, "scenes") : null;
-  state.sceneReason = scenes?.reason || "scene presentation not yet available";
-  try { simplified = await api.inspectionMap("simplified", 0, ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE); } catch (_error) { simplified = null; }
-  try { canonical = await api.inspectionMap("canonical", 0, ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE); } catch (_error) { canonical = null; }
-  state.inspectionPage = simplified?.status === "available" ? normalizedPage(simplified, "inspection") : null;
-  state.canonicalPage = canonical?.status === "available" ? normalizedPage(canonical, "canonical") : null;
-  try { comparison = await api.mapComparison(0, ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE); } catch (_error) { comparison = null; }
-  state.technicalPage = comparison ? normalizedPage(comparison.technical, "technical") : null;
-  state.aiPage = comparison?.ai.status === "available" ? normalizedPage(comparison.ai, "ai") : null;
-  state.aiReason = comparison?.ai.reason || "not yet organized";
-  const inspectionCurrent = state.inspectionPage?.generation_status?.freshness === "current";
-  const canonicalCurrent = state.canonicalPage?.generation_status?.freshness === "current";
-  if (state.scenePage) { state.mode = "scenes"; state.page = state.scenePage; }
-  else if (inspectionCurrent) { state.mode = "inspection"; state.page = state.inspectionPage; }
-  else if (canonicalCurrent) { state.mode = "canonical"; state.page = state.canonicalPage; }
-  else if (state.inspectionPage) { state.mode = "inspection"; state.page = state.inspectionPage; }
-  else if (state.technicalPage) { state.mode = "technical"; state.page = state.technicalPage; }
-  else { state.mode = "inspection"; state.page = null; }
-  const status = state.page?.generation_status || simplified?.generation_status || canonical?.generation_status || null;
-  const hasMap = Boolean(state.page);
-  renderAnalysisAvailability(status, hasMap);
-  $("#fallbackNotice").hidden = !hasMap || Boolean(state.scenePage);
-  $("#fallbackTitle").textContent = "Scene presentation unavailable.";
-  $("#fallbackReason").textContent = `${String(state.sceneReason).replaceAll("_", " ")}. ${state.mode === "inspection" ? "M10 Inspection" : state.mode === "canonical" ? "M10 Canonical" : "Technical Structure"} is shown.`;
-  updateModeHeader();
-  if (hasMap) renderMap();
-  else graph.setData([], [], null, []);
-  return hasMap;
-}
-
-async function loadRoutePage(cursor = { offset: state.offset, edgeOffset: state.edgeOffset, edgeCursor: state.edgeCursor }) {
-  try {
-    const raw = state.mode === "scenes"
-      ? await api.sceneMap(cursor.offset, ROUTE_PAGE_SIZE, cursor.edgeOffset, ROUTE_EDGE_PAGE_SIZE)
-      : state.mode === "ai"
-      ? await api.aiStoryMap(cursor.offset, ROUTE_PAGE_SIZE, cursor.edgeOffset, ROUTE_EDGE_PAGE_SIZE, cursor.edgeCursor ?? null)
-      : ["inspection", "canonical"].includes(state.mode)
-        ? await api.inspectionMap(state.mode === "canonical" ? "canonical" : "simplified", cursor.offset, ROUTE_PAGE_SIZE, cursor.edgeOffset, ROUTE_EDGE_PAGE_SIZE)
-        : await api.routeMap(cursor.offset, ROUTE_PAGE_SIZE, cursor.edgeOffset, ROUTE_EDGE_PAGE_SIZE);
-    if (raw.status === "unavailable") { renderAnalysisAvailability(raw.generation_status, false); return false; }
-    const page = normalizedPage(raw, state.mode);
-    state.page = page;
-    if (state.mode === "scenes") state.scenePage = page;
-    else if (state.mode === "ai") state.aiPage = page;
-    else if (state.mode === "inspection") state.inspectionPage = page;
-    else if (state.mode === "canonical") state.canonicalPage = page;
-    else state.technicalPage = page;
-    state.offset = Number(page.offset || 0);
-    state.edgeOffset = Number(page.edge_offset || 0);
-    state.edgeCursor = state.mode === "ai" ? page.edge_cursor ?? null : null;
-    updateModeHeader(); renderMap(); return true;
-  } catch (error) { $("#selectionStatus").textContent = "Map unavailable"; toast(error.message); }
-}
-
-async function resetRoutePaging() {
-  const nextRouteToken = state.route.runToken + 1;
-  state.route = { sourceItem: null, sourceId: null, destination: null, requestIdentity: null, result: null, phase: "idle", cached: false, stale: false, error: null, runToken: nextRouteToken };
-  renderRoutePanel();
-  state.cursorHistory = [];
-  state.offset = 0; state.edgeOffset = 0; state.edgeCursor = null; state.windowResolution = null; state.prepared = null;
-  $("#scopePreview").textContent = "No story text is sent until an exact preview is confirmed.";
-  return loadComparison();
-}
 
 function showStorySurface(visible) {
   if (!visible) invalidateStoryDetail();
   const prepare = $("#storyPrepareAction");
-  if (visible) $(".story-hero-meta").insertBefore(prepare, $("#openCompatibilityMap"));
+  // With no readable story yet, the first generation has to stay reachable from the masthead.
+  if (visible) $(".story-hero-meta").append(prepare);
   else if (api.storyWorkflowRoutes) {
     $(".masthead-actions").insertBefore(prepare, $("#refreshProject"));
-    prepare.textContent = "Generate"; prepare.disabled = state.storyWorkflow.busy;
+    prepare.textContent = "Generate";
+    prepare.disabled = state.storyWorkflow.busy;
   }
   $("#storyBrowser").hidden = !visible;
-  for (const selector of [".commandbar", "#fallbackNotice", "#analysisFailureBanner", "#partialAnalysisPanel", "#mapLayout", "#organizationPanel"]) {
-    const node = $(selector);
-    if (visible) node.hidden = true;
-    else if ([".commandbar", "#mapLayout", "#organizationPanel"].includes(selector)) node.hidden = false;
-  }
-  if (visible) $("#narrativeDrawer").hidden = true;
+  $("#storyUnavailablePanel").hidden = visible;
+}
+
+function showStoryUnavailable(reason) {
+  showStorySurface(false);
+  if (reason) $("#storyUnavailableReason").textContent = reason;
 }
 
 function storyItemTitle(item) {
@@ -899,22 +173,30 @@ function storySemanticKind(value, kinds) {
   return kinds.get(value.trim().toLocaleLowerCase()) || "neutral";
 }
 
-function storyControlPresentation(kind) {
-  if (kind === "decision") return { label: "Decision", icon: "◆" };
-  if (kind === "condition") return { label: "Condition", icon: "!" };
-  return { label: "Branch", icon: "•" };
+function storyControlPresentation(kind, armCount) {
+  const ways = armCount ? ` · ${armCount} ways` : "";
+  if (kind === "decision") return { label: `The player decides${ways}`, icon: "◆" };
+  if (kind === "condition") return { label: `The game checks${ways}`, icon: "◈" };
+  return { label: `The story branches${ways}`, icon: "•" };
 }
 
-function storyArmPresentation(controlKind, outcomeKind) {
-  if (outcomeKind === "rejoin") return "Rejoin route";
-  if (outcomeKind === "ending") return "End";
-  if (outcomeKind === "unresolved") return "Unresolved";
-  return controlKind === "condition" ? "Condition path" : controlKind === "decision" ? "Choice" : "Story path";
+function storyArmPresentation(controlKind) {
+  if (controlKind === "condition") return "Condition path";
+  if (controlKind === "decision") return "Player picks";
+  return "Story path";
+}
+
+function storyOutcomePresentation(outcomeKind) {
+  if (outcomeKind === "rejoin") return { label: "Rejoins", icon: "⤳" };
+  if (outcomeKind === "ending") return { label: "Ends here", icon: "■" };
+  if (outcomeKind === "unresolved") return { label: "Unresolved", icon: "?" };
+  if (outcomeKind === "continuation") return { label: "Continues", icon: "→" };
+  return null;
 }
 
 function storySemanticLegend() {
-  const legend = element("div", "story-tree-key"); legend.setAttribute("aria-label", "Story color key");
-  for (const [kind, label] of [["decision", "Decision"], ["condition", "Condition"], ["continuation", "Continues"], ["rejoin", "Rejoin"], ["ending", "End"]]) {
+  const legend = element("div", "story-tree-key"); legend.setAttribute("aria-label", "Story colour key");
+  for (const [kind, label] of [["decision", "Player decides"], ["condition", "Game checks"], ["continuation", "Continues"], ["rejoin", "Paths rejoin"], ["ending", "Ending"]]) {
     const item = element("span", "story-tree-key-item", label); item.dataset.storyKind = kind; legend.append(item);
   }
   return legend;
@@ -930,22 +212,33 @@ function humanStoryTarget(value) {
   return label || null;
 }
 
-function appendStoryTargets(host, item) {
+function storyOutcomeSentence(item) {
   const destination = humanStoryTarget(item.destination_id) || humanStoryTarget(item.binding?.target_id);
   const boundary = humanStoryTarget(item.rejoin_node_id) || humanStoryTarget(item.rejoin_binding?.target_id);
-  if (!destination && !boundary) return;
-  const targets = element("div", "story-targets");
-  if (destination) {
-    const target = element("p", "story-target destination", `Goes to ${destination}`);
-    target.dataset.targetKind = "destination"; targets.append(target);
-  }
+  const outcomeKind = storySemanticKind(item.outcome_kind, STORY_OUTCOME_KINDS);
   if (boundary) {
-    const outcomeKind = storySemanticKind(item.outcome_kind, STORY_OUTCOME_KINDS);
-    const targetKind = outcomeKind === "ending" ? "ending" : outcomeKind === "unresolved" ? "unresolved" : "rejoin";
-    const prefix = targetKind === "ending" ? "Ends at" : targetKind === "unresolved" ? "Unresolved at" : "Rejoins at";
-    const target = element("p", `story-target ${targetKind}`, `${prefix} ${boundary}`);
-    target.dataset.targetKind = targetKind; targets.append(target);
+    const kind = outcomeKind === "ending" ? "ending" : outcomeKind === "unresolved" ? "unresolved" : "rejoin";
+    const prefix = kind === "ending" ? "Ends at" : kind === "unresolved" ? "Unresolved at" : "Rejoins at";
+    return { kind, text: `${prefix} ${boundary}`, name: boundary };
   }
+  if (destination) return { kind: "destination", text: `Goes to ${destination}`, name: destination };
+  return null;
+}
+
+function appendStoryTargets(host, item) {
+  const outcome = storyOutcomeSentence(item);
+  if (!outcome) return;
+  const targets = element("div", "story-targets");
+  const presentation = storyOutcomePresentation(outcome.kind === "destination" ? "continuation" : outcome.kind);
+  const target = element("p", `story-target ${outcome.kind}`);
+  if (presentation) {
+    const icon = element("span", "story-target-icon", presentation.icon);
+    icon.setAttribute("aria-hidden", "true");
+    target.append(icon);
+  }
+  target.append(element("span", "story-target-text", outcome.text));
+  target.dataset.targetKind = outcome.kind;
+  targets.append(target);
   host.append(targets);
 }
 
@@ -954,8 +247,8 @@ function appendStoryBadges(host, item) {
   if (item.route_id) badges.append(storyBadge(item.route_id, "route"));
   if (item.condition) badges.append(storyBadge(item.condition, "condition"));
   for (const effect of item.effects || []) badges.append(storyBadge(effect, "effect"));
-  if (item.reachability) {
-    const labels = { reachable: "Reachable", unreachable: "Unreachable", unresolved: "Unresolved" };
+  if (item.reachability && item.reachability !== "reachable") {
+    const labels = { unreachable: "Unreachable", unresolved: "Unresolved" };
     const status = storyBadge(labels[item.reachability], "reachability story-reachability");
     status.dataset.reachability = item.reachability; badges.append(status);
   }
@@ -965,10 +258,35 @@ function appendStoryBadges(host, item) {
 function appendStoryWarnings(host, warnings) {
   if (!warnings?.length) return;
   const details = element("details", "story-warnings");
-  details.append(element("summary", "", `${warnings.length} technical warning${warnings.length === 1 ? "" : "s"}`));
+  const noun = warnings.length === 1 ? "Python detail" : `${warnings.length} Python details`;
+  details.append(element("summary", "", noun));
   const list = element("ul");
   for (const warning of warnings) list.append(element("li", "", warning));
   details.append(list); host.append(details);
+}
+
+function storySummaryWithoutOutcome(item) {
+  const summary = storyOutlineSummary(item);
+  const outcome = storyOutcomeSentence(item);
+  if (!summary || !outcome) return summary;
+  const trimmed = summary.replace(/\s+/gu, " ").trim();
+  const spoken = `${outcome.text}.`;
+  if (trimmed === spoken || trimmed === outcome.text) return "";
+  if (trimmed.endsWith(spoken)) return trimmed.slice(0, -spoken.length).trim();
+  return trimmed;
+}
+
+const STORY_EXPRESSION_PREFIXES = ["Requires: ", "Check whether ", "Routes: Check whether "];
+
+/** Typeset a Python expression carried in a title so the prose and the code read apart. */
+function storyTitleNode(title) {
+  const strong = element("strong", "");
+  const prefix = STORY_EXPRESSION_PREFIXES.find((candidate) => title.startsWith(candidate));
+  if (!prefix) { strong.textContent = title; return strong; }
+  const expression = title.slice(prefix.length).trim();
+  if (!expression) { strong.textContent = title; return strong; }
+  strong.append(element("span", "story-title-lead", prefix.replace(/:\s$/u, "").trim()), element("code", "story-title-expression", expression));
+  return strong;
 }
 
 function storySelectionControl(item, kind) {
@@ -976,7 +294,9 @@ function storySelectionControl(item, kind) {
   control.dataset.storySelectionId = item.selection_id;
   control.setAttribute("aria-selected", "false");
   control.setAttribute("aria-expanded", "false");
-  control.append(element("strong", "", storyItemTitle(item)), element("span", "", storyOutlineSummary(item)));
+  const title = storyItemTitle(item); const summary = storySummaryWithoutOutcome(item);
+  control.append(storyTitleNode(title));
+  if (summary && summary.trim() !== title.trim()) control.append(element("span", "", summary));
   control.addEventListener("click", () => {
     if (!progressiveStoryActive()) { selectStoryItem(item, control); return; }
     activateStoryItem(item, control); closeStoryPathForOutline();
@@ -1001,11 +321,38 @@ function closeStoryPathForOutline() {
   state.storyPathToken += 1; clearStoryPathWitness(); $("#storyPathPanel").hidden = true;
 }
 
+function renderStoryProse(host, text, title) {
+  const blocks = String(text || "").split(/\n{2,}/u).map((block) => block.trim()).filter(Boolean);
+  const heading = String(title || "").trim();
+  let first = true;
+  for (const block of blocks) {
+    const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
+    let body = lines.join(" ");
+    let beat = null;
+    if (first && lines.length > 1 && lines[0] === heading) { body = lines.slice(1).join(" "); }
+    else if (first && lines.length > 1) { beat = lines[0]; body = lines.slice(1).join(" "); }
+    else if (!first) {
+      const split = block.match(/^(.{3,90}?)\s+—\s+([\s\S]+)$/u);
+      if (split) { beat = split[1].trim(); body = split[2].replace(/\s+/gu, " ").trim(); }
+    }
+    if (beat) host.append(element("h4", "story-prose-beat", beat));
+    if (body) host.append(element("p", "story-prose", body));
+    first = false;
+  }
+}
+
 function appendProgressiveStoryDetail(host, item, control) {
   const detail = element("div", "story-inline-detail"); detail.hidden = true;
-  detail.append(element("p", "story-inline-summary", storyDetailSummary(item)));
+  const title = storyItemTitle(item);
+  const prose = storyDetailSummary(item);
+  // A merge row carries no prose of its own; echoing its own title back reads as a duplicate.
+  if (prose && prose.replace(/\s+/gu, " ").trim() !== title.replace(/\s+/gu, " ").trim()) {
+    const host = element("div", "story-inline-summary");
+    renderStoryProse(host, prose, title);
+    if (host.children.length) detail.append(host);
+  }
   const technical = element("details", "story-technical-disclosure");
-  technical.append(element("summary", "", "Technical"));
+  technical.append(element("summary", "", "Python detail"));
   const body = element("div", "story-technical-body");
   appendStoryBadges(body, item); appendStoryWarnings(body, item.warnings || item.unresolved_warnings);
   if (item.selection_id) {
@@ -1042,17 +389,27 @@ function planStoryContinuations(rootChoice) {
   return owners;
 }
 
-function appendStoryContinuations(host, bindings, armOwned = false) {
+function appendStoryContinuations(host, bindings, armOwned = false, seen = null) {
   for (const binding of bindings || []) {
+    const named = humanStoryTarget(binding.target_id);
+    // Several arms can prove the same merge; the reader only needs to be told once per event.
+    const key = named || (armOwned ? "this path rejoins" : "the paths meet again");
+    if (seen) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
     const continuation = {
       selection_id: binding.selection_id,
-      title: armOwned ? "Continue from this path" : "Paths continue together",
-      summary: armOwned ? "This path rejoins at a proven story point." : "Continue from this proven story point.",
+      title: named || (armOwned ? "This path rejoins the story" : "The paths meet again"),
+      summary: "",
       binding,
     };
     state.storyItems.set(continuation.selection_id, continuation);
     const row = element("div", "story-continuation");
     row.dataset.outcomeKind = "rejoin";
+    const mark = element("span", "story-continuation-mark", "⤳");
+    mark.setAttribute("aria-hidden", "true");
+    row.append(mark);
     const control = storySelectionControl(continuation, "story-continuation");
     row.append(control);
     if (progressiveStoryActive()) appendProgressiveStoryDetail(row, continuation, control);
@@ -1061,20 +418,51 @@ function appendStoryContinuations(host, bindings, armOwned = false) {
   }
 }
 
-function renderStoryChoice(choice, nested = false, continuationPlan = null, choicePath = []) {
+function storyNormalizedText(value) {
+  return String(value || "").replace(/\s+/gu, " ").replace(/[.\s]+$/u, "").trim().toLocaleLowerCase();
+}
+
+function storyPromptRepeatsArms(prompt, arms) {
+  const normalized = storyNormalizedText(prompt);
+  if (!normalized) return true;
+  const captions = (arms || []).map((arm) => storyNormalizedText(storyItemTitle(arm))).filter(Boolean);
+  if (captions.length < 2) return false;
+  if (captions.every((caption) => normalized.includes(caption))) return true;
+  return normalized === storyNormalizedText(captions.join(" / "));
+}
+
+function countStoryForks(choices) {
+  let total = 0;
+  for (const choice of choices || []) {
+    total += 1;
+    for (const arm of choice.arms || []) total += countStoryForks(arm.nested_choices);
+  }
+  return total;
+}
+
+function renderStoryChoice(choice, nested = false, continuationPlan = null, choicePath = [], seen = null) {
   const plan = continuationPlan || planStoryContinuations(choice);
+  const merges = seen || new Set();
   const article = element("section", `story-choice${nested ? " nested" : ""}`);
   const controlKind = storySemanticKind(choice.control_kind, STORY_CHOICE_KINDS);
   article.dataset.choiceKind = controlKind;
   const prompt = humanStoryTarget(choice.key) || (nested ? "Choice within this path" : "Choice");
   const choiceControl = element("div", "story-choice-control");
-  const presentation = storyControlPresentation(controlKind);
+  const presentation = storyControlPresentation(controlKind, choice.arms.length);
   const icon = element("span", "story-control-icon", presentation.icon); icon.setAttribute("aria-hidden", "true");
   const copy = element("div", "story-choice-copy");
-  copy.append(element("span", "story-control-type", presentation.label), element("p", "story-choice-label", prompt));
+  copy.append(element("span", "story-control-type", presentation.label));
+  // The prompt is often just the arm captions joined; the arms below already say that.
+  if (!storyPromptRepeatsArms(prompt, choice.arms)) {
+    const promptCopy = element("p", "story-choice-label");
+    promptCopy.append(...storyTitleNode(prompt).childNodes);
+    copy.append(promptCopy);
+  }
   choiceControl.append(icon, copy);
   article.append(choiceControl);
-  const arms = element("div", "story-arms");
+  const stacked = choice.arms.length > STORY_STACK_THRESHOLD;
+  article.dataset.forkLayout = stacked ? "stack" : "fan";
+  const arms = element("div", `story-arms${stacked ? " is-stacked" : ""}`);
   arms.dataset.armCount = String(choice.arms.length);
   arms.style.setProperty("--story-arm-count", String(choice.arms.length));
   const descendants = element("div", "story-descendants");
@@ -1084,20 +472,22 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
     const armArticle = element("article", "story-arm"); armArticle.dataset.storySelectionId = arm.selection_id;
     const outcomeKind = storySemanticKind(arm.outcome_kind, STORY_OUTCOME_KINDS);
     armArticle.dataset.outcomeKind = outcomeKind;
+    armArticle.dataset.controlKind = controlKind;
+    armArticle.dataset.armIndex = String(armIndex);
     armArticle.dataset.hasDescendants = String(Boolean(arm.nested_choices?.length));
     const head = element("div", "story-arm-head");
     const control = storySelectionControl(arm, "story-arm");
-    control.prepend(element("span", "story-arm-kind", storyArmPresentation(controlKind, outcomeKind)));
+    control.prepend(element("span", "story-arm-kind", storyArmPresentation(controlKind)));
     head.append(control);
     if (!progressiveStoryActive()) head.append(storyDetailControl(arm, control));
     armArticle.append(head); appendStoryTargets(armArticle, arm);
     if (progressiveStoryActive()) appendProgressiveStoryDetail(armArticle, arm, control);
     else { appendStoryBadges(armArticle, arm); appendStoryWarnings(armArticle, arm.warnings); }
     const armContinuations = plan.get(JSON.stringify(armPath));
-    if (!arm.nested_choices?.length) appendStoryContinuations(armArticle, armContinuations, true);
+    if (!arm.nested_choices?.length) appendStoryContinuations(armArticle, armContinuations, true, merges);
     arms.append(armArticle);
     if (arm.nested_choices?.length) {
-      const route = element("div", "story-descendant-route");
+      const route = element("details", "story-descendant-route");
       route.dataset.ownerSelectionId = arm.selection_id;
       route.dataset.ownerOutcomeKind = outcomeKind;
       const ownerPosition = ((armIndex + 0.5) / choice.arms.length) * 100;
@@ -1105,26 +495,37 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
       route.style.setProperty("--story-owner-left", `${Math.min(ownerPosition, 50)}%`);
       route.style.setProperty("--story-owner-width", `${Math.abs(ownerPosition - 50)}%`);
       const connector = element("div", "story-owner-connector"); connector.setAttribute("aria-hidden", "true"); connector.append(element("span"));
-      route.append(connector, element("p", "story-descendant-owner", `Continues from ${storyItemTitle(arm)}`));
+      const forkCount = countStoryForks(arm.nested_choices);
+      // Shallow depth stays visible; heavy sub-trees fold so the main line keeps its shape.
+      route.open = forkCount <= STORY_OPEN_FORK_LIMIT;
+      const owner = element("summary", "story-descendant-owner");
+      owner.append(
+        element("span", "story-descendant-owner-label", `Inside ${storyItemTitle(arm)}`),
+        element("span", "story-descendant-owner-count", `${forkCount} branch point${forkCount === 1 ? "" : "s"}`),
+      );
+      route.append(connector, owner);
       const sequence = element("div", "story-choice-sequence");
       sequence.dataset.sequenceLength = String(arm.nested_choices.length);
-      arm.nested_choices.forEach((child, index) => sequence.append(renderStoryChoice(child, true, plan, [...armPath, `choice:${child.key}:${index}`])));
-      route.append(sequence); appendStoryContinuations(route, armContinuations, true); descendants.append(route);
+      arm.nested_choices.forEach((child, index) => sequence.append(renderStoryChoice(child, true, plan, [...armPath, `choice:${child.key}:${index}`], merges)));
+      route.append(sequence); appendStoryContinuations(route, armContinuations, true, merges); descendants.append(route);
     }
   });
   article.append(arms);
   if (descendants.children.length) { descendants.dataset.routeCount = String(descendants.children.length); article.append(descendants); }
-  appendStoryContinuations(article, plan.get(JSON.stringify(choicePath)));
+  appendStoryContinuations(article, plan.get(JSON.stringify(choicePath)), false, merges);
   return article;
 }
 
 function renderStoryEvent(event, ordinal) {
   state.storyItems.set(event.selection_id, event);
   const article = element("li", "story-event"); article.dataset.storySelectionId = event.selection_id; article.dataset.storyOrdinal = String(ordinal);
+  article.id = `story-event-${ordinal}`;
   const number = element("span", "story-event-number", String(ordinal).padStart(2, "0")); number.setAttribute("aria-label", `Event ${ordinal}`); article.append(number);
   const head = element("div", "story-event-head");
+  const heading = element("h3", "story-event-heading");
   const control = storySelectionControl(event, "story-event");
-  head.append(control);
+  heading.append(control);
+  head.append(heading);
   if (!progressiveStoryActive()) head.append(storyDetailControl(event, control));
   article.append(head);
   if (progressiveStoryActive()) appendProgressiveStoryDetail(article, event, control);
@@ -1135,7 +536,8 @@ function renderStoryEvent(event, ordinal) {
     article.append(characters);
   }
   const choices = element("div", "story-choices");
-  for (const choice of event.choices || []) choices.append(renderStoryChoice(choice));
+  const merges = new Set();
+  for (const choice of event.choices || []) choices.append(renderStoryChoice(choice, false, null, [], merges));
   if (choices.children.length) article.append(choices);
   return article;
 }
@@ -1169,7 +571,9 @@ function storyReaderSectionDomId(sectionId) {
 }
 
 function appendStoryReaderNew(host, item) {
-  if (!item?.is_new || state.storyReader.hideNew) return;
+  if (!item?.is_new) return;
+  $("#storyHideNewControl").hidden = false;
+  if (state.storyReader.hideNew) return;
   const mark = element("span", "story-new", "NEW");
   const facts = (item.new_facts || []).map((fact) => `${fact.kind}: ${fact.fact_id}`);
   if (facts.length) mark.title = facts.join("\n");
@@ -1785,8 +1189,7 @@ function renderStoryReaderDetail(page) {
   reserveStoryProjection("detail", page.rendered_item_count);
   const summary = page.items.find((item) => ["summary", "event", "arm", "choice"].includes(item.kind)) || page.items[0] || {};
   $("#detailTitle").textContent = summary.title || storyItemTitle(state.storySelectionItem || {}); $("#detailKind").textContent = String(summary.kind || "story moment").replaceAll("_", " ");
-  $("#detailSummary").textContent = storyDetailSummary(summary) || "Exact local story evidence."; $("#pathStrip").replaceChildren(element("strong", "path-stop current", $("#detailTitle").textContent));
-  $("#technicalMembers").hidden = true; $("#derivationPanel").hidden = true; $("#canonicalEscapeButton").hidden = true; $("#interpretationPanel").hidden = true; $("#detailFacts").replaceChildren();
+  $("#detailSummary").textContent = storyDetailSummary(summary) || "Exact local story evidence.";
   const evidence = $("#evidenceList"); evidence.replaceChildren();
   for (const record of page.items.filter((item) => item.kind === "evidence" || item.relative_path)) {
     const article = element("article", "story-source-record"); article.dataset.evidenceId = record.id;
@@ -1857,16 +1260,17 @@ function renderStoryMapV2(page) {
   state.storyPage = page; state.storyItems = new Map(); state.storySelectionId = null; state.storySelectionItem = null; state.storySelectionControl = null; state.storyPath = null;
   const storyBrowser = $("#storyBrowser"); const fallback = page.status === "fallback"; storyBrowser.classList.toggle("is-fallback", fallback);
   const progressive = (page.analysis_notes || []).some((note) => note.startsWith("Phase 05 progressive story walk"));
+  const wholeGame = (page.analysis_notes || []).some((note) => note.startsWith("Phase 05 progressive story walk: whole-game reader"));
   storyBrowser.classList.remove("is-grouped-timeline");
   storyBrowser.classList.toggle("is-progressive-story", progressive);
+  storyBrowser.classList.toggle("is-whole-game-story", wholeGame);
   $("#storyTitle").textContent = page.title;
   $("#storyOverview").textContent = page.overview;
-  $("#storyMapStatus").textContent = progressive ? "Progressive proof" : page.status === "synthesized" ? "Whole-story guide" : "Deterministic story";
-  const index = $("#storySectionIndex"); const sections = $("#storySections"); index.replaceChildren(); sections.replaceChildren(); let eventOrdinal = 0;
+  $("#storyMapStatus").textContent = wholeGame ? "Whole story" : progressive ? "Progressive proof" : page.status === "synthesized" ? "Whole-story guide" : "Deterministic story";
+  const sections = $("#storySections"); sections.replaceChildren(); let eventOrdinal = 0;
   page.sections.forEach((section, sectionIndex) => {
     const id = `story-section-${sectionIndex + 1}`;
     const duplicateFallbackWrapper = (fallback || progressive) && page.sections.length === 1 && section.title.trim() === page.title.trim() && section.summary.trim() === page.overview.trim();
-    if (!duplicateFallbackWrapper) { const link = element("a", "", section.title); link.href = `#${id}`; index.append(link); }
     const card = element("section", "story-section"); card.id = id;
     card.classList.toggle("story-section--duplicate-wrapper", duplicateFallbackWrapper);
     if (!duplicateFallbackWrapper) { const header = element("header", "story-section-header"); header.append(element("h2", "", section.title), element("p", "story-section-summary", section.summary)); card.append(header); }
@@ -1875,13 +1279,193 @@ function renderStoryMapV2(page) {
     for (const event of section.events) events.append(renderStoryEvent(event, ++eventOrdinal));
     card.append(events); sections.append(card);
   });
-  index.hidden = !index.children.length;
   const notes = $("#storyAnalysisNotesList"); notes.replaceChildren();
   for (const note of page.analysis_notes || []) notes.append(element("p", "", note));
-  $("#storyAnalysisNotes > summary").textContent = progressive ? "Technical" : "Analysis notes";
+  $("#storyAnalysisNotes > summary").textContent = "Analysis notes";
   $("#storyAnalysisNotes").hidden = !notes.children.length;
   $("#storyPathPanel").hidden = true; clearStoryPathWitness();
   showStorySurface(true);
+  buildStoryNavigation(page);
+  resetStorySearch();
+}
+
+const STORY_CHAPTER_SPAN = 6;
+const STORY_CHAPTER_MIN = 8;
+const STORY_CHAPTER_MAX = 24;
+
+function storyChapterTarget(count) {
+  return Math.max(1, Math.min(STORY_CHAPTER_MAX, Math.max(STORY_CHAPTER_MIN, Math.round(count / STORY_CHAPTER_SPAN))));
+}
+
+function storyChapterCandidates(nodes) {
+  const target = storyChapterTarget(nodes.length);
+  if (nodes.length <= target) return nodes.map((node, index) => ({ node, index }));
+  const stride = nodes.length / target;
+  const picked = [];
+  for (let slot = 0; slot < target; slot += 1) {
+    // The first chapter is the story's own opening, not the tidiest title near it.
+    if (slot === 0) { picked.push({ node: nodes[0], index: 0 }); continue; }
+    const from = Math.round(slot * stride);
+    const to = Math.min(nodes.length, Math.max(from + 1, Math.round((slot + 1) * stride)));
+    let best = from;
+    let bestScore = -1;
+    for (let index = from; index < to; index += 1) {
+      const title = storyNodeTitle(nodes[index]);
+      const machine = /_|\d\s\d|^Routes:/u.test(title) ? 0 : 1;
+      const score = machine * 100 + Math.min(60, title.length);
+      if (score > bestScore) { bestScore = score; best = index; }
+    }
+    picked.push({ node: nodes[best], index: best });
+  }
+  return picked;
+}
+
+function storyNodeTitle(node) {
+  return (node.querySelector(".story-event-select strong")?.textContent || "").replace(/\s+/gu, " ").trim();
+}
+
+const STORY_SMOOTH_SCROLL_LIMIT = 4000;
+
+/** Jump instantly for long hops; a smooth animation over 40,000px reads as a hang. */
+function scrollStoryTo(node) {
+  const browser = $("#storyBrowser");
+  const top = Math.max(0, node.offsetTop - 24);
+  const far = Math.abs(top - browser.scrollTop) > STORY_SMOOTH_SCROLL_LIMIT;
+  const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  browser.scrollTo({ top, behavior: far || reduced ? "auto" : "smooth" });
+}
+
+function buildStoryNavigation(page) {
+  const nav = state.storyNav;
+  const nodes = $$("#storySections .story-event");
+  nav.eventNodes = nodes;
+  nav.activeChapterId = null;
+  const index = $("#storySectionIndex"); index.replaceChildren();
+  const chapters = storyChapterCandidates(nodes).map(({ node, index: position }) => ({
+    id: node.id,
+    ordinal: Number(node.dataset.storyOrdinal || position + 1),
+    title: storyNodeTitle(node) || `Event ${position + 1}`,
+    node,
+  }));
+  nav.chapters = chapters;
+  for (const chapter of chapters) {
+    const link = element("a", "story-chapter-link");
+    link.href = `#${chapter.id}`;
+    link.dataset.chapterId = chapter.id;
+    link.append(element("span", "story-chapter-ordinal", String(chapter.ordinal).padStart(2, "0")), element("span", "story-chapter-title", chapter.title));
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      scrollStoryTo(chapter.node);
+      markActiveChapter(chapter.id);
+      updateStoryReadingPosition();
+    });
+    index.append(link);
+  }
+  $("#storyRail").hidden = !chapters.length;
+  renderStoryRailStats(page, nodes.length);
+  updateStoryReadingPosition();
+}
+
+function renderStoryRailStats(page, eventCount) {
+  const host = $("#storyRailStats"); host.replaceChildren();
+  const controls = $$("#storySections .story-choice").length;
+  const endings = $$('#storySections .story-arm[data-outcome-kind="ending"]').length;
+  const unresolved = $$('#storySections .story-arm[data-outcome-kind="unresolved"]').length;
+  const rows = [["Events", eventCount], ["Branch points", controls], ["Endings", endings]];
+  if (unresolved) rows.push(["Unresolved", unresolved]);
+  for (const [label, value] of rows) {
+    host.append(element("dt", "", label), element("dd", "", String(value)));
+  }
+}
+
+function markActiveChapter(id) {
+  const nav = state.storyNav;
+  if (!id || nav.activeChapterId === id) return;
+  if (!nav.chapters.some((entry) => entry.id === id)) return;
+  nav.activeChapterId = id;
+  for (const link of $$("#storySectionIndex .story-chapter-link")) {
+    const active = link.dataset.chapterId === id;
+    link.classList.toggle("is-active", active);
+    if (active) link.setAttribute("aria-current", "true");
+    else link.removeAttribute("aria-current");
+  }
+}
+
+function nearestChapterId(scrollTop) {
+  const nav = state.storyNav;
+  let current = nav.chapters[0]?.id || null;
+  for (const chapter of nav.chapters) {
+    if (chapter.node.hidden) continue;
+    if (chapter.node.offsetTop - 120 <= scrollTop) current = chapter.id;
+    else break;
+  }
+  return current;
+}
+
+function updateStoryReadingPosition() {
+  const browser = $("#storyBrowser");
+  const nav = state.storyNav;
+  if (!nav.eventNodes.length) { $("#storyRailPosition").textContent = ""; return; }
+  const span = Math.max(1, browser.scrollHeight - browser.clientHeight);
+  const ratio = Math.max(0, Math.min(1, browser.scrollTop / span));
+  $("#storyRailProgressBar").style.height = `${(ratio * 100).toFixed(2)}%`;
+  const viewportTop = browser.scrollTop + browser.clientHeight * 0.3;
+  let reached = 1;
+  for (const node of nav.eventNodes) {
+    if (node.hidden) continue;
+    if (node.offsetTop <= viewportTop) reached = Number(node.dataset.storyOrdinal || reached);
+    else break;
+  }
+  $("#storyRailPosition").textContent = `${reached} of ${nav.eventNodes.length}`;
+  markActiveChapter(nearestChapterId(browser.scrollTop));
+}
+
+/** Time-throttled rather than rAF-driven: rAF is starved while the tab is not compositing. */
+function scheduleStoryReadingPosition() {
+  const nav = state.storyNav;
+  if (nav.frame) return;
+  nav.frame = setTimeout(() => { nav.frame = 0; updateStoryReadingPosition(); }, 60);
+}
+
+function storySearchHaystack(node) {
+  if (node.dataset.searchText === undefined) {
+    node.dataset.searchText = (node.textContent || "").replace(/\s+/gu, " ").toLocaleLowerCase();
+  }
+  return node.dataset.searchText;
+}
+
+function resetStorySearch() {
+  const input = $("#storySearchInput");
+  if (input.value) input.value = "";
+  state.storyNav.query = "";
+  applyStorySearch("");
+}
+
+function applyStorySearch(rawQuery) {
+  const query = rawQuery.trim().toLocaleLowerCase();
+  state.storyNav.query = query;
+  const nodes = state.storyNav.eventNodes;
+  const status = $("#storySearchStatus");
+  $("#storySearchClear").hidden = !query;
+  $("#storyBrowser").classList.toggle("is-searching", Boolean(query));
+  if (!query) {
+    for (const node of nodes) node.hidden = false;
+    for (const section of $$("#storySections .story-section")) section.hidden = false;
+    status.textContent = "";
+    scheduleStoryReadingPosition();
+    return;
+  }
+  let matches = 0;
+  for (const node of nodes) {
+    const hit = storySearchHaystack(node).includes(query);
+    node.hidden = !hit;
+    if (hit) matches += 1;
+  }
+  for (const section of $$("#storySections .story-section")) {
+    section.hidden = !section.querySelector(".story-event:not([hidden])");
+  }
+  status.textContent = matches ? `${matches} of ${nodes.length} events match` : "No events match that search";
+  scheduleStoryReadingPosition();
 }
 
 function renderStoryWitnessList(groupSelector, listSelector, values, renderValue = (value) => value) {
@@ -1954,8 +1538,6 @@ function renderStoryDetail(envelope) {
   $("#detailTitle").textContent = detail.title || detail.element?.title || detail.scene?.title || storyItemTitle(item);
   $("#detailKind").textContent = String(unresolved ? "unresolved detail" : detail.level || "story moment").replaceAll("_", " ");
   $("#detailSummary").textContent = envelope.reason || detail.detail_summary || detail.summary || detail.element?.detail_summary || detail.element?.summary || detail.scene?.detail_summary || detail.scene?.summary || storyDetailSummary(item) || "Exact local story evidence.";
-  $("#pathStrip").replaceChildren(element("strong", "path-stop current", $("#detailTitle").textContent));
-  $("#technicalMembers").hidden = true; $("#derivationPanel").hidden = true; $("#canonicalEscapeButton").hidden = true; $("#interpretationPanel").hidden = true; $("#detailFacts").replaceChildren();
   const evidence = $("#evidenceList"); evidence.replaceChildren();
   for (const record of detail.evidence || []) {
     const article = element("article", "evidence-record"); article.dataset.evidenceId = record.id || "story-evidence";
@@ -2041,433 +1623,16 @@ async function loadStoryMapV2() {
 async function enterAvailableWorkspace() {
   showPrimary("workspace"); showLevel("route_map");
   const storyAvailable = await loadStoryMapV2();
-  if (storyAvailable) { $("#projectBadge").textContent = "Story Map V2"; await restoreStoryWorkflow(); return true; }
-  showStorySurface(false);
-  const available = await resetRoutePaging();
-  await loadNarrative();
-  await loadNarrativeRunStatus();
-  if (available) renderMap();
-  await loadOrganization();
-  return available;
-}
-
-function nextCursor() {
-  const navigation = state.page?.global_navigation || state.page?.navigation || {};
-  if (navigation.next && Number.isInteger(navigation.next.offset)) return { offset: navigation.next.offset, edgeOffset: navigation.next.edge_offset || 0 };
-  if (state.page?.edge_next_offset !== null && state.page?.edge_next_offset !== undefined) return { offset: state.offset, edgeOffset: Number(state.page.edge_next_offset), edgeCursor: state.mode === "ai" ? state.page.edge_next_cursor : null };
-  if (state.page?.next_offset !== null && state.page?.next_offset !== undefined) return { offset: Number(state.page.next_offset), edgeOffset: 0, edgeCursor: null };
-  return null;
-}
-
-async function nextRoutePage() {
-  const target = nextCursor(); if (!target) return;
-  state.cursorHistory.push({ offset: state.offset, edgeOffset: state.edgeOffset, edgeCursor: state.edgeCursor });
-  if (state.cursorHistory.length > CURSOR_HISTORY_LIMIT) state.cursorHistory.shift();
-  await loadRoutePage(target);
-}
-
-async function previousRoutePage() { const target = state.cursorHistory.pop(); if (target) await loadRoutePage(target); }
-
-async function searchM10WholeGraph() {
-  const query = $("#searchInput").value.trim();
-  const requestId = (searchM10WholeGraph.requestId || 0) + 1; searchM10WholeGraph.requestId = requestId;
-  if (state.mode === "scenes") {
-    const firstRaw = await api.sceneMap(0, ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE, query ? { query } : {});
-    if (requestId !== searchM10WholeGraph.requestId || $("#searchInput").value.trim() !== query) return;
-    if (firstRaw.status === "unavailable") { renderAnalysisAvailability(firstRaw.generation_status, Boolean(state.page)); return; }
-    const firstMatch = firstRaw.search?.matches?.[0];
-    let raw = firstRaw;
-    if (firstMatch && Number(firstMatch.offset || 0) !== Number(firstRaw.offset || 0)) {
-      raw = await api.sceneMap(Number(firstMatch.offset), ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE, { focus: firstMatch.id });
-      raw.search = firstRaw.search;
-    }
-    const page = normalizedPage(raw, "scenes"); state.page = page; state.scenePage = page;
-    state.offset = Number(page.offset || 0); state.edgeOffset = 0; state.cursorHistory = []; state.selectedId = firstMatch?.id || null;
-    renderMap();
-    if (query && !firstRaw.search?.total) $("#selectionStatus").textContent = "No whole-scene matches";
-    else if (state.selectedId) graph.world.querySelector(`[data-element-id="${CSS.escape(state.selectedId)}"]`)?.focus();
-    return;
+  if (storyAvailable) {
+    $("#projectBadge").textContent = "Story";
+    if (!progressiveStoryActive()) await restoreStoryWorkflow();
+    return true;
   }
-  if (!["inspection", "canonical"].includes(state.mode)) { renderMap(); return; }
-  const view = state.mode === "canonical" ? "canonical" : "simplified";
-  const raw = await api.inspectionMap(view, 0, ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE, query ? { query } : {});
-  if (requestId !== searchM10WholeGraph.requestId || $("#searchInput").value.trim() !== query) return;
-  if (raw.status === "unavailable") { renderAnalysisAvailability(raw.generation_status, Boolean(state.page)); return; }
-  const focus = raw.search?.focus;
-  if (view === "simplified" && focus?.target_view === "canonical") {
-    const options = query ? { query, focus: focus.canonical_page_target_id } : { focus: focus.canonical_page_target_id };
-    const canonicalRaw = await api.inspectionMap("canonical", Number(focus.canonical_page_offset || 0), ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE, options);
-    if (requestId !== searchM10WholeGraph.requestId || $("#searchInput").value.trim() !== query) return;
-    if (canonicalRaw.status === "unavailable") { renderAnalysisAvailability(canonicalRaw.generation_status, Boolean(state.page)); return; }
-    const canonicalPage = normalizedPage(canonicalRaw, "canonical"); canonicalPage.search = raw.search;
-    showLevel("route_map"); state.mode = "canonical"; state.page = canonicalPage; state.canonicalPage = canonicalPage; state.offset = Number(canonicalPage.offset || 0); state.edgeOffset = 0; state.cursorHistory = []; state.selectedId = focus.canonical_page_target_id;
-    updateModeHeader(); renderMap();
-    await openDetail(focus.canonical_id);
-    return;
-  }
-  const page = normalizedPage(raw, state.mode); state.page = page;
-  if (state.mode === "inspection") state.inspectionPage = page; else state.canonicalPage = page;
-  state.offset = Number(page.offset || 0); state.edgeOffset = 0; state.cursorHistory = [];
-  state.selectedId = page.search?.focus?.element_id || null;
-  renderMap();
-  if (query && !page.search?.total_matches) $("#selectionStatus").textContent = "No whole-graph matches";
-  else if (state.selectedId) graph.world.querySelector(`[data-element-id="${CSS.escape(state.selectedId)}"]`)?.focus();
+  showStoryUnavailable();
+  return false;
 }
 
-function visiblePage() {
-  const query = $("#searchInput").value.trim().toLocaleLowerCase();
-  const globalSearch = state.page?.global_search || state.page?.search;
-  const resultIds = Array.isArray(globalSearch?.matches) ? globalSearch.matches.map((item) => item.id) : globalSearch?.element_ids;
-  const matchedIds = query && globalSearch?.query?.toLocaleLowerCase() === query && Array.isArray(resultIds) ? new Set(resultIds) : null;
-  const visibleNodes = (state.page?.nodes || []).filter((node) => {
-    if (!state.settings.include_unresolved && node.unresolved) return false;
-    return !query || matchedIds?.has(node.id) || `${node.id} ${node.title} ${node.summary} ${node.reachability || ""}`.toLocaleLowerCase().includes(query);
-  });
-  const ids = new Set(visibleNodes.map((node) => node.id));
-  const visibleEdges = (state.page?.edges || []).filter((edge) => {
-    const continuation = !ids.has(edge.source_id) || !ids.has(edge.target_id);
-    if (!continuation && !state.settings.include_technical && Number(edge.technical_hops || 0) > 0) return false;
-    return ids.has(edge.source_id) || ids.has(edge.target_id);
-  });
-  return { nodes: visibleNodes, edges: visibleEdges };
-}
 
-function renderLanes(nodes) {
-  const host = $("#laneList"); host.replaceChildren();
-  const metadata = new Map((state.page?.lanes || []).map((lane) => [lane.id, lane]));
-  for (const node of nodes) if (!metadata.has(node.lane_id)) metadata.set(node.lane_id, { id: node.lane_id, kind: node.lane_kind, label: node.lane_label });
-  for (const lane of metadata.values()) {
-    const row = element(state.mode === "scenes" ? "button" : "div", "line-key"); const swatch = element("i", `swatch ${lane.kind === "detour" ? "detour" : ""}`);
-    if (state.mode === "scenes") { row.type = "button"; row.addEventListener("click", () => openDetail(lane.id)); }
-    row.append(swatch, element("span", "", lane.label || String(lane.kind || "route").replaceAll("_", " "))); host.append(row);
-  }
-}
-
-function renderChapters() {
-  const host = $("#chapterList"); host.replaceChildren();
-  const chapters = state.mode === "scenes" ? [...(state.page?.chapter_bands || [])].sort((left, right) => Number(left.ordinal || 0) - Number(right.ordinal || 0) || String(left.id).localeCompare(String(right.id))) : [];
-  $("#chapterIndex").hidden = !chapters.length;
-  for (const chapter of chapters) {
-    const record = element("button", "chapter-record"); record.type = "button"; record.addEventListener("click", () => openDetail(chapter.id));
-    record.append(element("strong", "", chapter.label || "Story"), element("span", "", `${chapter.scene_total ?? chapter.scene_ids?.length ?? 0} scenes`));
-    host.append(record);
-  }
-}
-
-function renderMap() {
-  if (!state.page) { renderAnalysisAvailability(state.analysisStatus, false); return; }
-  const visible = visiblePage();
-  const nodes = state.mode === "scenes" && state.narrativeEnabled
-    ? visible.nodes.map((node) => {
-      const artifact = narrativeForOwner(node.scene_id || node.id);
-      return artifact ? { ...node, deterministic_title: node.title, deterministic_summary: node.summary, title: artifact.title, summary: artifact.summary, narrative_artifact_id: artifact.artifact_id, narrative_publication: artifact.publication } : node;
-    })
-    : visible.nodes;
-  const edges = visible.edges;
-  graph.setData(nodes, edges, state.selectedId, state.page?.lanes || []);
-  renderLanes(nodes); renderChapters(); state.selectedId = graph.selectedId;
-  const first = state.offset + 1; const last = state.offset + (state.page?.nodes.length || 0); const total = Number(state.page?.total_nodes || last);
-  const edgeFirst = state.edgeOffset + 1; const edgeLast = state.edgeOffset + (state.page?.edges.length || 0); const edgeTotal = Number(state.page?.page_edge_total ?? edgeLast);
-  const dense = Boolean(state.page?.overflow) || edgeTotal > state.page?.edges.length;
-  $("#pageStatus").textContent = `${state.mode === "scenes" ? "Scenes" : state.mode === "ai" ? "Events" : "Nodes"} ${first}–${last} of ${total} · routes ${edgeTotal ? `${edgeFirst}–${edgeLast} of ${edgeTotal}` : "none"}${dense ? " · bounded" : ""}`;
-  $("#previousPage").disabled = state.cursorHistory.length === 0; $("#nextPage").disabled = nextCursor() === null;
-  const nodeIds = new Set(nodes.map((node) => node.id)); const continuations = edges.filter((edge) => !nodeIds.has(edge.source_id) || !nodeIds.has(edge.target_id)).length;
-  $("#visibleStatus").textContent = `${nodes.length} ${state.mode === "scenes" ? "scene elements" : state.mode === "ai" ? "events" : "nodes"} · ${edges.length} routes${continuations ? ` · ${continuations} continuations` : ""}`;
-  const generation = state.page?.generation_status;
-  renderAnalysisAvailability(generation, true);
-  $("#generationStatus").hidden = !generation;
-  if (generation) $("#generationStatus").textContent = `${generation.freshness} · ${String(generation.analysis_status || "unknown").replaceAll("_", " ")}`;
-  const coverage = state.page?.coverage || {}; const summary = $("#coverageSummary"); summary.replaceChildren();
-  if (state.mode === "scenes") {
-    summary.append(element("strong", "", "Scene hierarchy"), element("span", "", `${state.page.chapter_bands?.length || 0} chapters · ${state.page.lanes?.length || 0} lanes`), element("span", "", `${nodes.filter((node) => node.presentation_kind === "temporary_branch").length} temporary choices on this page`));
-    if (state.narrativeEnabled && state.narrativeSnapshot?.coverage) {
-      const narrative = state.narrativeSnapshot.coverage;
-      summary.append(element("span", "", `Narrative ${Number(narrative.scene_coverage_basis_points || 0) / 100}% · ${narrative.published_scene_jobs || 0}/${narrative.expected_scene_jobs || 0} scenes`));
-    }
-  }
-  else if (state.mode === "ai") summary.append(element("strong", "", "Story coverage"), element("span", "", `${coverage.ai_owned_route_nodes || 0} AI-organized nodes`), element("span", "", `${coverage.technical_fallback_route_nodes || 0} technical fallback nodes`));
-  else if (["inspection", "canonical"].includes(state.mode)) summary.append(element("strong", "", state.mode === "canonical" ? "Canonical authority" : "Inspection coverage"), element("span", "", `${coverage.control_nodes ?? "—"} canonical records`), element("span", "", `${coverage.suppressed_records ?? 0} presentation suppressions`));
-  else summary.append(element("strong", "", "Technical authority"), element("span", "", `${coverage.control_nodes ?? "—"} control points`), element("span", "", `${coverage.technical_nodes ?? 0} collapsed steps`));
-  const selected = graph.elements().find((item) => item.id === state.selectedId); if (selected) selectItem(selected);
-}
-
-function updateModeHeader() {
-  const scenes = state.mode === "scenes"; const ai = state.mode === "ai";
-  const inspection = state.mode === "inspection"; const canonical = state.mode === "canonical"; const technical = state.mode === "technical";
-  $("#sceneMapButton").setAttribute("aria-pressed", String(scenes)); $("#aiMapButton").setAttribute("aria-pressed", String(ai)); $("#inspectionMapButton").setAttribute("aria-pressed", String(inspection)); $("#canonicalMapButton").setAttribute("aria-pressed", String(canonical)); $("#technicalMapButton").setAttribute("aria-pressed", String(technical));
-  $("#sceneMapButton").disabled = !state.scenePage;
-  $("#aiMapButton").disabled = !state.aiPage;
-  $("#inspectionMapButton").disabled = !state.inspectionPage;
-  $("#canonicalMapButton").disabled = !state.canonicalPage;
-  $("#technicalMapButton").disabled = !state.technicalPage;
-  $("#mapEyebrow").textContent = scenes ? "Deterministic scene presentation" : ai ? "AI Story Map" : inspection ? "Deterministic inspection" : canonical ? "Canonical technical graph" : "Technical Structure";
-  $("#mapTitle").textContent = scenes ? "Scenes and chapters" : ai ? "The story at a glance" : inspection ? "Choices, routes, and rejoins" : canonical ? "Every canonical record" : "Authoritative control flow";
-  $("#projectBadge").textContent = scenes ? "M11 Scenes" : ai ? "AI Story Map · applied" : inspection ? "M10 Inspection" : canonical ? "M10 Canonical" : "Technical Structure";
-  const deterministicPresentation = scenes || inspection || canonical; $("#organizationPanel").hidden = deterministicPresentation; $("#organizeButton").hidden = deterministicPresentation;
-  if (!state.scenePage) $("#fallbackReason").textContent = `${String(state.sceneReason || "scene presentation not yet available").replaceAll("_", " ")}. ${inspection ? "M10 Inspection" : canonical ? "M10 Canonical" : "Technical Structure"} is shown.`;
-}
-
-async function switchMode(mode) {
-  if (mode === "ai" && !state.aiPage) { toast("Apply a validated organization before using the AI Story Map"); return; }
-  const page = mode === "scenes" ? state.scenePage : mode === "ai" ? state.aiPage : mode === "inspection" ? state.inspectionPage : mode === "canonical" ? state.canonicalPage : state.technicalPage;
-  if (!page) { toast("That map is unavailable for this analysis result"); return; }
-  state.mode = mode; state.page = page; state.cursorHistory = []; state.offset = Number(state.page?.offset || 0); state.edgeOffset = Number(state.page?.edge_offset || 0); state.edgeCursor = mode === "ai" ? state.page?.edge_cursor ?? null : null; state.selectedId = null;
-  updateModeHeader(); if (state.page) renderMap(); else await loadRoutePage({ offset: 0, edgeOffset: 0 });
-}
-
-function selectItem(item) { state.selectedId = item.id; $("#selectionStatus").textContent = `${item.title || String(item.role || item.kind || "route").replaceAll("_", " ")} · Enter for Detail / Evidence`; selectRouteSource(item); }
-
-function addFactGroup(host, title, items, type) {
-  if (!items?.length) return;
-  const section = element("section", "fact-group"); section.append(element("h2", "", title)); const list = element("ul", "fact-list");
-  for (const item of items) { const visibleLabel = item.label || (item.speaker_display_name && item.text ? `${item.speaker_display_name}: ${item.text}` : item.variable_display_name || item.caption || item.text || item.id); const row = element("li", `fact ${type}`); row.append(element("span", "fact-shape", type === "gate" ? "△" : type === "effect" ? "+" : "•"), element("strong", "", visibleLabel), element("code", "", item.expression || "")); list.append(row); }
-  section.append(list); host.append(section);
-}
-
-function evidenceExcerpt(record) {
-  const payload = record.payload || {};
-  const provenance = Array.isArray(payload.provenance) ? payload.provenance.map((item) => item.source_text).filter(Boolean) : [];
-  const choices = Array.isArray(payload.choices) ? payload.choices.map((item) => item.condition ? `“${item.caption}” if ${item.condition}` : `“${item.caption}”`) : [];
-  return provenance.join("\n") || choices.join("\n") || record.text || record.excerpt || record.source_text || "Evidence text unavailable";
-}
-
-function evidenceLineBasis(record, source) {
-  const basis = record.line_basis || source.line_basis || source.basis || record.basis;
-  if (!basis) return "Source basis unavailable";
-  const qualified = String(basis);
-  if (/^reconstructed(?:_|$)/i.test(qualified)) return `Reconstructed source · ${qualified}`;
-  if (/^physical(?:_|$)/i.test(qualified)) return `Physical source · ${qualified}`;
-  return `Qualified source · ${qualified}`;
-}
-
-function renderTechnicalMembers(detail) {
-  const host = $("#memberGraph"); host.replaceChildren();
-  for (const node of detail.member_route_nodes || []) host.append(element("span", "member-node", node.title || String(node.kind || "technical node").replaceAll("_", " ")));
-  for (const edge of detail.member_route_edges || []) host.append(element("span", "member-edge", String(edge.role || "connection").replaceAll("_", " ")));
-  $("#technicalMembers").hidden = !host.children.length;
-}
-
-function renderInspectionDerivations(detail) {
-  const regionHost = $("#regionDerivation"); const proofHost = $("#proofDerivation"); const linkHost = $("#linkedRecords");
-  regionHost.replaceChildren(); proofHost.replaceChildren(); linkHost.replaceChildren();
-  if (detail.region) {
-    const region = detail.region; const summary = element("article", "derivation-record");
-    summary.append(element("strong", "", String(region.classification || "branch region").replaceAll("_", " ")), element("span", "", `Split ${region.split_node_id} · merge ${region.merge_node_id || "none"}`), element("span", "", `Persistence: ${(region.persistence_reasons || []).join(" · ") || "none"}`)); regionHost.append(summary);
-    for (const arm of region.ordered_arms || []) {
-      const record = element("article", "derivation-record"); const facts = (arm.facts || []).map((item) => item.label || item.id).join(" · "); const predicate = arm.predicate || {}; const expressions = predicate.expression || (predicate.expressions || []).join(" · ") || "unconditional";
-      record.append(element("strong", "", `Arm ${Number(arm.ordinal) + 1}`), element("span", "", `Entry ${arm.entry_node_id} · ${arm.member_count} members · ${arm.terminal_summary || "nonterminal"}`), element("span", "", `Predicate: ${String(predicate.kind || "branch").replaceAll("_", " ")} · ${String(predicate.polarity || "unknown").replaceAll("_", " ")} · ${expressions}`), element("span", "", facts ? `Facts: ${facts}` : "Facts: none")); regionHost.append(record);
-    }
-  }
-  for (const proof of detail.proofs || []) { const record = element("article", "derivation-record"); record.append(element("strong", "", String(proof.kind || "proof").replaceAll("_", " ")), element("p", "", proof.explanation || "Deterministic derivation"), element("span", "", `Inputs: ${(proof.input_ids || []).join(" · ")}`)); proofHost.append(record); }
-  for (const linked of detail.linked_records || []) { if (linked.id === detail.element?.id) continue; const button = element("button", "quiet-button linked-record", `${String(linked.kind || "record").replaceAll("_", " ")} · ${linked.title || linked.id}`); button.type = "button"; button.addEventListener("click", () => openDetail(linked.id)); linkHost.append(button); }
-  $("#derivationPanel").hidden = !(regionHost.children.length || proofHost.children.length || linkHost.children.length);
-}
-
-function normalizedSceneDetail(detail, elementId) {
-  const occurrence = detail.selected_occurrence || detail.call_occurrences?.find((item) => item.id === detail.selected_occurrence_id);
-  const selected = occurrence || detail.temporary_branch || detail.boundary || detail.chapter || detail.lane || detail.scene || detail.loop_hubs?.[0] || { id: elementId, kind: "scene" };
-  const pageNode = state.page?.nodes.find((node) => node.id === elementId);
-  const atoms = detail.atoms || [];
-  const relatedScenes = detail.related_scenes || [];
-  const kind = occurrence ? "call-site occurrence" : detail.temporary_branch ? "temporary branch" : detail.boundary ? "scene boundary" : detail.chapter ? "chapter" : detail.lane ? "persistent lane" : detail.loop_hubs?.length ? "repeatable scene" : "scene";
-  const summary = occurrence
-    ? `${occurrence.referenced_atom_ids?.length || 0} narrative atom references at this call site.`
-    : detail.temporary_branch
-      ? `${detail.temporary_branch.arms?.length || 0} temporary arms nested inside the parent scene.`
-      : detail.chapter || detail.lane || detail.boundary
-        ? `${relatedScenes.length} related scenes in this bounded detail response.`
-        : `${atoms.length} deterministic story atoms with canonical and source provenance.`;
-  const choices = (detail.temporary_branch?.arms || []).map((arm) => ({ id: arm.id, caption: `Arm ${Number(arm.ordinal || 0) + 1}`, label: `${arm.scene_ids?.length || 0} arm-local scenes`, expression: "" }));
-  const requirements = (occurrence?.guard_fact_ids || []).map((id) => ({ id, label: "Call-site guard", expression: id }));
-  const canonicalFocus = detail.canonical_records?.[0]?.id || detail.canonical_escape_ids?.[0] || null;
-  const linkedRecords = [];
-  if (occurrence && detail.caller_scene) linkedRecords.push({ ...detail.caller_scene, kind: "caller scene" });
-  if (detail.scene && detail.boundary && detail.boundary.id !== elementId) linkedRecords.push({ ...detail.boundary, title: `${String(detail.boundary.strength || "scene").replaceAll("_", " ")} boundary`, kind: "scene boundary" });
-  return {
-    ...detail,
-    element: { ...selected, id: elementId, title: pageNode?.title || selected.title || kind, kind, summary },
-    member_route_nodes: [...atoms.map((atom) => ({ ...atom, title: atom.label || String(atom.kind || "story atom").replaceAll("_", " ") })), ...relatedScenes.map((scene) => ({ ...scene, title: scene.title || "Related scene" }))],
-    member_route_edges: [],
-    predecessor_ids: [],
-    successor_ids: [],
-    choices,
-    requirements,
-    effects: [],
-    dialogue: atoms.filter((atom) => atom.kind === "dialogue"),
-    narration: atoms.filter((atom) => atom.kind === "narration"),
-    facts: [],
-    linked_records: linkedRecords,
-    canonical_focus_id: canonicalFocus,
-    canonical_focus_offset: 0,
-  };
-}
-
-async function openDetail(elementId, strict = false) {
-  const token = state.detailRunToken + 1; state.detailRunToken = token;
-  try {
-    const sceneMode = state.mode === "scenes";
-    let detail = sceneMode ? await api.sceneDetail(elementId) : state.mode === "ai" ? await api.aiStoryDetail(elementId) : ["inspection", "canonical"].includes(state.mode) ? await api.inspectionDetail(state.mode === "canonical" ? "canonical" : "simplified", elementId) : await api.detail(elementId);
-    if (token !== state.detailRunToken) {
-      if (strict) throw new TypeError("The cited authority detail was superseded");
-      return;
-    }
-    if (detail.status === "unavailable") {
-      if (sceneMode && state.inspectionPage) { await switchMode("inspection"); toast("Scene presentation became unavailable; M10 Inspection is shown"); }
-      else if (state.mode === "ai") { await switchMode("technical"); toast("AI Story Map became unavailable; Technical Structure is shown"); }
-      else { renderAnalysisAvailability(detail.generation_status, Boolean(state.page)); toast("This inspection result is unavailable for the retained generation"); }
-      if (strict) throw new TypeError("The cited authority detail is unavailable");
-      return;
-    }
-    if (sceneMode) detail = normalizedSceneDetail(detail, elementId);
-    let narrativeArtifact = null;
-    const narrativeSummary = sceneMode && state.narrativeEnabled ? narrativeForElement(elementId, detail) : null;
-    if (narrativeSummary) {
-      narrativeArtifact = await api.narrativeArtifact(narrativeSummary.artifact_id);
-      if (token !== state.detailRunToken) {
-        if (strict) throw new TypeError("The cited authority detail was superseded");
-        return;
-      }
-      detail = { ...detail, narrative_artifact: narrativeArtifact, element: { ...detail.element, deterministic_title: detail.element.title, deterministic_summary: detail.element.summary, title: narrativeArtifact.title, summary: narrativeArtifact.summary } };
-    }
-    state.detail = detail; state.selectedId = elementId;
-    const selected = detail.element; $("#detailTitle").textContent = selected.title || String(selected.presentation_role || selected.role || selected.kind || "Story element").replaceAll("_", " ");
-    $("#detailKind").textContent = String(selected.source_kind || selected.presentation_role || selected.kind || selected.role || "route element").replaceAll("_", " ");
-    $("#detailSummary").textContent = selected.unsupported_status || selected.summary || "Authoritative local context and exact source evidence.";
-    $("#canonicalEscapeButton").hidden = state.mode === "canonical" || !detail.canonical_focus_id;
-    const strip = $("#pathStrip"); strip.replaceChildren();
-    for (const id of detail.predecessor_ids || []) strip.append(element("span", "path-stop predecessor", `← ${titleFor(id)}`));
-    strip.append(element("strong", "path-stop current", $("#detailTitle").textContent));
-    for (const id of detail.successor_ids || []) strip.append(element("span", "path-stop successor", `${titleFor(id)} →`));
-    renderTechnicalMembers(detail);
-    renderInspectionDerivations(detail);
-    const facts = $("#detailFacts"); facts.replaceChildren(); const allFacts = detail.facts || [];
-    addFactGroup(facts, "Exact choices", detail.choices, "choice"); addFactGroup(facts, "Requirements", detail.gates || detail.requirements || allFacts.filter((item) => String(item.kind || "").includes("gate") || String(item.type || "").includes("require")), "gate"); addFactGroup(facts, "Effects", detail.effects || allFacts.filter((item) => String(item.kind || "").includes("effect")), "effect"); addFactGroup(facts, "Dialogue", detail.dialogue, "dialogue"); addFactGroup(facts, "Narration", detail.narration, "narration");
-    const interpretations = $("#interpretations"); interpretations.replaceChildren();
-    $("#interpretationPanel").hidden = sceneMode;
-    if (narrativeArtifact) $("#interpretationPanel").hidden = false;
-    const candidates = detail.ai_candidates || detail.candidates || selected.ai_candidates || [];
-    const claims = detail.claims || candidates.flatMap((candidate) => candidate.claims || []);
-    for (const candidate of candidates) { const article = element("article", "interpretation candidate"); article.append(element("strong", "", candidate.title || candidate.label || "Candidate"), element("p", "", candidate.summary || candidate.text || "")); if (candidate.correction) article.append(element("span", "correction", `Correction: ${candidate.correction.title || candidate.correction.text || "provided"}`)); if (candidate.pinned) article.append(element("span", "pin", "Pinned by reviewer")); interpretations.append(article); }
-    for (const claim of claims) { const article = element("article", "interpretation claim"); article.append(element("strong", "", claim.label || "Evidence-backed claim"), element("p", "", claim.text || claim.claim || ""), element("span", "evidence-links", `Evidence: ${(claim.evidence_ids || []).join(", ") || "not supplied"}`)); interpretations.append(article); }
-    if (narrativeArtifact) {
-      const summary = element("article", "interpretation candidate");
-      summary.append(element("strong", "", `${narrativeArtifact.publication === "partial" ? "Partial narrative" : "Narrative summary"} · AI interpretation; deterministic authority unchanged`), element("p", "", narrativeArtifact.summary));
-      for (const warning of narrativeArtifact.warnings || []) summary.append(element("span", "correction", warning));
-      interpretations.append(summary); renderNarrativeClaims(interpretations, narrativeArtifact);
-    }
-    if (!interpretations.children.length) interpretations.append(element("p", "muted", "No AI interpretation is attached; the technical map is authoritative."));
-    const evidence = $("#evidenceList"); evidence.replaceChildren();
-    for (const record of detail.evidence || []) {
-      const article = element("article", "evidence-record"); article.dataset.evidenceId = record.id;
-      const source = record.source || record.location || {}; const start = source.start?.line ?? source.start_line ?? record.start_line ?? "?"; const endLine = source.end?.line ?? source.end_line ?? record.end_line; const end = endLine && endLine !== start ? `–${endLine}` : "";
-      article.append(element("span", "evidence-id", `${record.id} · ${record.kind || "source"}`), element("pre", "", evidenceExcerpt(record)), element("span", "source-line", `${source.path || record.source_path || record.path || "source unavailable"}:${start}${end} · ${evidenceLineBasis(record, source)}`)); evidence.append(article);
-    }
-    if (!evidence.children.length) evidence.append(element("p", "muted", "No exact evidence was returned."));
-    showLevel("detail_evidence"); $("#backToRouteMap").focus();
-  } catch (error) { if (token === state.detailRunToken) toast(error.message); if (strict) throw error; }
-}
-
-async function openCanonicalRecord() {
-  const focusId = state.detail?.canonical_focus_id; if (!focusId) return;
-  if (state.detail?.level === "scene_detail") {
-    const raw = await api.inspectionMap("canonical", 0, ROUTE_PAGE_SIZE, 0, ROUTE_EDGE_PAGE_SIZE, { focus: focusId });
-    if (raw.status === "unavailable") { toast("The matching M10 canonical record is unavailable"); return; }
-    const page = normalizedPage(raw, "canonical");
-    showLevel("route_map"); state.mode = "canonical"; state.page = page; state.canonicalPage = page; state.cursorHistory = []; state.offset = Number(page.offset || 0); state.edgeOffset = 0; state.selectedId = focusId;
-    updateModeHeader(); renderMap(); graph.world.querySelector(`[data-element-id="${CSS.escape(focusId)}"]`)?.focus();
-    return;
-  }
-  showLevel("route_map"); state.mode = "canonical"; state.page = null; state.canonicalPage = null; state.cursorHistory = []; state.offset = Number(state.detail.canonical_focus_offset || 0); state.edgeOffset = 0; state.selectedId = focusId;
-  await loadRoutePage({ offset: state.offset, edgeOffset: 0 });
-  graph.world.querySelector(`[data-element-id="${CSS.escape(focusId)}"]`)?.focus();
-}
-
-function titleFor(id) { return state.page?.nodes.find((node) => node.id === id)?.title || "Adjacent event"; }
-
-async function loadOrganization() { try { state.organization = await api.organization(); renderOrganization(); } catch (error) { $("#organizationMetrics").replaceChildren(element("p", "muted", "Organization status unavailable.")); } }
-
-function renderOrganization() {
-  const value = state.organization || {}; const scopes = value.scopes || {}; const accounting = value.accounting || {}; const tokens = accounting.tokens || {}; const coverage = value.coverage || {}; const eta = value.eta || {};
-  const fallback = Number(scopes.fallback || 0) + Number(scopes.failed || 0) + Number(scopes.cancelled || 0);
-  const honestStatus = value.status === "complete" && fallback ? "partial with fallback" : String(value.status || "idle").replaceAll("_", " ");
-  const metricLabel = value.status_label || accounting.label || "Accounting unavailable";
-  const host = $("#organizationMetrics"); host.replaceChildren();
-  const rows = [
-    [`Status — ${metricLabel}`, `${honestStatus} · ${value.stage || "idle"}`],
-    [`Scopes — ${metricLabel}`, `${scopes.validated || 0} validated · ${scopes.fallback || 0} fallback · ${scopes.pending || 0} pending · ${scopes.cancelled || 0} cancelled`],
-    [`Usage — ${metricLabel}`, `${accounting.calls || 0} calls · ${Number(tokens.total || 0).toLocaleString()} tokens`],
-    [`Time — ${metricLabel}`, `${Number(accounting.elapsed_seconds || 0).toFixed(1)}s ${accounting.elapsed_basis === "provider_attempts" ? "provider time" : "elapsed"} · ${eta.low_seconds == null ? "ETA unavailable" : `${Math.ceil(eta.low_seconds / 60)}–${Math.ceil(eta.high_seconds / 60)} min ETA`}`],
-    [`Cache — ${metricLabel}`, `${accounting.cache_hits || 0} hits · ${accounting.attempts || 0} provider attempts`],
-    [`Coverage — ${metricLabel}`, `${Math.round(Number(coverage.ai || 0) * 100)}% AI · ${Math.round(Number(coverage.technical || 0) * 100)}% technical`],
-  ];
-  for (const [label, text] of rows) { const row = element("div", "metric"); row.append(element("span", "", label), element("strong", "", text)); host.append(row); }
-  $("#cancelOrganization").hidden = value.status !== "running"; $("#resumeOrganization").hidden = !["cancelled", "partial"].includes(value.status); $("#reviewPartial").hidden = !value.assembly_id;
-  state.assemblyId = value.assembly_id || null;
-}
-
-function visibleRouteNodeIds() {
-  const visible = visiblePage().nodes;
-  const selected = visible.find((node) => node.id === state.selectedId) || visible[0];
-  const candidates = state.mode === "ai"
-    ? selected?.member_route_node_ids || []
-    : visible.map((node) => node.id);
-  const ids = [...new Set(candidates)].slice(0, 6);
-  const total = state.mode === "ai"
-    ? Number(state.page?.coverage?.authoritative_route_nodes || ids.length)
-    : Number(state.page?.total_nodes || ids.length);
-  if (total > 1 && ids.length >= total) ids.pop();
-  return ids;
-}
-
-async function selectVisibleForAI() {
-  const nodeIds = visibleRouteNodeIds(); if (!nodeIds.length) throw new Error("No visible story nodes are available for a bounded window");
-  state.windowResolution = await api.resolveBoundedWindow({ node_ids: nodeIds });
-  api.setOrganizationSelection([], [state.windowResolution.selection_request]);
-  const window = state.windowResolution.window;
-  $("#scopePreview").textContent = `${window.node_ids.length} nodes · ${window.internal_edge_ids.length} internal edges · ${window.boundary_node_ids.length} boundary nodes · ${window.boundary_edge_ids.length} boundary edges · ${window.evidence_ids.length} evidence · ${window.fact_ids.length} facts · input ${window.input_hash} · authority ${window.authority_hash}`;
-  return state.windowResolution;
-}
-
-async function prepareOrganization() {
-  try {
-    if (!state.windowResolution) await selectVisibleForAI();
-    state.prepared = await api.prepareOrganization();
-    const facts = $("#consentFacts"); facts.replaceChildren(); const prepared = state.prepared; const counts = prepared.selected_counts; const budgets = prepared.budgets; const model = prepared.model; const window = prepared.windows[0];
-    const rows = [
-      ["Selection", `${counts.work_units} bounded work unit · ${counts.nodes} nodes · ${counts.internal_edges} internal edges`],
-      ["Boundaries", `${counts.boundary_nodes} nodes · ${counts.boundary_edges} edges`],
-      ["Boundary node IDs", window?.boundary_node_ids?.join(", ") || "none"],
-      ["Boundary edge IDs", window?.boundary_edge_ids?.join(", ") || "none"],
-      ["Evidence / facts", `${counts.evidence} / ${counts.facts}`],
-      ["Window", prepared.window_ids.join(", ")],
-      ["Input hash", window?.input_hash || "n/a"], ["Authority hash", prepared.authority_hash], ["Selection hash", prepared.selection_hash],
-      ["Recovered-source acknowledgement", prepared.recovered_source_acknowledgement],
-      ["Provider", `${model.id} · ${model.reasoning} reasoning · fast mode ${model.fast_mode ? "on" : "off"}`],
-      ["Time budgets", `${budgets.soft_seconds}s soft · ${budgets.hard_seconds}s hard`], ["Token budgets", `${budgets.soft_tokens.toLocaleString()} soft · ${budgets.hard_tokens.toLocaleString()} hard`], ["Call budget", budgets.hard_calls],
-      ["Cache", `${prepared.cached} cached · ${prepared.validated} validated`],
-    ];
-    for (const [label, value] of rows) facts.append(element("dt", "", label), element("dd", "", value));
-    $("#consentDialog").showModal();
-  } catch (error) { toast(error.message); }
-}
-
-async function startOrganization() {
-  if (!state.prepared?.run_id) { toast("Prepared run is unavailable"); return; }
-  try { state.organization = await api.startOrganization(state.prepared); renderOrganization(); pollOrganization(); } catch (error) { toast(error.message); }
-}
-
-async function pollOrganization() {
-  const active = new Set(["running", "starting", "cancelling", "queued"]);
-  while (active.has(state.organization?.status)) { await new Promise((resolve) => setTimeout(resolve, 900)); await loadOrganization(); }
-  if (["complete", "partial", "review", "applied", "cancelled", "failed"].includes(state.organization?.status)) renderOrganization();
-}
-
-function showReview() {
-  const coverage = state.organization?.coverage || {}; $("#reviewCoverage").textContent = `${Math.round(Number(coverage.ai || 0) * 100)}% AI coverage · ${Math.round(Number(coverage.technical || 0) * 100)}% technical fallback`;
-  const host = $("#reviewCandidates"); host.replaceChildren(); const candidates = state.organization?.assembly?.items || state.organization?.candidates || [];
-  for (const candidate of candidates) { const result = candidate.result || candidate; const article = element("article", "review-candidate"); article.append(element("strong", "", result.title || result.scope_id || candidate.scope_id || "Validated scope"), element("p", "", result.summary || `${String(candidate.status || "candidate").replaceAll("_", " ")} · evidence-bounded`)); const claims = result.claims || result.organization_result?.groups?.flatMap((group) => group.claims || []) || []; for (const claim of claims) article.append(element("span", "candidate-claim", claim.text || claim.claim || String(claim))); if (candidate.correction || result.correction) article.append(element("span", "correction", "Reviewer correction included")); if (candidate.pinned || result.pinned) article.append(element("span", "pin", "Pinned")); host.append(article); }
-  if (!host.children.length) host.append(element("p", "muted", "No reviewable groups were returned.")); $("#applyAssembly").disabled = !state.assemblyId; $("#reviewDialog").showModal();
-}
 
 async function showDiagnostics() { try { const data = await api.diagnostics(); const host = $("#diagnosticsContent"); host.replaceChildren(); for (const [label, value] of Object.entries(data)) { const row = element("div", "diagnostic-row"); row.append(element("strong", "", label.replaceAll("_", " ")), element("span", "", Array.isArray(value) ? value.join(" · ") : value)); host.append(row); } $("#diagnosticsDialog").showModal(); } catch (error) { toast(error.message); } }
 
@@ -2480,37 +1645,9 @@ function bind() {
     showPrimary("progress"); const completed = await pollAnalysis(); if (["complete", "completed"].includes(completed.state)) toast("Project refreshed locally");
   });
   $("#cancelAnalysis").addEventListener("click", async () => { await api.cancelAnalysis(); await pollAnalysis(); });
-  $("#searchInput").addEventListener("input", () => {
-    clearTimeout(searchM10WholeGraph.timer);
-    searchM10WholeGraph.timer = setTimeout(() => searchM10WholeGraph().catch((error) => toast(error.message)), 180);
-  });
-  $("#filterButton").addEventListener("click", () => { const panel = $("#filterPanel"); panel.hidden = !panel.hidden; $("#filterButton").setAttribute("aria-expanded", String(!panel.hidden)); });
-  $("#narrativeToggle").addEventListener("change", (event) => {
-    state.narrativeEnabled = event.target.checked;
-    if (state.mode !== "scenes" && state.narrativeEnabled) toast("Narrative overlays appear on the deterministic Scenes view");
-    renderMap();
-  });
-  $("#narrativeJobsButton").addEventListener("click", () => {
-    const drawer = $("#narrativeDrawer"); drawer.hidden = !drawer.hidden;
-    $("#narrativeJobsButton").setAttribute("aria-expanded", String(!drawer.hidden));
-    if (!drawer.hidden) renderNarrativeDrawer();
-  });
-  $("#closeNarrativeDrawer").addEventListener("click", () => { $("#narrativeDrawer").hidden = true; $("#narrativeJobsButton").setAttribute("aria-expanded", "false"); });
-  $("#narrativeRunForm").addEventListener("submit", prepareNarrativeRun);
-  $("#confirmNarrative").addEventListener("click", confirmNarrativeRun);
-  $("#cancelNarrative").addEventListener("click", cancelNarrativeRun);
-  $("#retryNarrative").addEventListener("click", retryNarrativeRun);
-  for (const [id, key] of [["technicalToggle", "include_technical"], ["unresolvedToggle", "include_unresolved"]]) $("#" + id).addEventListener("change", (event) => { state.settings[key] = event.target.checked; renderMap(); api.saveSettings(state.settings).catch(() => {}); });
-  $("#sceneMapButton").addEventListener("click", () => switchMode("scenes")); $("#aiMapButton").addEventListener("click", () => switchMode("ai")); $("#inspectionMapButton").addEventListener("click", () => switchMode("inspection")); $("#canonicalMapButton").addEventListener("click", () => switchMode("canonical")); $("#technicalMapButton").addEventListener("click", () => switchMode("technical"));
-  $("#previousPage").addEventListener("click", previousRoutePage); $("#nextPage").addEventListener("click", nextRoutePage);
-  $("#solveRoute").addEventListener("click", runRouteSolve); $("#retryRoute").addEventListener("click", runRouteSolve); $("#cancelRoute").addEventListener("click", cancelRouteSolve); $("#exportRouteJson").addEventListener("click", exportRouteJson);
-  $("#openRouteEvidence").addEventListener("click", () => {
-    const candidate = state.route.result?.recommended;
-    const target = candidate?.selected_occurrence_id || state.route.activeSourceId || state.route.destination?.target_id || routeArray(candidate?.scene_ids).at(-1);
-    if (target) openDetail(target);
-  });
-  $("#zoomIn").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(.1) * 100)}%`; }); $("#zoomOut").addEventListener("click", () => { $("#zoomValue").textContent = `${Math.round(graph.zoomBy(-.1) * 100)}%`; }); $("#fitMap").addEventListener("click", () => { graph.fit(); $("#zoomValue").textContent = `${Math.round(graph.scale * 100)}%`; });
-  $("#backToRouteMap").addEventListener("click", () => { if (state.storyPage && state.storySelectionId) returnToStorySelection(false); else { showLevel("route_map"); graph.world.querySelector(`[data-element-id="${CSS.escape(state.selectedId || "")}"]`)?.focus(); } }); $("#detailView").addEventListener("keydown", (event) => { if (event.key === "Escape") $("#backToRouteMap").click(); });
+
+  $("#backToRouteMap").addEventListener("click", () => { if (state.storyPage && state.storySelectionId) returnToStorySelection(false); else showLevel("route_map"); });
+  $("#detailView").addEventListener("keydown", (event) => { if (event.key === "Escape") $("#backToRouteMap").click(); });
   $("#closeStoryPath").addEventListener("click", closeStoryPath);
   $("#returnToStorySelection").addEventListener("click", () => returnToStorySelection(true));
   $("#storyDetailAction").addEventListener("click", () => { if (state.storySelectionId) (storyReaderActive() ? openStoryReaderDetail(state.storySelectionId) : openStoryDetail(state.storySelectionId)); });
@@ -2518,39 +1655,64 @@ function bind() {
     const cursor = $("#storyLoadMore").dataset.cursor; if (!cursor || !state.storyReader.currentSectionId) return;
     $("#storyLoadMore").disabled = true; loadStoryReaderSection(state.storyReader.currentSectionId, { cursor, append: true });
   });
+
   $("#storySearchInput").addEventListener("input", () => {
-    clearTimeout(searchStoryReader.timer); const query = $("#storySearchInput").value.trim(); searchStoryReader.timer = setTimeout(() => searchStoryReader(query), 180);
+    clearTimeout(bind.searchTimer);
+    const query = $("#storySearchInput").value;
+    bind.searchTimer = setTimeout(() => {
+      if (progressiveStoryActive()) applyStorySearch(query);
+      else searchStoryReader(query.trim());
+    }, 140);
   });
+  $("#storySearchClear").addEventListener("click", () => { $("#storySearchInput").value = ""; applyStorySearch(""); $("#storySearchInput").focus(); });
   $("#storyHideNew").addEventListener("change", (event) => {
-    state.storyReader.hideNew = event.target.checked; $("#storyBrowser").classList.toggle("hide-new", state.storyReader.hideNew);
+    state.storyReader.hideNew = event.target.checked;
+    $("#storyBrowser").classList.toggle("hide-new", state.storyReader.hideNew);
     scheduleStoryReaderViewSave();
   });
-  $("#storyBrowser").addEventListener("scroll", scheduleStoryReaderViewSave, { passive: true });
+  $("#storyBrowser").addEventListener("scroll", () => { scheduleStoryReaderViewSave(); scheduleStoryReadingPosition(); }, { passive: true });
+
   $("#closeStoryApproval").addEventListener("click", () => $("#storyApprovalDialog").close());
   $("#storyPrepareAction").addEventListener("click", prepareStoryWorkflow);
   $("#storyRunDetails").addEventListener("toggle", loadPublishedStoryWorkflowDetails);
   $("#approveStoryGeneration").addEventListener("click", () => runStoryWorkflow("start"));
   $("#storyCancelRun").addEventListener("click", () => runStoryWorkflow("cancel"));
   $("#storyResumeRun").addEventListener("click", () => runStoryWorkflow("resume"));
-  $("#openCompatibilityMap").addEventListener("click", async () => { showStorySurface(false); const available = await resetRoutePaging(); await loadNarrative(); await loadNarrativeRunStatus(); if (available) renderMap(); await loadOrganization(); });
-  $("#canonicalEscapeButton").addEventListener("click", openCanonicalRecord);
-  $("#selectVisibleNodes").addEventListener("click", async () => { try { await selectVisibleForAI(); toast("Exact provider-free preview ready"); } catch (error) { toast(error.message); } });
-  $("#organizeButton").addEventListener("click", prepareOrganization); $("#resumeOrganization").addEventListener("click", async () => { state.prepared = null; await prepareOrganization(); });
-  $("#confirmOrganization").addEventListener("click", async (event) => { event.preventDefault(); $("#consentDialog").close(); await startOrganization(); });
-  $("#cancelOrganization").addEventListener("click", async () => { state.organization = await api.cancelOrganization(); renderOrganization(); toast("Run cancelling; validated scopes are preserved"); });
-  $("#reviewPartial").addEventListener("click", showReview); $("#closeReview").addEventListener("click", () => $("#reviewDialog").close());
-  $("#discardAssembly").addEventListener("click", async () => { if (!state.assemblyId) { toast("Candidate assembly is unavailable"); return; } try { await api.discardAssembly(state.assemblyId); state.organization = await api.organization(); renderOrganization(); $("#reviewDialog").close(); toast("Candidate discarded from the project"); } catch (error) { toast(error.message); } });
-  $("#applyAssembly").addEventListener("click", async () => { state.organization = await api.applyAssembly(state.assemblyId); $("#reviewDialog").close(); await resetRoutePaging(); renderOrganization(); toast("Candidate applied; AI Story Map is ready to review"); });
-  $("#diagnosticsButton").addEventListener("click", showDiagnostics); $("#closeDiagnostics").addEventListener("click", () => $("#diagnosticsDialog").close());
-  $("#settingsButton").addEventListener("click", () => { const choices = ["system", "light", "dark"]; state.settings.theme = choices[(choices.indexOf(state.settings.theme) + 1) % choices.length]; document.documentElement.dataset.theme = state.settings.theme; graph.draw(); api.saveSettings(state.settings).catch(() => {}); });
+
+  $("#diagnosticsButton").addEventListener("click", showDiagnostics);
+  $("#closeDiagnostics").addEventListener("click", () => $("#diagnosticsDialog").close());
+  $("#settingsButton").addEventListener("click", () => {
+    const choices = ["system", "light", "dark"];
+    state.settings.theme = choices[(choices.indexOf(state.settings.theme) + 1) % choices.length];
+    document.documentElement.dataset.theme = state.settings.theme;
+    api.saveSettings(state.settings).catch(() => {});
+  });
   $("#quitButton").addEventListener("click", async () => { await api.shutdown(); document.body.replaceChildren(element("main", "shutdown-message", "Story Mapper has closed. You can close this tab.")); });
-  document.addEventListener("keydown", (event) => { if (event.key === "/" && !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) { event.preventDefault(); $("#searchInput").focus(); } });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "/" && !["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) { event.preventDefault(); $("#storySearchInput").focus(); }
+  });
+  window.addEventListener("resize", scheduleStoryReadingPosition, { passive: true });
 }
 
 async function start() {
   bind();
-  try { const bootstrap = await api.bootstrap(); api.configureM12(bootstrap.routes?.m12); api.configureStoryMapV2(bootstrap.routes?.story_map_v2); api.configureStoryWorkflow(bootstrap.routes?.story_map_v2_workflow); const readerContract = storyReaderContractFromBootstrap(bootstrap); if (readerContract) { state.storyReader.contract = api.configureStoryReader(readerContract); } state.settings = { ...state.settings, ...(bootstrap.settings || {}) }; document.documentElement.dataset.theme = state.settings.theme; $("#technicalToggle").checked = state.settings.include_technical; $("#unresolvedToggle").checked = state.settings.include_unresolved; renderRecent(bootstrap.recent_projects || []); renderRoutePanel(); showPrimary("welcome"); } catch (error) { renderRecent([]); renderRoutePanel(); toast(error.message); }
+  try {
+    const bootstrap = await api.bootstrap();
+    api.configureM12(bootstrap.routes?.m12);
+    api.configureStoryMapV2(bootstrap.routes?.story_map_v2);
+    api.configureStoryWorkflow(bootstrap.routes?.story_map_v2_workflow);
+    const readerContract = storyReaderContractFromBootstrap(bootstrap);
+    if (readerContract) state.storyReader.contract = api.configureStoryReader(readerContract);
+    state.settings = { ...state.settings, ...(bootstrap.settings || {}) };
+    document.documentElement.dataset.theme = state.settings.theme;
+    renderRecent(bootstrap.recent_projects || []);
+    showPrimary("welcome");
+  } catch (error) {
+    renderRecent([]);
+    toast(error.message);
+  }
 }
 
 start();
-export { api, graph, state, element, normalizedPage, loadOrganization, loadStoryMapV2, renderStoryMapV2 };
+export { api, state, element, loadStoryMapV2, renderStoryMapV2 };

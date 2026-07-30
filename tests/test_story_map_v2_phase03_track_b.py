@@ -217,19 +217,23 @@ def test_story_browser_is_a_two_level_normal_flow_surface() -> None:
     assert 'number.setAttribute("aria-label", `Event ${ordinal}`)' in assets
     assert "grid-template-columns: minmax(0, 1fr)" in css
     assert "@media (min-width: 1100px)" not in css
-    assert "repeat(var(--story-arm-count), minmax(0, 1fr))" in css
+    assert ".story-browser.is-progressive-story .story-arms" in css
+    # Sibling arms share the reading width as equal columns so the connectors line up.
+    assert "repeat(var(--story-arm-count, 2), minmax(0, 1fr))" in css
+    assert "width: max-content" not in css.split(".story-browser.is-progressive-story .story-arm {")[1].split("}")[0]
     assert "story-descendant-route" in assets and "story-choice-sequence" in assets
     assert "choice.control_kind" in assets and "arm.outcome_kind" in assets
     assert "repeat(2, minmax(0, 1fr))" in css
     assert ".story-path-panel :where" in css and "overflow-wrap: anywhere" in css
-    assert "@media (max-width: 780px)" in css
+    assert "@media (max-width: 900px)" in css
     assert not re.search(r"#diagnosticsButton[^}]*display\s*:\s*none", css)
     assert not re.search(r"https?://|//cdn", assets, re.IGNORECASE)
-    story_surface = html[html.index('id="storyBrowser"') : html.index('<div class="commandbar">')]
-    assert not re.search(r"fit.?all|zoom", story_surface, re.IGNORECASE)
-    path_surface = story_surface[
-        story_surface.index('id="storyPathPanel"') : story_surface.index("</aside>")
+    story_surface = html[
+        html.index('id="storyBrowser"') : html.index('id="storyUnavailablePanel"')
     ]
+    assert not re.search(r"fit.?all|zoom", story_surface, re.IGNORECASE)
+    path_start = story_surface.index('id="storyPathPanel"')
+    path_surface = story_surface[path_start : story_surface.index("</aside>", path_start)]
     assert '<details id="storyPathAnalysisNotes"' in path_surface
     assert "<summary>Analysis / technical details</summary>" in path_surface
     assert not re.search(r'id="storyPathAnalysisNotes"[^>]*\bopen\b', path_surface)
@@ -636,11 +640,12 @@ def test_story_map_v2_is_primary_without_removing_compatibility_maps() -> None:
     assert "return false" in story_loader
     workspace = app[
         app.index("async function enterAvailableWorkspace") : app.index("function nextCursor")
+        if "function nextCursor" in app
+        else len(app)
     ]
     assert "await loadStoryMapV2()" in workspace
-    assert "await resetRoutePaging()" in workspace
     assert "if (storyAvailable)" in workspace
-    assert "loadComparison" in app and "renderMap" in app
+    assert "showStoryUnavailable()" in workspace
     assert "arm.rejoin_binding" in app
     assert (
         "rejoin_node_id"
@@ -664,12 +669,14 @@ def test_phase05_progressive_page_precedes_reader_and_shows_human_targets() -> N
     )
     assert 'value.startsWith("story:")' in app
     assert "humanStoryTarget(choice.key)" in app
-    assert 'progressive ? "Progressive proof"' in app
+    assert 'wholeGame ? "Whole story" : progressive ? "Progressive proof"' in app
+    assert "if (!progressiveStoryActive()) await restoreStoryWorkflow();" in app
     assert "Goes to ${destination}" in app
-    assert 'targetKind === "ending" ? "Ends at"' in app
-    assert 'targetKind === "unresolved" ? "Unresolved at" : "Rejoins at"' in app
+    assert 'kind === "ending" ? "Ends at"' in app
+    assert 'kind === "unresolved" ? "Unresolved at" : "Rejoins at"' in app
     assert "item.outline_summary" in app
     assert "item.detail_summary" in app
+    assert 'if (summary && summary.trim() !== title.trim())' in app
     assert 'element("div", "story-inline-detail")' in app
     assert 'element("details", "story-technical-disclosure")' in app
     assert '"Source / Evidence"' in app
@@ -677,7 +684,7 @@ def test_phase05_progressive_page_precedes_reader_and_shows_human_targets() -> N
     assert ".story-browser.is-progressive-story .story-arms" in css
     assert ".story-browser.is-progressive-story .story-arm::before" in css
     assert ".story-inline-summary" in css
-    assert ".story-reader-shell { display: grid; width: calc(100% - 2rem);" in css
+    assert ".story-reader-shell {" in css and "display: grid" in css
 
 
 def test_story_selection_path_detail_and_scroll_context_are_explicit() -> None:

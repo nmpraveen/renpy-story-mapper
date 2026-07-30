@@ -13,9 +13,14 @@
 | Add Python-owned semantic visual roles | Complete | 11 controls and 22 arms use graph-owned roles; 12 continue, 9 rejoin, 1 ends, and 0 are unresolved |
 | Build the Terrance family-tree reader | Complete | Colored sibling forks, content-sized boxes, full-width owned descendants, labeled multi-route handoffs, expandable detail, and no 1920px page overflow |
 | User review of corrected Terrance proof | Complete | User accepted the family-tree reader after the content-sized box correction |
-| Walk the full game | Pending | Reachable-label coverage with unresolved items reported honestly |
-| Validate first 10 bulk summaries | Pending | Ten inspected useful results before parallel expansion |
-| Parallelize remaining summaries | Pending | Roughly equal work across three or four user-visible Sol/High sidebar tasks; no subagent substitution |
-| Publish and inspect full desktop timeline | Pending | Correct story order, branches, conditions, state links, rejoins, and endings |
+| Walk the full game | Complete | 149/149 labels accounted; 134 reachable, 15 unreachable, and 6 reachable unresolved mechanics explicit |
+| Validate first 10 bulk summaries | Complete | 10/10 fidelity PASS; 7 packet shapes PASS and 3 PARTIAL with bounded cleanup identified |
+| Correct whole-game corridor packets | Complete | 597 narrative packets from 604 graph-backed chains; 12,183 included + 8 reasoned non-story exclusions = all 12,191 reachable statements; all incoming rejoin origins and next controls retained |
+| Parallelize remaining summaries | Complete | Four user-visible Sol/High tasks produced 587/587 summaries with zero deferrals; combined result is 597/597 fidelity PASS |
+| Publish and inspect full desktop timeline | Complete | 594 corridor summaries attached exactly once; zero vague structure fallbacks or borrowed branch summaries; 1920px browser proof preserves 111 events, 260 controls, 571 arms, scrolling, semantic colors, and zero horizontal overflow |
+| Simplify the browser around the scrolling reader | Complete | Obsolete map and workflow surfaces removed; story index, local search, wider forks, collapsible deep branches, and readable prose verified at 1920px |
+| Compose cross-label routes into one progressive tree | Pending | Downstream label events remain beneath the arm that reaches them; sibling routes no longer appear as consecutive chronology |
+| Humanize route gates, rejoins, and state back-links | Pending | Default reader contains story language and links to earlier choices; raw Python remains in Technical detail |
+| User acceptance of the whole-game timeline | Pending | The user can follow the complete story and its routes by scrolling without interpreting code labels |
 
 Use only `Pending`, `In progress`, `Blocked`, or `Complete`.

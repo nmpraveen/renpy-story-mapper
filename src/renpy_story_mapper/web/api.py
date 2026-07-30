@@ -1395,6 +1395,7 @@ class ProjectApi:
             )
         if method == "POST" and path == STORY_MAP_V2_API_ROUTES["map"]:
             exact_fields(body, allowed=STORY_MAP_V2_MAP_REQUEST_FIELDS)
+            story_map_v2_page: object
             try:
                 with Project.open(self._project()) as opened_project:
                     try:

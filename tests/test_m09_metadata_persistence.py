@@ -240,16 +240,6 @@ def test_opening_metadata_project_in_browser_is_provider_free(tmp_path: Path) ->
         ).fetchone()[0] == authority_hash
 
 
-def test_packaged_browser_consumes_metadata_display_fields() -> None:
-    app = (
-        Path(__file__).parents[1] / "src" / "renpy_story_mapper" / "web" / "static" / "app.js"
-    ).read_text(encoding="utf-8")
-
-    assert "item.speaker_display_name && item.text" in app
-    assert "item.variable_display_name" in app
-    assert 'addFactGroup(facts, "Dialogue", detail.dialogue, "dialogue")' in app
-
-
 def test_browser_scene_title_is_fail_closed_for_duplicate_keys(tmp_path: Path) -> None:
     path = _project(tmp_path)
     metadata = _metadata()

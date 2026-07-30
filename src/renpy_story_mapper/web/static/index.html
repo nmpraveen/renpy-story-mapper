@@ -17,27 +17,47 @@
   <div class="app-shell">
     <header class="masthead">
       <button id="homeButton" class="wordmark" type="button" aria-label="Return to welcome"><span class="wordmark-mark" aria-hidden="true">R</span><span>Story Mapper</span></button>
-      <div id="projectIdentity" class="project-identity" hidden><strong id="projectName"></strong><span id="projectBadge" class="status-badge">Technical Structure</span></div>
+      <div id="projectIdentity" class="project-identity" hidden><strong id="projectName"></strong><span id="projectBadge" class="status-badge">Story</span></div>
       <div class="masthead-actions">
         <button id="refreshProject" class="quiet-button" type="button" hidden>Refresh</button>
         <button id="diagnosticsButton" class="quiet-button" type="button">Diagnostics</button>
-        <button id="settingsButton" class="quiet-button" type="button" aria-label="Change color theme">Theme</button>
+        <button id="settingsButton" class="quiet-button" type="button" aria-label="Change colour theme">Theme</button>
         <button id="quitButton" class="quiet-button" type="button">Quit</button>
       </div>
     </header>
 
     <main id="main">
       <section id="welcomeView" class="welcome" aria-labelledby="welcomeTitle">
-        <div class="welcome-copy"><p class="eyebrow">Script-to-story timeline</p><h1 id="welcomeTitle">Load a game.<br>Read its story.</h1><p>Follow the story, choices, conditions, routes, and rejoins in one scrolling timeline.</p>
-          <div class="welcome-actions" aria-label="Open a story source"><button class="primary-button" type="button" data-open-kind="folder">Open Folder</button><button class="secondary-button" type="button" data-open-kind="archive">Open Archive</button><button class="secondary-button" type="button" data-open-kind="file">Open File</button><button class="secondary-button" type="button" data-open-kind="project">Open Project</button></div>
+        <div class="welcome-copy">
+          <p class="eyebrow">Script-to-story timeline</p>
+          <h1 id="welcomeTitle">Load a game.<br>Read its story.</h1>
+          <p class="welcome-lede">Follow the story, choices, conditions, routes, and rejoins in one scrolling timeline.</p>
+          <div class="welcome-actions" aria-label="Open a story source">
+            <button class="primary-button" type="button" data-open-kind="folder">Open folder</button>
+            <button class="secondary-button" type="button" data-open-kind="archive">Open archive</button>
+            <button class="secondary-button" type="button" data-open-kind="file">Open file</button>
+            <button class="secondary-button" type="button" data-open-kind="project">Open project</button>
+          </div>
         </div>
-        <section class="recent-section" aria-labelledby="recentTitle"><div class="section-heading"><h2 id="recentTitle">Recent projects</h2><span id="recentCount"></span></div><div id="recentProjects" class="recent-grid"></div></section>
+        <section class="recent-section" aria-labelledby="recentTitle">
+          <div class="section-heading"><h2 id="recentTitle">Recent projects</h2><span id="recentCount"></span></div>
+          <div id="recentProjects" class="recent-grid"></div>
+        </section>
       </section>
 
-      <section id="progressView" class="progress-view" hidden aria-labelledby="progressTitle"><div class="progress-card"><p class="eyebrow">Static analysis</p><h1 id="progressTitle">Reading story structure</h1><p id="progressStage" aria-live="polite">Preparing</p><div class="progress-track" role="progressbar" aria-label="Analysis progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="progressBar"></i></div><div class="progress-meta"><span id="progressPercent">0%</span><span id="progressElapsed">0:00</span></div><button id="cancelAnalysis" class="secondary-button" type="button">Cancel</button></div></section>
+      <section id="progressView" class="progress-view" hidden aria-labelledby="progressTitle">
+        <div class="progress-card">
+          <p class="eyebrow">Static analysis</p>
+          <h1 id="progressTitle">Reading story structure</h1>
+          <p id="progressStage" aria-live="polite">Preparing</p>
+          <div class="progress-track" role="progressbar" aria-label="Analysis progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="progressBar"></i></div>
+          <div class="progress-meta"><span id="progressPercent">0%</span><span id="progressElapsed">0:00</span></div>
+          <button id="cancelAnalysis" class="secondary-button" type="button">Cancel</button>
+        </div>
+      </section>
 
       <section id="workspaceView" class="workspace" hidden aria-label="Story workspace">
-        <section id="routeMapView" class="route-map-view" data-level="route_map" aria-labelledby="mapTitle">
+        <section id="routeMapView" class="route-map-view" data-level="route_map">
           <section id="storyBrowser" class="story-browser" hidden aria-labelledby="storyTitle">
             <header class="story-hero">
               <div class="story-hero-copy">
@@ -48,7 +68,6 @@
               <div class="story-hero-meta">
                 <span id="storyMapStatus" class="status-badge">Chronological map</span>
                 <button id="storyPrepareAction" class="accent-button" type="button" disabled>Generate</button>
-                <button id="openCompatibilityMap" class="quiet-button" type="button">Technical view</button>
               </div>
             </header>
 
@@ -66,7 +85,7 @@
             </section>
 
             <details id="storyRunDetails" class="story-run-details" hidden>
-              <summary>AI progress details</summary>
+              <summary>Generation details</summary>
               <div class="story-run-table-wrap">
                 <table class="story-run-table">
                   <thead><tr><th>Query</th><th>AI response</th><th>Summary</th><th>Comments</th></tr></thead>
@@ -76,13 +95,29 @@
             </details>
 
             <div class="story-reader-shell">
+              <aside id="storyRail" class="story-rail" aria-label="Story index">
+                <div class="story-rail-inner">
+                  <div class="story-rail-head">
+                    <p class="eyebrow">Story index</p>
+                    <span id="storyRailPosition" class="story-rail-position" aria-live="polite"></span>
+                  </div>
+                  <div class="story-rail-progress" aria-hidden="true"><i id="storyRailProgressBar"></i></div>
+                  <nav id="storySectionIndex" class="story-section-index" aria-label="Story index"></nav>
+                  <dl id="storyRailStats" class="story-rail-stats"></dl>
+                </div>
+              </aside>
+
               <article id="storyGuide" class="story-guide" aria-label="Chronological story">
                 <div class="story-reader-tools">
-                  <label class="story-search"><span class="sr-only">Search the whole story</span><input id="storySearchInput" type="search" maxlength="256" placeholder="Search the whole story" autocomplete="off"></label>
-                  <label class="story-new-toggle"><input id="storyHideNew" type="checkbox"> Hide NEW</label>
+                  <label class="story-search">
+                    <span class="sr-only">Search the whole story</span>
+                    <input id="storySearchInput" type="search" maxlength="256" placeholder="Search the whole story" autocomplete="off">
+                  </label>
+                  <p id="storySearchStatus" class="story-search-status" role="status" aria-live="polite"></p>
+                  <button id="storySearchClear" class="quiet-button" type="button" hidden>Clear</button>
+                  <label id="storyHideNewControl" class="story-new-toggle" hidden><input id="storyHideNew" type="checkbox"> Hide NEW</label>
                 </div>
                 <div id="storySearchResults" class="story-search-results" hidden aria-label="Story search results"></div>
-                <nav id="storySectionIndex" class="story-section-index" aria-label="Story sections"></nav>
                 <div id="storySections" class="story-sections"></div>
                 <button id="storyLoadMore" class="secondary-button story-load-more" type="button" hidden>Continue section</button>
                 <details id="storyAnalysisNotes" class="story-analysis-notes">
@@ -107,91 +142,39 @@
                   <ol id="storyPathSteps" class="story-path-steps"></ol>
                   <section id="storyPathUncertaintyGroup" class="story-witness-group story-path-warnings" hidden><h3>Uncertainty</h3><div id="storyPathWarnings"></div></section>
                 </details>
-                <button id="storyDetailAction" class="secondary-button" type="button">Detail / Evidence</button>
+                <button id="storyDetailAction" class="secondary-button" type="button">Source / Evidence</button>
               </aside>
             </div>
           </section>
 
-          <div class="commandbar">
-            <div><p id="mapEyebrow" class="eyebrow">AI Story Map</p><h1 id="mapTitle">The story at a glance</h1></div>
-            <div class="view-switch" role="group" aria-label="Compare map presentations"><button id="sceneMapButton" class="switch-button" type="button" aria-pressed="true">Scenes</button><button id="aiMapButton" class="switch-button" type="button" aria-pressed="false">AI Story Map</button><button id="inspectionMapButton" class="switch-button" type="button" aria-pressed="false">Inspection</button><button id="canonicalMapButton" class="switch-button" type="button" aria-pressed="false">Canonical</button><button id="technicalMapButton" class="switch-button" type="button" aria-pressed="false">M07 Structure</button></div>
-            <label class="search-control"><span class="sr-only">Search visible story events</span><input id="searchInput" type="search" placeholder="Search map  /" autocomplete="off" aria-keyshortcuts="/"></label>
-            <label class="narrative-toggle"><input id="narrativeToggle" type="checkbox"> Narrative</label>
-            <button id="narrativeJobsButton" class="quiet-button" type="button" aria-expanded="false" aria-controls="narrativeDrawer">Jobs</button>
-            <button id="filterButton" class="quiet-button" type="button" aria-expanded="false" aria-controls="filterPanel">View</button>
-            <button id="organizeButton" class="accent-button" type="button">Preview AI scope</button>
-            <div id="filterPanel" class="popover" hidden><label><input id="technicalToggle" type="checkbox" checked> Technical corridors</label><label><input id="unresolvedToggle" type="checkbox" checked> Unresolved paths</label></div>
-          </div>
-
-          <div id="fallbackNotice" class="fallback-notice" hidden role="status"><strong id="fallbackTitle">Scene presentation unavailable.</strong><span id="fallbackReason">M10 Inspection is shown.</span></div>
-          <div id="analysisFailureBanner" class="analysis-failure-banner" hidden role="alert"><strong id="analysisFailureTitle">Analysis incomplete</strong><span id="analysisFailureSummary"></span><span id="analysisCompletedPhases"></span></div>
-          <section id="partialAnalysisPanel" class="partial-analysis-panel" hidden aria-labelledby="partialAnalysisTitle"><p class="eyebrow">Partial analysis</p><h2 id="partialAnalysisTitle">No map is available yet</h2><p id="partialAnalysisSummary"></p></section>
-          <div id="mapLayout" class="map-layout">
-            <aside class="line-index" aria-labelledby="lineIndexTitle"><h2 id="lineIndexTitle">Routes</h2><section id="chapterIndex" class="chapter-index" hidden><h3>Chapters</h3><div id="chapterList"></div></section><div id="laneList" class="lane-list"></div><div class="shape-key" aria-label="Map marks"><span>◆ choice</span><span>◇ merge</span><span>↻ loop</span><span>■ ending</span><span>→ continuation</span><span>? unresolved</span></div><div id="coverageSummary" class="coverage-summary"></div></aside>
-
-            <section class="map-panel">
-              <header class="map-tools" aria-label="Map view"><span id="pageStatus">Events 1–30</span><span id="generationStatus" class="status-badge">Current</span><button id="previousPage" class="quiet-button" type="button">Previous</button><button id="nextPage" class="quiet-button" type="button">Next</button><span class="tool-divider"></span><button id="zoomOut" class="icon-button" type="button" aria-label="Zoom out">−</button><output id="zoomValue" aria-live="polite">100%</output><button id="zoomIn" class="icon-button" type="button" aria-label="Zoom in">+</button><button id="fitMap" class="quiet-button" type="button">Fit</button></header>
-              <div id="mapViewport" class="map-viewport" tabindex="0" role="application" aria-label="Story map. Arrow keys move selection. Enter opens Detail and Evidence. Plus or minus zooms; zero fits."><canvas id="edgeCanvas" aria-hidden="true"></canvas><div id="mapWorld" class="map-world" role="listbox" aria-label="Story map elements"></div></div>
-              <footer class="map-status"><span id="visibleStatus">0 events</span><span id="selectionStatus">No selection</span><span>Pan · Zoom · Fit</span></footer>
-            </section>
-
-            <aside id="routePanel" class="route-panel" aria-labelledby="routePanelTitle">
-              <header class="route-panel-heading"><div><p class="eyebrow">Route</p><h2 id="routePanelTitle">Reach this scene</h2></div><span id="routeBadge" class="route-badge" hidden></span></header>
-              <p id="routeDestination" class="route-destination">Select a scene or M10 record.</p>
-              <button id="solveRoute" class="accent-button route-action" type="button" disabled>How do I reach this?</button>
-              <p id="routeStatus" class="route-status" role="status" aria-live="polite">Select a supported destination.</p>
-              <div class="route-controls"><button id="cancelRoute" class="secondary-button" type="button" hidden>Cancel</button><button id="retryRoute" class="secondary-button" type="button" hidden>Retry</button><button id="exportRouteJson" class="secondary-button" type="button" hidden>Export JSON</button></div>
-              <div id="routeResult" class="route-result" hidden>
-                <section id="recommendedRoute" aria-labelledby="recommendedRouteTitle"><h3 id="recommendedRouteTitle">Recommended route</h3><div id="recommendedRouteBody"></div></section>
-                <section id="routeAlternativesSection" aria-labelledby="routeAlternativesTitle" hidden><h3 id="routeAlternativesTitle">Alternatives</h3><div id="routeAlternatives"></div></section>
-                <details id="routeTechnical"><summary>Technical status and evidence</summary><div id="routeTechnicalBody"></div><button id="openRouteEvidence" class="quiet-button" type="button">Open Detail / Evidence</button></details>
-              </div>
-            </aside>
-          </div>
-
-          <aside id="narrativeDrawer" class="narrative-drawer" hidden aria-labelledby="narrativeDrawerTitle">
-            <header><div><p class="eyebrow">Optional AI layer</p><h2 id="narrativeDrawerTitle">Narrative jobs</h2></div><button id="closeNarrativeDrawer" class="icon-button" type="button" aria-label="Close narrative jobs">&times;</button></header>
-            <p class="authority-note">M10 facts, M11 structure, and M12 route results remain authoritative. Cloud AI is disabled until one exact run is consented.</p>
-            <form id="narrativeRunForm" class="narrative-run-form">
-              <label>Provider model<input id="narrativeModel" type="text" maxlength="200" autocomplete="off" placeholder="Exact configured model" required></label>
-              <div class="narrative-form-row"><label>Reasoning<select id="narrativeReasoningEffort"><option value="low">Low</option><option value="medium">Medium</option><option value="high" selected>High</option><option value="xhigh">Extra high</option></select></label><label class="check-label"><input id="narrativeFastMode" type="checkbox" disabled> Fast mode off</label></div>
-              <label>Selected scope<input value="All current scenes" readonly aria-readonly="true"></label>
-              <div class="narrative-form-row"><label>Input mode<select id="narrativeMode"><option value="fact_only">Fact only</option><option value="story_text">Story text</option></select></label><label class="check-label"><input id="narrativeIncludeM12" type="checkbox" checked> Include M12</label></div>
-              <details><summary>Run limits</summary><div class="narrative-limit-grid">
-                <label>Calls<input id="narrativeCallLimit" type="number" min="1" max="100000" value="5000"></label>
-                <label>Total tokens<input id="narrativeTokenLimit" type="number" min="1" max="2000000000" value="70000000"></label>
-                <label>Time (seconds)<input id="narrativeTimeLimit" type="number" min="1" max="86400" value="3600"></label>
-                <label>Concurrency<input id="narrativeConcurrency" type="number" min="1" max="32" value="4"></label>
-              </div><p class="authority-note">Cost estimate and hard cost limit are unavailable for this adapter. Input and output token limits are also enforced.</p></details>
-              <div class="narrative-run-actions"><button id="prepareNarrative" class="accent-button" type="submit">Prepare consent</button><button id="cancelNarrative" class="secondary-button" type="button" hidden>Cancel run</button><button id="retryNarrative" class="secondary-button" type="button" hidden>Retry failed jobs</button></div>
-              <p id="narrativeRunStatus" class="route-status" aria-live="polite">Cloud AI is off. Preparing a manifest sends no story material.</p>
-            </form>
-            <div id="narrativeCoverage" class="narrative-coverage"></div>
-            <div id="narrativeJobList" class="narrative-job-list"></div>
-          </aside>
-
-          <aside id="organizationPanel" class="organization-panel" aria-labelledby="organizationTitle">
-            <div class="organization-heading"><p class="eyebrow">Bounded Luna run</p><h2 id="organizationTitle">Organization</h2><button id="selectVisibleNodes" class="secondary-button" type="button">Use visible nodes</button></div>
-            <div id="scopePreview" class="scope-preview" aria-live="polite">No story text is sent until an exact preview is confirmed.</div>
-            <div id="organizationMetrics" class="organization-metrics"></div>
-            <div class="organization-actions"><button id="cancelOrganization" class="secondary-button" type="button" hidden>Cancel</button><button id="resumeOrganization" class="secondary-button" type="button" hidden>Resume</button><button id="reviewPartial" class="secondary-button" type="button" hidden>Review</button></div>
-          </aside>
+          <section id="storyUnavailablePanel" class="story-unavailable" hidden aria-labelledby="storyUnavailableTitle">
+            <p class="eyebrow">No story yet</p>
+            <h1 id="storyUnavailableTitle">This project has no readable story map</h1>
+            <p id="storyUnavailableReason">Open a Ren'Py folder, archive, or script and the timeline is built from its execution flow.</p>
+          </section>
         </section>
 
         <section id="detailView" class="detail-view" data-level="detail_evidence" hidden aria-labelledby="detailTitle">
-          <header class="detail-command"><button id="backToRouteMap" class="back-button" type="button">← Back to Route Map</button><button id="canonicalEscapeButton" class="quiet-button" type="button" hidden>Open canonical record</button><span id="detailKind" class="status-badge"></span></header>
+          <header class="detail-command">
+            <button id="backToRouteMap" class="back-button" type="button">Back to the story</button>
+            <span id="detailKind" class="status-badge"></span>
+          </header>
           <div class="detail-layout">
-            <article class="detail-main"><p class="eyebrow">Detail / Evidence</p><h1 id="detailTitle">Selected story event</h1><p id="detailSummary" class="detail-summary"></p><nav id="pathStrip" class="path-strip" aria-label="Local predecessor and successor strip"></nav><section id="technicalMembers" class="technical-members" aria-labelledby="technicalMembersTitle"><h2 id="technicalMembersTitle">Member technical structure</h2><div id="memberGraph"></div></section><div id="detailFacts"></div><section id="derivationPanel" aria-labelledby="derivationTitle" hidden><h2 id="derivationTitle">Derivations and linked records</h2><div id="regionDerivation"></div><div id="proofDerivation"></div><div id="linkedRecords"></div></section><section id="interpretationPanel" aria-labelledby="interpretationTitle"><h2 id="interpretationTitle">Interpretation</h2><p class="authority-note">Candidates do not replace the technical map until applied. Claims are paired with deterministic evidence.</p><div id="interpretations"></div></section></article>
-            <aside class="evidence-pane" aria-labelledby="evidenceTitle"><h2 id="evidenceTitle">Source / Evidence</h2><div id="evidenceList"></div></aside>
+            <article class="detail-main">
+              <p class="eyebrow">Source and evidence</p>
+              <h1 id="detailTitle">Selected story event</h1>
+              <p id="detailSummary" class="detail-summary"></p>
+            </article>
+            <aside class="evidence-pane" aria-labelledby="evidenceTitle">
+              <h2 id="evidenceTitle">Exact source</h2>
+              <div id="evidenceList"></div>
+            </aside>
           </div>
         </section>
       </section>
     </main>
 
-    <dialog id="consentDialog" aria-labelledby="consentTitle"><form method="dialog" class="dialog-card"><p class="eyebrow">Exact cloud consent</p><h2 id="consentTitle">Confirm this bounded story window</h2><p>The values below are bound unchanged to this one Luna run.</p><dl id="consentFacts" class="consent-facts"></dl><div class="dialog-actions"><button value="cancel" class="secondary-button">Cancel</button><button id="confirmOrganization" value="default" class="accent-button">Confirm exact run</button></div></form></dialog>
     <dialog id="storyApprovalDialog" aria-labelledby="storyApprovalTitle"><div class="dialog-card story-approval-card"><p class="eyebrow">Zero-submit preview</p><h2 id="storyApprovalTitle">Approve this generation</h2><dl id="storyApprovalFacts" class="consent-facts"></dl><div id="storyRetryList" class="story-retry-list" hidden></div><p id="storyApprovalState" class="authority-note" role="status"></p><div class="dialog-actions"><button id="closeStoryApproval" class="secondary-button" type="button">Close</button><button id="approveStoryGeneration" class="accent-button" type="button" disabled>Approve and start</button></div></div></dialog>
-    <dialog id="narrativeConsentDialog" aria-labelledby="narrativeConsentTitle"><form method="dialog" class="dialog-card"><p class="eyebrow">Manifest-bound cloud consent</p><h2 id="narrativeConsentTitle">Confirm this Narrative run</h2><p>Confirmation applies once to this selected scope. The run proceeds automatically until completion, cancellation, provider refusal, or a hard limit.</p><dl id="narrativeConsentFacts" class="consent-facts"></dl><p class="authority-note">Only structured bounded inputs are sent. Completed validated work remains durable.</p><div class="dialog-actions"><button value="cancel" class="secondary-button">Cancel</button><button id="confirmNarrative" value="default" class="accent-button">Confirm and run</button></div></form></dialog>
-    <dialog id="reviewDialog" aria-labelledby="reviewTitle"><div class="dialog-card review-card"><header><div><p class="eyebrow">Candidate assembly</p><h2 id="reviewTitle">Review before apply</h2></div><button id="closeReview" class="icon-button" type="button" aria-label="Close review">×</button></header><div id="reviewCoverage"></div><p class="authority-note">Fallback, partial, failed, and cancelled scopes remain visibly technical.</p><div id="reviewCandidates" class="review-candidates"></div><div class="dialog-actions"><button id="discardAssembly" class="secondary-button" type="button">Discard</button><button id="applyAssembly" class="accent-button" type="button">Apply</button></div></div></dialog>
     <dialog id="diagnosticsDialog" aria-labelledby="diagnosticsTitle"><div class="dialog-card"><header><h2 id="diagnosticsTitle">Diagnostics</h2><button id="closeDiagnostics" class="icon-button" type="button" aria-label="Close diagnostics">×</button></header><div id="diagnosticsContent"></div></div></dialog>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   </div>
