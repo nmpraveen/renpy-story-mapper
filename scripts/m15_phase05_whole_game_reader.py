@@ -22,6 +22,8 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--skeleton", type=Path, required=True)
     parser.add_argument("--corridors", type=Path, required=True)
     parser.add_argument("--summaries", type=Path, required=True)
+    parser.add_argument("--name-overrides", type=Path)
+    parser.add_argument("--story-names-only", action="store_true")
     parser.add_argument("--output-dir", type=Path, required=True)
     return parser.parse_args()
 
@@ -61,6 +63,25 @@ def _file_hash(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _name_inventory_payload(items: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        "schema": "story-map-v2-name-inventory-v1",
+        "uncovered_count": len(items),
+        "items": items,
+    }
+
+
+def _first_ten_name_packet(items: list[dict[str, object]]) -> dict[str, object]:
+    canary = items[:10]
+    return {
+        "schema": "story-map-v2-name-canary-v1",
+        "uncovered_count": len(items),
+        "canary_count": len(canary),
+        "wording_only": True,
+        "items": canary,
+    }
 
 
 def _reader_counts(
@@ -247,6 +268,9 @@ def main() -> int:
         args.corridors.resolve(),
         args.summaries.resolve(),
     ]
+    name_override_path = args.name_overrides.resolve() if args.name_overrides else None
+    if name_override_path is not None:
+        inputs.append(name_override_path)
     for path in inputs:
         if not path.is_file():
             raise FileNotFoundError(path)
@@ -266,6 +290,7 @@ def main() -> int:
     skeleton = _json(inputs[1])
     corridors = _json(inputs[2])
     summaries = _json(inputs[3])
+    name_overrides = _json(name_override_path) if name_override_path is not None else None
     bindings = corridors.get("authority_bindings")
     if isinstance(bindings, dict):
         expected = {
@@ -276,37 +301,51 @@ def main() -> int:
             if bindings.get(key) != digest:
                 raise ValueError(f"corridor authority binding mismatch for {key}")
 
+    name_inventory: list[dict[str, object]] = []
     page = build_whole_game_reader_page(
         graph,
         control_flow,
         skeleton,
         corridors,
         summaries,
+        name_overrides=name_overrides,
+        name_inventory=name_inventory,
     )
-    _write(page_path, page)
-    shutil.copy2(source_project, project_path)
-    with Project.open(project_path) as project:
-        project.write_payloads(
-            [
-                PayloadRecord(
-                    "story_map_v2",
-                    PHASE05_PROGRESSIVE_KEY,
-                    page,
-                )
-            ]
-        )
+    inventory_path = output_dir / "story-name-inventory.json"
+    canary_path = output_dir / "story-name-first-10.json"
+    _write(inventory_path, _name_inventory_payload(name_inventory))
+    _write(canary_path, _first_ten_name_packet(name_inventory))
+    if not args.story_names_only:
+        _write(page_path, page)
+        shutil.copy2(source_project, project_path)
+        with Project.open(project_path) as project:
+            project.write_payloads(
+                [
+                    PayloadRecord(
+                        "story_map_v2",
+                        PHASE05_PROGRESSIVE_KEY,
+                        page,
+                    )
+                ]
+            )
     source_hash_after = _file_hash(source_project)
     if source_hash_after != source_hash_before:
         raise RuntimeError("the read-only source project changed during reader assembly")
 
     report = {
         "source_project": str(source_project),
-        "project_copy": str(project_path),
-        "page": str(page_path),
+        "story_name_inventory": str(inventory_path),
+        "story_name_first_10": str(canary_path),
+        "uncovered_story_names": len(name_inventory),
+        "accepted_story_name_overrides": (
+            len(name_overrides.get("names", name_overrides)) if name_overrides else 0
+        ),
         "counts": _reader_counts(page, graph, control_flow, skeleton, corridors, summaries),
         "source_project_sha256": source_hash_after,
         "source_project_unchanged": source_hash_after == source_hash_before,
     }
+    if not args.story_names_only:
+        report.update({"project_copy": str(project_path), "page": str(page_path)})
     _write(output_dir / "reader-assembly-report.json", report)
     print(json.dumps(report, sort_keys=True))
     return 0

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections import Counter, defaultdict, deque
 from collections.abc import Callable, Mapping, Sequence
 from typing import cast
@@ -11,6 +12,9 @@ from renpy_story_mapper.story_map_v2.progressive_story import PHASE05_PROGRESSIV
 
 WHOLE_GAME_READER_MARKER = f"{PHASE05_PROGRESSIVE_MARKER}: whole-game reader"
 _CONTROL_KINDS = frozenset({"menu", "if"})
+_UNNAMED_ROUTE = "Unnamed story route"
+_UNRESOLVED_DESTINATION = "Unresolved destination"
+_MACHINE_IDENTIFIER = re.compile(r"\b[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+\b")
 
 
 def build_whole_game_reader_page(
@@ -19,6 +23,9 @@ def build_whole_game_reader_page(
     skeleton: Mapping[str, object],
     corridors: Mapping[str, object],
     summaries: Mapping[str, object],
+    *,
+    name_overrides: Mapping[str, object] | None = None,
+    name_inventory: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     """Attach corridor prose to its Python-owned label continuation or control arm."""
 
@@ -84,6 +91,48 @@ def build_whole_game_reader_page(
     packet_order = {
         _text(packet.get("corridor_id"), "packet id"): index for index, packet in enumerate(packets)
     }
+    accepted_names = _accepted_story_names(name_overrides)
+    uncovered_names: dict[str, dict[str, object]] = {}
+
+    def story_name(
+        stable_id: str,
+        kind: str,
+        *,
+        exact_title: str | None = None,
+        owning_title: str | None = None,
+        first_line: str | None = None,
+        fallback: str = _UNNAMED_ROUTE,
+        expression_or_label: str,
+        label: str,
+        flow_index: int,
+        arm_id: str | None = None,
+        control_id: str | None = None,
+        packet_ids: Sequence[str] = (),
+    ) -> tuple[str, str]:
+        value, source = _resolve_story_name(
+            stable_id=stable_id,
+            overrides=accepted_names,
+            exact_title=exact_title,
+            owning_title=owning_title,
+            first_line=first_line,
+            fallback=fallback,
+        )
+        if source == "fallback":
+            uncovered_names.setdefault(
+                stable_id,
+                {
+                    "stable_id": stable_id,
+                    "kind": kind,
+                    "expression_or_label": expression_or_label,
+                    "label": label,
+                    "arm_id": arm_id,
+                    "control_id": control_id,
+                    "packet_ids": list(packet_ids),
+                    "fallback": value,
+                    "flow_index": flow_index,
+                },
+            )
+        return value, source
 
     def owning_arm(node_id: str, label: str) -> str | None:
         candidates: list[tuple[int, str]] = []
@@ -108,8 +157,10 @@ def build_whole_game_reader_page(
 
     packets_by_label: dict[str, list[Mapping[str, object]]] = defaultdict(list)
     packets_by_arm: dict[str, list[Mapping[str, object]]] = defaultdict(list)
+    all_packets_by_label: dict[str, list[Mapping[str, object]]] = defaultdict(list)
     for packet in packets:
         label = _text(packet.get("owning_label"), "packet label")
+        all_packets_by_label[label].append(packet)
         corridor = _mapping(packet.get("python_corridor"), "python corridor")
         story_ids = _list(corridor.get("narrative_statement_node_ids"), "story node ids")
         owner = owning_arm(_text(story_ids[0], "first story node"), label)
@@ -161,6 +212,22 @@ def build_whole_game_reader_page(
                     _text(result.get("title"), "summary title"),
                 )
 
+    incoming_packet_titles: dict[str, list[str]] = defaultdict(list)
+    outgoing_packet_titles: dict[str, list[str]] = defaultdict(list)
+    for packet in packets:
+        corridor_id = _text(packet.get("corridor_id"), "packet id")
+        packet_title = _text(results[corridor_id].get("title"), "summary title")
+        for raw in packet.get("next_control_points", []):
+            control = _mapping(raw, "next control")
+            control_id = control.get("node_id")
+            if isinstance(control_id, str):
+                incoming_packet_titles[control_id].append(packet_title)
+        for raw in packet.get("incoming_control_points", []):
+            control = _mapping(raw, "incoming control")
+            control_id = control.get("node_id")
+            if isinstance(control_id, str):
+                outgoing_packet_titles[control_id].append(packet_title)
+
     visible_labels = set(packets_by_label)
     visible_labels.update(
         _text(nodes[node_id].get("label"), "control label")
@@ -184,6 +251,35 @@ def build_whole_game_reader_page(
         ),
     )
 
+    event_names: dict[str, str] = {}
+    for label in label_order:
+        assigned = packets_by_label.get(label, [])
+        exact_title = _prose(assigned, results)[0] if assigned else None
+        packet_ids = [
+            _text(packet.get("corridor_id"), "event name corridor")
+            for packet in all_packets_by_label.get(label, ())
+        ]
+        first_line = _first_readable_story_line(all_packets_by_label.get(label, ()))
+        label_flow = min(
+            (
+                flow_order.get(node_id, 10**9)
+                for node_id, node in nodes.items()
+                if node.get("label") == label
+            ),
+            default=10**9,
+        )
+        event_name, _name_source = story_name(
+            f"whole-game:label:{label}",
+            "event",
+            exact_title=exact_title,
+            first_line=first_line,
+            expression_or_label=label,
+            label=label,
+            flow_index=label_flow,
+            packet_ids=packet_ids,
+        )
+        event_names[label] = event_name
+
     projected_controls: set[str] = set()
     projected_arms: dict[str, dict[str, object]] = {}
     arm_labels: dict[str, str] = {}
@@ -206,8 +302,33 @@ def build_whole_game_reader_page(
                 key=lambda item: _integer(item.get("ordinal"), "arm ordinal"),
             )
         ]
+        exact_titles = _unique_text(incoming_packet_titles.get(control_id, ()))
+        first_line = _first_readable_story_line(all_packets_by_label.get(label, ()))
+        control_name, name_source = story_name(
+            f"whole-game:control:{control_id}",
+            "control",
+            exact_title=exact_titles[0] if exact_titles else None,
+            owning_title=event_names.get(label),
+            first_line=first_line,
+            expression_or_label=_text(control.get("source_text"), "control source").strip(),
+            label=label,
+            flow_index=flow_order.get(control_id, 10**9),
+            control_id=control_id,
+            packet_ids=[
+                _text(packet.get("corridor_id"), "control context corridor")
+                for packet in all_packets_by_label.get(label, ())
+            ],
+        )
+        control_title = (
+            control_name
+            if name_source in {"accepted_override", "fallback"}
+            else f"What follows {control_name}?"
+        )
+        if control.get("kind") == "if":
+            for projected_arm in projected_arms:
+                projected_arm["condition"] = control_title
         return {
-            "key": f"story:{_control_title(control, projected_arms)}",
+            "key": f"story:{control_title}",
             "control_kind": "decision" if control.get("kind") == "menu" else "condition",
             "source": _reader_source(_flat_source(control)),
             "arms": projected_arms,
@@ -252,28 +373,132 @@ def build_whole_game_reader_page(
             outcome = "ends"
         else:
             outcome = "continues"
-        caption, condition = _arm_caption(control, entry)
         effect_text = [_effect_text(item) for item in effects_by_arm.get(arm_id, ())]
-        rejoin_title = (
-            merge_titles.get(merge_id) or f"Shared {_humanize(label)} continuation"
-            if merge_id
-            else None
-        )
+        destination_title = None
+        destination_source = None
+        destination_packet_ids: list[str] = []
+        if destination:
+            destination_packet_ids = [
+                _text(packet.get("corridor_id"), "destination corridor")
+                for packet in all_packets_by_label.get(destination, ())
+            ]
+            destination_exact = _first_packet_title(
+                all_packets_by_label.get(destination, ()), results
+            )
+            destination_title, destination_source = story_name(
+                f"whole-game:destination:{arm_id}",
+                "destination",
+                exact_title=destination_exact,
+                owning_title=event_names.get(destination),
+                first_line=_first_readable_story_line(
+                    all_packets_by_label.get(destination, ())
+                ),
+                fallback=_UNRESOLVED_DESTINATION,
+                expression_or_label=destination,
+                label=destination,
+                flow_index=min(
+                    (
+                        flow_order.get(node_id, 10**9)
+                        for node_id, node in nodes.items()
+                        if node.get("label") == destination
+                    ),
+                    default=flow_order.get(entry_id, 10**9),
+                ),
+                arm_id=arm_id,
+                control_id=_text(control.get("id"), "control id"),
+                packet_ids=destination_packet_ids,
+            )
+        rejoin_title = None
+        rejoin_source = None
+        if merge_id:
+            merge_node = nodes.get(merge_id)
+            merge_label = (
+                _text(merge_node.get("label"), "merge label") if merge_node else label
+            )
+            rejoin_title, rejoin_source = story_name(
+                f"whole-game:rejoin:{merge_id}",
+                "rejoin",
+                exact_title=merge_titles.get(merge_id),
+                owning_title=event_names.get(merge_label),
+                first_line=_first_readable_story_line(
+                    all_packets_by_label.get(merge_label, ())
+                ),
+                expression_or_label=merge_id,
+                label=merge_label,
+                flow_index=flow_order.get(merge_id, flow_order.get(entry_id, 10**9)),
+                arm_id=arm_id,
+                control_id=_text(control.get("id"), "control id"),
+                packet_ids=[
+                    _text(packet.get("corridor_id"), "rejoin corridor")
+                    for packet in all_packets_by_label.get(merge_label, ())
+                ],
+            )
         if assigned:
-            _title, outline, detail = _prose(assigned, results)
+            assigned_title, outline, detail = _prose(assigned, results)
         else:
+            assigned_title = None
             outline = _structure_arm_summary(
-                destination=destination,
+                destination_title=destination_title,
                 rejoin_title=rejoin_title,
                 outcome=outcome,
                 nested_choices=children,
-                label=label,
+                location_title=event_names[label],
                 effects=effect_text,
             )
             detail = outline
-        secondary_notes = secondary_by_arm.get(arm_id, ())
-        if secondary_notes:
-            detail = f"{detail}\n\nTechnical controls\n" + "\n".join(secondary_notes)
+        if control.get("kind") == "menu":
+            raw_caption, _condition = _arm_caption(control, entry)
+            caption = raw_caption if _safe_story_name(raw_caption) else _UNNAMED_ROUTE
+            if caption == _UNNAMED_ROUTE:
+                caption, _caption_source = story_name(
+                    f"whole-game:arm:{arm_id}",
+                    "arm",
+                    exact_title=assigned_title,
+                    owning_title=event_names.get(label),
+                    first_line=_first_readable_story_line(assigned),
+                    expression_or_label=raw_caption,
+                    label=label,
+                    flow_index=flow_order.get(entry_id, 10**9),
+                    arm_id=arm_id,
+                    control_id=_text(control.get("id"), "control id"),
+                    packet_ids=[
+                        _text(packet.get("corridor_id"), "arm corridor")
+                        for packet in assigned
+                    ],
+                )
+            condition = None
+        else:
+            entry_metadata = _mapping(entry.get("metadata", {}), "arm entry metadata")
+            raw_condition = entry_metadata.get("condition")
+            raw_arm = (
+                raw_condition
+                if isinstance(raw_condition, str) and raw_condition
+                else _text(entry.get("source_text"), "condition arm source").strip()
+            )
+            exact_arm_title = assigned_title
+            if exact_arm_title is None and destination_source != "fallback":
+                exact_arm_title = destination_title
+            if exact_arm_title is None and rejoin_source != "fallback":
+                exact_arm_title = rejoin_title
+            caption, _caption_source = story_name(
+                f"whole-game:arm:{arm_id}",
+                "arm",
+                exact_title=exact_arm_title,
+                owning_title=event_names.get(label),
+                first_line=_first_readable_story_line(
+                    assigned or all_packets_by_label.get(destination or label, ())
+                ),
+                expression_or_label=raw_arm,
+                label=label,
+                flow_index=flow_order.get(entry_id, 10**9),
+                arm_id=arm_id,
+                control_id=_text(control.get("id"), "control id"),
+                packet_ids=[
+                    _text(packet.get("corridor_id"), "arm corridor")
+                    for packet in assigned
+                ],
+            )
+            condition = None
         reads = [
             _mapping(item, "state read") for item in _list(arm.get("state_reads"), "state reads")
         ]
@@ -285,9 +510,15 @@ def build_whole_game_reader_page(
                 {_text(item.get("variable"), "state read variable") for item in reads}
             )
             warnings.append(f"Earlier state controls this route: {', '.join(variables)}.")
+        if control.get("kind") == "if":
+            warnings.append(
+                f"Python condition: {_text(control.get('source_text'), 'condition source').strip()}"
+            )
+        warnings.extend(
+            f"Python control: {note}" for note in secondary_by_arm.get(arm_id, ())
+        )
         source = _flat_source(entry)
         selection_id = f"whole-game:arm:{arm_id}"
-        binding_target = destination or entry_id
         rejoin_binding = None
         if merge_id:
             rejoin_source = (
@@ -318,7 +549,7 @@ def build_whole_game_reader_page(
             "detail_summary": detail,
             "condition": condition,
             "effects": effect_text,
-            "destination_id": f"story:{_humanize(destination)}" if destination else entry_id,
+            "destination_id": f"story:{destination_title or caption}",
             "rejoin_node_id": f"story:{rejoin_title}" if rejoin_title else None,
             "rejoin_line": (
                 _flat_source(nodes[merge_id])["start_line"]
@@ -330,7 +561,7 @@ def build_whole_game_reader_page(
             "binding": _binding(
                 selection_id,
                 "generic_scene",
-                f"story:{_humanize(binding_target)}" if destination else entry_id,
+                f"story:{destination_title}" if destination_title else entry_id,
                 "story_map_v2_arm",
                 source,
             ),
@@ -351,21 +582,15 @@ def build_whole_game_reader_page(
             for control_id in controls_by_label.get(label, ())
         ]
         if assigned:
-            title, outline, detail = _prose(assigned, results)
+            _title, outline, detail = _prose(assigned, results)
         else:
-            title = (
-                f"Routes: {_projected_control_title(choices[0])}" if choices else _humanize(label)
-            )
             outline = ""
             detail = ""
+        title = event_names[label]
         source = _label_source(label, nodes, flow_order)
         selection_id = f"whole-game:label:{label}"
         label_effects = [_effect_text(item) for item in effects_by_label.get(label, ())]
-        if label_effects:
-            detail = f"{detail}\n\nState changes\n" + "\n".join(label_effects)
         secondary_notes = secondary_by_label.get(label, ())
-        if secondary_notes:
-            detail = f"{detail}\n\nTechnical controls\n" + "\n".join(secondary_notes)
         included_corridors.extend(
             _text(packet.get("corridor_id"), "event corridor") for packet in assigned
         )
@@ -377,11 +602,15 @@ def build_whole_game_reader_page(
             "detail_summary": detail,
             "characters": [],
             "reachability": "reachable",
-            "warnings": [f"Python label: {label}"],
+            "warnings": [
+                f"Python label: {label}",
+                *(f"Python state change: {effect}" for effect in label_effects),
+                *(f"Python control: {note}" for note in secondary_notes),
+            ],
             "binding": _binding(
                 selection_id,
                 "generic_scene",
-                f"story:{_humanize(label)}",
+                f"story:{title}",
                 "story_map_v2_event",
                 source,
             ),
@@ -465,6 +694,183 @@ def build_whole_game_reader_page(
     if projected_controls != expected_visible_controls:
         missing = sorted(expected_visible_controls.difference(projected_controls))
         raise ValueError(f"reader control projection is incomplete: {missing[:8]}")
+
+    packet_by_id = {
+        _text(packet.get("corridor_id"), "inventory packet id"): packet for packet in packets
+    }
+    incoming_labels: dict[str, list[str]] = defaultdict(list)
+    outgoing_labels: dict[str, list[str]] = defaultdict(list)
+    for edge in edges:
+        source = nodes.get(_text(edge.get("source"), "inventory edge source"))
+        target = nodes.get(_text(edge.get("target"), "inventory edge target"))
+        if source is None or target is None:
+            continue
+        source_label = source.get("label")
+        target_label = target.get("label")
+        if (
+            isinstance(source_label, str)
+            and isinstance(target_label, str)
+            and source_label != target_label
+        ):
+            outgoing_labels[source_label].append(target_label)
+            incoming_labels[target_label].append(source_label)
+
+    def inventory_assignment_sites(item: Mapping[str, object]) -> list[dict[str, object]]:
+        item_arm = item.get("arm_id")
+        item_control = item.get("control_id")
+        candidate_arms: Sequence[Mapping[str, object]]
+        if isinstance(item_arm, str) and item_arm in arms:
+            candidate_arms = [arms[item_arm]]
+        elif isinstance(item_control, str) and item_control in regions_by_split:
+            region = regions_by_split[item_control]
+            candidate_arms = [
+                arms[_text(raw_arm_id, "inventory region arm")]
+                for raw_arm_id in _list(region.get("arm_ids"), "inventory region arms")
+            ]
+        else:
+            candidate_arms = list(arms.values())
+        sites: list[dict[str, object]] = []
+        seen_sites: set[tuple[str, str]] = set()
+        for candidate_arm in candidate_arms:
+            for raw_write in _list(candidate_arm.get("state_writes"), "inventory state writes"):
+                write = _mapping(raw_write, "inventory state write")
+                node_id = _text(write.get("node_id"), "inventory assignment node")
+                node = nodes.get(node_id)
+                if node is None or (
+                    not isinstance(item_arm, str)
+                    and not isinstance(item_control, str)
+                    and node.get("label") != item.get("label")
+                ):
+                    continue
+                expression = _text(write.get("expression"), "inventory assignment expression")
+                key = (node_id, expression)
+                if key in seen_sites:
+                    continue
+                seen_sites.add(key)
+                sites.append(
+                    {
+                        "variable": _text(write.get("variable"), "inventory assignment variable"),
+                        "expression": expression,
+                        "source": _reader_source(_flat_source(node)),
+                    }
+                )
+        return sites
+
+    def inventory_context(item: Mapping[str, object]) -> list[dict[str, object]]:
+        packet_ids = [
+            raw_id for raw_id in item.get("packet_ids", []) if isinstance(raw_id, str)
+        ]
+        if not packet_ids:
+            packet_ids = [
+                _text(packet.get("corridor_id"), "inventory context corridor")
+                for packet in all_packets_by_label.get(
+                    _text(item.get("label"), "inventory context label"), ()
+                )
+            ]
+        context: list[dict[str, object]] = []
+        for corridor_id in packet_ids:
+            packet = packet_by_id.get(corridor_id)
+            result = results.get(corridor_id)
+            if packet is None or result is None:
+                continue
+            story_line = _first_readable_story_line([packet])
+            context.append(
+                {
+                    "corridor_id": corridor_id,
+                    "title": _text(result.get("title"), "inventory context title"),
+                    "story_excerpt": story_line or "",
+                }
+            )
+            if len(context) == 3:
+                break
+        return context
+
+    kind_order = {"event": 0, "control": 1, "arm": 2, "destination": 3, "rejoin": 4}
+    sorted_uncovered = sorted(
+        uncovered_names.values(),
+        key=lambda item: (
+            _integer(item.get("flow_index"), "inventory flow index"),
+            kind_order[_text(item.get("kind"), "inventory kind")],
+            _text(item.get("stable_id"), "inventory stable id"),
+        ),
+    )
+    inventory_items: list[dict[str, object]] = []
+    for item in sorted_uncovered:
+        label = _text(item.get("label"), "inventory label")
+        control_id = item.get("control_id")
+        arm_id = item.get("arm_id")
+        incoming_titles = [
+            event_names[value] for value in incoming_labels.get(label, ()) if value in event_names
+        ]
+        outgoing_titles = [
+            event_names[value] for value in outgoing_labels.get(label, ()) if value in event_names
+        ]
+        if isinstance(control_id, str):
+            incoming_titles.extend(incoming_packet_titles.get(control_id, ()))
+            outgoing_titles.extend(outgoing_packet_titles.get(control_id, ()))
+        if isinstance(arm_id, str):
+            incoming_titles.append(event_names.get(arm_labels.get(arm_id, label), _UNNAMED_ROUTE))
+            for packet in packets_by_arm.get(arm_id, ()):
+                corridor_id = _text(packet.get("corridor_id"), "inventory arm corridor")
+                outgoing_titles.append(_text(results[corridor_id].get("title"), "arm title"))
+        nearby_context = inventory_context(item)
+        if not nearby_context:
+            nearby_context = [
+                {"corridor_id": None, "title": title, "story_excerpt": ""}
+                for title in _unique_text(incoming_titles + outgoing_titles)
+                if _safe_story_name(title)
+            ][:3]
+        if not nearby_context:
+            nearby_context = [
+                {
+                    "corridor_id": None,
+                    "title": "No readable nearby story context",
+                    "story_excerpt": "",
+                    "unresolved_reason": (
+                        "Python reaches this structural destination without a reader-visible "
+                        "corridor on either side."
+                    ),
+                }
+            ]
+        inventory_items.append(
+            {
+                "stable_id": _text(item.get("stable_id"), "inventory stable id"),
+                "kind": _text(item.get("kind"), "inventory kind"),
+                "fallback": _text(item.get("fallback"), "inventory fallback"),
+                "expression_or_label": _text(
+                    item.get("expression_or_label"), "inventory expression or label"
+                ),
+                "assignment_sites": inventory_assignment_sites(item),
+                "nearby_story_context": nearby_context,
+                "incoming_story_titles": _unique_text(
+                    [title for title in incoming_titles if _safe_story_name(title)]
+                )[:4],
+                "outgoing_story_titles": _unique_text(
+                    [title for title in outgoing_titles if _safe_story_name(title)]
+                )[:4],
+                "resolution_attempts": {
+                    "accepted_override": accepted_names.get(
+                        _text(item.get("stable_id"), "inventory override id")
+                    ),
+                    "exact_corridor_titles": [
+                        _text(context.get("title"), "inventory attempted title")
+                        for context in nearby_context
+                        if isinstance(context.get("corridor_id"), str)
+                    ],
+                    "owning_event_title": event_names.get(label),
+                    "first_readable_narrative": next(
+                        (
+                            _text(context.get("story_excerpt"), "inventory story excerpt")
+                            for context in nearby_context
+                            if context.get("story_excerpt")
+                        ),
+                        None,
+                    ),
+                },
+            }
+        )
+    if name_inventory is not None:
+        name_inventory[:] = inventory_items
 
     low_ids = {
         corridor_id
@@ -790,17 +1196,33 @@ def _prose(
     preferred = next(
         (item for item in values if item.get("packet_shape_grade") != "LOW"), values[0]
     )
-    title = _text(preferred.get("title"), "prose title")
-    outline = _text(preferred.get("summary"), "prose summary")
+    raw_title = _text(preferred.get("title"), "prose title")
+    title = (
+        raw_title
+        if _safe_story_name(raw_title)
+        else _first_readable_story_line(packets) or _UNNAMED_ROUTE
+    )
+    outline = _visible_story_prose(
+        _text(preferred.get("summary"), "prose summary"), fallback=title
+    )
     detail_parts: list[str] = []
     for item in values:
-        item_title = _text(item.get("title"), "detail title")
-        detail_parts.append(f"{item_title}\n{_text(item.get('detail'), 'detail prose')}")
+        raw_item_title = _text(item.get("title"), "detail title")
+        item_title = raw_item_title if _safe_story_name(raw_item_title) else title
+        item_detail = _visible_story_prose(
+            _text(item.get("detail"), "detail prose"), fallback=outline
+        )
+        detail_parts.append(f"{item_title}\n{item_detail}")
         for raw_child in _list(item.get("presentation_children"), "presentation children"):
             child = _mapping(raw_child, "presentation child")
+            raw_child_title = _text(child.get("title"), "child title")
+            child_title = raw_child_title if _safe_story_name(raw_child_title) else title
+            child_summary = _visible_story_prose(
+                _text(child.get("summary"), "child summary"), fallback=outline
+            )
             detail_parts.append(
-                f"{_text(child.get('title'), 'child title')} — "
-                f"{_text(child.get('summary'), 'child summary')}"
+                f"{child_title} — "
+                f"{child_summary}"
             )
     return title, outline, "\n\n".join(detail_parts)
 
@@ -812,24 +1234,24 @@ def _projected_control_title(choice: Mapping[str, object]) -> str:
 
 def _structure_arm_summary(
     *,
-    destination: str | None,
+    destination_title: str | None,
     rejoin_title: str | None,
     outcome: str,
     nested_choices: Sequence[Mapping[str, object]],
-    label: str,
+    location_title: str,
     effects: Sequence[str],
 ) -> str:
-    if destination:
-        return f"Continues to {_humanize(destination)}."
+    if destination_title:
+        return f"Continues to {destination_title}."
     if nested_choices:
         titles = [_projected_control_title(choice) for choice in nested_choices]
         return f"Next: {'; '.join(titles)}."
     if rejoin_title:
         return f"Rejoins at {rejoin_title}."
     if outcome == "ends":
-        return f"Ends at {_humanize(label)}."
+        return f"Ends during {location_title}."
     if outcome == "unresolved":
-        return f"Unresolved at {_humanize(label)}."
+        return f"Unresolved during {location_title}."
     if effects:
         return f"State change: {'; '.join(effects)}."
     return ""
@@ -888,15 +1310,6 @@ def _secondary_control_note(
         f"{_text(control.get('source_text'), 'control source').strip()} "
         f"Routes: {' / '.join(captions)}"
     )
-
-
-def _control_title(control: Mapping[str, object], arms: Sequence[Mapping[str, object]]) -> str:
-    if control.get("kind") == "if":
-        raw = _text(control.get("source_text"), "condition source").strip()
-        condition = raw[3:-1].strip() if raw.startswith("if ") and raw.endswith(":") else raw
-        return f"Check whether {condition}"
-    captions = [_text(arm.get("caption"), "projected arm caption") for arm in arms]
-    return " / ".join(captions)
 
 
 def _arm_caption(
@@ -1067,12 +1480,110 @@ def _source_sort(node: Mapping[str, object]) -> tuple[str, int, int]:
     )
 
 
-def _humanize(value: str | None) -> str:
+def _accepted_story_names(value: Mapping[str, object] | None) -> dict[str, str]:
+    if value is None:
+        return {}
+    raw_names = value.get("names") if "names" in value else value
+    names = _mapping(raw_names, "story name overrides")
+    accepted: dict[str, str] = {}
+    for stable_id, raw_name in names.items():
+        name = _text(raw_name, f"story name override {stable_id}").strip()
+        if not _safe_story_name(name):
+            raise ValueError(f"story name override {stable_id} is machine-facing")
+        accepted[stable_id] = name
+    return accepted
+
+
+def _resolve_story_name(
+    *,
+    stable_id: str,
+    overrides: Mapping[str, str],
+    exact_title: str | None = None,
+    owning_title: str | None = None,
+    first_line: str | None = None,
+    fallback: str = _UNNAMED_ROUTE,
+) -> tuple[str, str]:
+    candidates = (
+        ("accepted_override", overrides.get(stable_id)),
+        ("exact_corridor_title", exact_title),
+        ("owning_event_title", owning_title),
+        ("first_readable_narrative", first_line),
+    )
+    for source, candidate in candidates:
+        if isinstance(candidate, str) and _safe_story_name(candidate):
+            return candidate.strip(), source
+    return fallback, "fallback"
+
+
+def _safe_story_name(value: str | None) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    candidate = value.strip()
+    if candidate in {_UNNAMED_ROUTE, _UNRESOLVED_DESTINATION, "Otherwise"}:
+        return False
+    lowered = candidate.casefold()
+    if lowered.startswith(("if ", "elif ", "else:", "check whether", "routes:")):
+        return False
+    if "shared " in lowered and " continuation" in lowered:
+        return False
+    if "`" in candidate:
+        return False
+    if _MACHINE_IDENTIFIER.search(candidate):
+        return False
+    return not any(
+        token in candidate for token in (" = ", " == ", " != ", " >= ", " <= ")
+    )
+
+
+def _visible_story_prose(value: str, *, fallback: str) -> str:
+    chunks = re.split(r"(?<=[.!?])\s+|\n+", value.strip())
+    readable = [chunk.strip() for chunk in chunks if _safe_story_prose(chunk)]
+    return " ".join(readable) if readable else fallback
+
+
+def _safe_story_prose(value: str) -> bool:
     if not value:
-        return "Story continuation"
-    words = value.strip("_").replace(".secondpart", " continuation").split("_")
-    readable = " ".join(word for word in words if word and word not in {"clean", "neutral"})
-    return readable or value
+        return False
+    if "`" in value or _MACHINE_IDENTIFIER.search(value):
+        return False
+    return not re.search(r"(?:==|!=|>=|<=)|\b(?:True|False|None)\b", value)
+
+
+def _first_readable_story_line(packets: Sequence[Mapping[str, object]]) -> str | None:
+    for packet in packets:
+        story_text = packet.get("story_text")
+        if not isinstance(story_text, str):
+            continue
+        for raw_line in story_text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            _speaker, separator, spoken = line.partition(":")
+            candidate = spoken.strip() if separator else line
+            candidate = candidate.strip().strip('"').strip()
+            if _safe_story_name(candidate):
+                return candidate
+    return None
+
+
+def _first_packet_title(
+    packets: Sequence[Mapping[str, object]],
+    results: Mapping[str, Mapping[str, object]],
+) -> str | None:
+    for packet in packets:
+        corridor_id = _text(packet.get("corridor_id"), "name corridor")
+        title = results[corridor_id].get("title")
+        if isinstance(title, str) and _safe_story_name(title):
+            return title.strip()
+    return None
+
+
+def _unique_text(values: Sequence[str]) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        if value not in result:
+            result.append(value)
+    return result
 
 
 def _index(

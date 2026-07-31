@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 
-from scripts.m15_phase05_whole_game_reader import _reader_counts
+from scripts.m15_phase05_whole_game_reader import (
+    _first_ten_name_packet,
+    _name_inventory_payload,
+    _reader_counts,
+)
 
 from renpy_story_mapper.story_map_v2.whole_game_reader import (
     WHOLE_GAME_READER_MARKER,
     _label_route_plan,
+    _resolve_story_name,
     build_whole_game_reader_page,
 )
 
@@ -192,6 +198,49 @@ def _fixture() -> tuple[dict[str, object], ...]:
         "skeleton": {"label_transitions": [], "loops": []},
     }
     return graph, control_flow, skeleton, corridors, summaries
+
+
+def _structured_display_values(page: dict[str, object]) -> list[str]:
+    values: list[str] = []
+
+    def add(value: object) -> None:
+        if isinstance(value, str):
+            values.append(value.removeprefix("story:"))
+
+    def visit_choice(choice: dict[str, object]) -> None:
+        add(choice.get("key"))
+        for arm in choice["arms"]:
+            add(arm.get("caption"))
+            add(arm.get("condition"))
+            add(arm.get("outcome_summary"))
+            add(arm.get("outline_summary"))
+            add(arm.get("detail_summary"))
+            add(arm.get("destination_id"))
+            add(arm.get("rejoin_node_id"))
+            for nested in arm["nested_choices"]:
+                visit_choice(nested)
+            for route_item in arm.get("route_flow", []):
+                if route_item.get("kind") == "event":
+                    visit_event(route_item["event"])
+                else:
+                    add(route_item.get("title"))
+
+    def visit_event(event: dict[str, object]) -> None:
+        add(event.get("title"))
+        add(event.get("summary"))
+        add(event.get("outline_summary"))
+        add(event.get("detail_summary"))
+        for choice in event["choices"]:
+            visit_choice(choice)
+
+    add(page.get("title"))
+    add(page.get("overview"))
+    for section in page["sections"]:
+        add(section.get("title"))
+        add(section.get("summary"))
+        for event in section["events"]:
+            visit_event(event)
+    return values
 
 
 def _fitting_room_fixture() -> tuple[dict[str, object], ...]:
@@ -382,7 +431,8 @@ def _fitting_room_fixture() -> tuple[dict[str, object], ...]:
 
 
 def test_whole_game_reader_stitches_corridors_under_python_owned_routes() -> None:
-    page = build_whole_game_reader_page(*_fixture())
+    inventory: list[dict[str, object]] = []
+    page = build_whole_game_reader_page(*_fixture(), name_inventory=inventory)
 
     assert page["analysis_notes"][0] == WHOLE_GAME_READER_MARKER
     assert set(page) == {
@@ -395,7 +445,7 @@ def test_whole_game_reader_stitches_corridors_under_python_owned_routes() -> Non
         "sections",
     }
     event = page["sections"][0]["events"][0]
-    assert event["title"] == "Routes: Yes / No / Maybe"
+    assert event["title"] == "Unnamed story route"
     assert event["summary"] == ""
     assert event["detail_summary"] == ""
     menu = event["choices"][0]
@@ -403,11 +453,17 @@ def test_whole_game_reader_stitches_corridors_under_python_owned_routes() -> Non
     assert [arm["caption"] for arm in menu["arms"]] == ["Yes", "No", "Maybe"]
     assert no["outcome_kind"] == "ends"
     assert maybe["outcome_kind"] == "unresolved"
-    assert maybe["outline_summary"] == "Unresolved at start."
+    assert maybe["outline_summary"] == "Unresolved during Unnamed story route."
     assert len(yes["nested_choices"]) == 1
     gate = yes["nested_choices"][0]
     assert gate["control_kind"] == "condition"
-    assert [arm["caption"] for arm in gate["arms"]] == ["Requires: trust", "Otherwise"]
+    assert gate["key"] == "story:Unnamed story route"
+    assert [arm["caption"] for arm in gate["arms"]] == [
+        "Unnamed story route",
+        "Unnamed story route",
+    ]
+    assert {arm["condition"] for arm in gate["arms"]} == {"Unnamed story route"}
+    assert all("Python condition: if trust:" in arm["warnings"] for arm in gate["arms"])
     assert {arm["outcome_kind"] for arm in gate["arms"]} == {"rejoins"}
     assert "Detail 3." in yes["detail_summary"]
     assert "Detail 3." not in event["detail_summary"]
@@ -434,6 +490,111 @@ def test_whole_game_reader_stitches_corridors_under_python_owned_routes() -> Non
     assert arms == 5
     assert outcomes == {"continues": 1, "rejoins": 2, "ends": 1, "unresolved": 1}
     assert "Continue through this Python-owned story point" not in json.dumps(page)
+    display = _structured_display_values(page)
+    assert not any("_" in value for value in display)
+    assert not any(re.search(r"(?:==|!=|>=|<=)|\b(?:True|False)\b", value) for value in display)
+    assert not any(value.startswith(("Routes:", "Check whether")) for value in display)
+    assert not any(
+        value.startswith("Shared ") and value.endswith(" continuation") for value in display
+    )
+    assert "Otherwise" not in display
+    assert {item["kind"] for item in inventory} >= {"event", "control", "arm", "rejoin"}
+
+
+def test_story_name_resolver_uses_only_the_frozen_priority_order() -> None:
+    stable_id = "whole-game:control:gate"
+    overrides = {stable_id: "Does Wanda trust Terrance?"}
+
+    assert _resolve_story_name(
+        stable_id=stable_id,
+        overrides=overrides,
+        exact_title="The Discipline Meeting",
+        owning_title="Wanda Questions Terrance",
+        first_line="Wanda waits for his answer.",
+    ) == ("Does Wanda trust Terrance?", "accepted_override")
+    assert _resolve_story_name(
+        stable_id=stable_id,
+        overrides={},
+        exact_title="The Discipline Meeting",
+        owning_title="Wanda Questions Terrance",
+        first_line="Wanda waits for his answer.",
+    ) == ("The Discipline Meeting", "exact_corridor_title")
+    assert _resolve_story_name(
+        stable_id=stable_id,
+        overrides={},
+        exact_title="branch_9 == True",
+        owning_title="Wanda Questions Terrance",
+        first_line="Wanda waits for his answer.",
+    ) == ("Wanda Questions Terrance", "owning_event_title")
+    assert _resolve_story_name(
+        stable_id=stable_id,
+        overrides={},
+        exact_title=None,
+        owning_title="branch_9",
+        first_line="Wanda waits for his answer.",
+    ) == ("Wanda waits for his answer.", "first_readable_narrative")
+    assert _resolve_story_name(
+        stable_id=stable_id,
+        overrides={},
+        exact_title=None,
+        owning_title="branch_9",
+        first_line="if branch_9:",
+    ) == ("Unnamed story route", "fallback")
+
+
+def test_story_name_overrides_keep_game_check_and_route_outcome_independent() -> None:
+    fixture = _fixture()
+    page = build_whole_game_reader_page(
+        *fixture,
+        name_overrides={
+            "names": {
+                "whole-game:control:gate": "Does Wanda trust Terrance?",
+                "whole-game:arm:gate_true": "Wanda trusts him",
+                "whole-game:arm:gate_false": "Wanda remains wary",
+                "whole-game:rejoin:rejoin": "The conversation continues",
+            }
+        },
+    )
+
+    gate = page["sections"][0]["events"][0]["choices"][0]["arms"][0][
+        "nested_choices"
+    ][0]
+    assert gate["control_kind"] == "condition"
+    assert gate["key"] == "story:Does Wanda trust Terrance?"
+    assert [arm["caption"] for arm in gate["arms"]] == [
+        "Wanda trusts him",
+        "Wanda remains wary",
+    ]
+    assert {arm["condition"] for arm in gate["arms"]} == {
+        "Does Wanda trust Terrance?"
+    }
+    assert {arm["outcome_kind"] for arm in gate["arms"]} == {"rejoins"}
+
+
+def test_story_name_inventory_canary_is_deterministic_and_bounded() -> None:
+    items = [
+        {
+            "stable_id": f"whole-game:label:item-{index}",
+            "kind": "event",
+            "fallback": "Unnamed story route",
+            "expression_or_label": f"item_{index}",
+            "assignment_sites": [],
+            "nearby_story_context": [],
+            "incoming_story_titles": [],
+            "outgoing_story_titles": [],
+            "resolution_attempts": {},
+        }
+        for index in range(12)
+    ]
+
+    inventory = _name_inventory_payload(items)
+    canary = _first_ten_name_packet(items)
+    assert inventory["uncovered_count"] == 12
+    assert inventory["items"] == items
+    assert canary["uncovered_count"] == 12
+    assert canary["canary_count"] == 10
+    assert canary["wording_only"] is True
+    assert canary["items"] == items[:10]
 
 
 def test_label_route_plan_keeps_shared_loop_and_interleaved_entries_non_recursive() -> None:
