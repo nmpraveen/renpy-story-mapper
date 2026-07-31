@@ -404,7 +404,9 @@ def test_real_dynamic_jump_and_presentation_parents_are_unresolved(tmp_path: Pat
         thread.join(timeout=5)
 
 
-def test_settings_and_recent_projects_are_durable(tmp_path: Path, analyzed_project: Path) -> None:
+def test_settings_and_recent_projects_are_durable(
+    tmp_path: Path, analyzed_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     state = UserStateStore(tmp_path / "web-state.json")
     state.record_project(analyzed_project)
     saved = state.save_settings({"theme": "dark", "zoom": 2})
@@ -416,6 +418,14 @@ def test_settings_and_recent_projects_are_durable(tmp_path: Path, analyzed_proje
     assert recent_path == analyzed_project.resolve()
     assert isinstance(last_opened, str) and last_opened.endswith("Z")
 
+    migrations: list[bool] = []
+    project_open = Project.open
+
+    def open_recent(path: Path, *, migrate: bool = True) -> Project:
+        migrations.append(migrate)
+        return project_open(path, migrate=migrate)
+
+    monkeypatch.setattr(Project, "open", staticmethod(open_recent))
     api = ProjectApi(FakeDialogs(), state_store=reopened)
     try:
         [recent] = api.dispatch("GET", "/api/v1/recent", {})["recent_projects"]
@@ -425,6 +435,7 @@ def test_settings_and_recent_projects_are_durable(tmp_path: Path, analyzed_proje
     assert recent["source_basename"] == "story.rpy"
     assert recent["last_opened"] == last_opened
     assert str(tmp_path) not in json.dumps(recent)
+    assert migrations == [False]
 
 
 def test_legacy_organization_consent_route_is_absent_and_provider_free(
