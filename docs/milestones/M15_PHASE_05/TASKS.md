@@ -19,8 +19,16 @@
 | Parallelize remaining summaries | Complete | Four user-visible Sol/High tasks produced 587/587 summaries with zero deferrals; combined result is 597/597 fidelity PASS |
 | Publish and inspect full desktop timeline | Complete | 594 corridor summaries attached exactly once; zero vague structure fallbacks or borrowed branch summaries; 1920px browser proof preserves 111 events, 260 controls, 571 arms, scrolling, semantic colors, and zero horizontal overflow |
 | Simplify the browser around the scrolling reader | Complete | Obsolete map and workflow surfaces removed; story index, local search, wider forks, collapsible deep branches, and readable prose verified at 1920px |
-| Compose cross-label routes into one progressive tree | Pending | Downstream label events remain beneath the arm that reaches them; sibling routes no longer appear as consecutive chronology |
-| Humanize route gates, rejoins, and state back-links | Pending | Default reader contains story language and links to earlier choices; raw Python remains in Technical detail |
+| Freeze the cross-label route contract on the fitting-room proof | In progress | Jumps, calls, returns, shared entries, loops, and unresolved ownership are classified; the smallest additive arm route-flow field is proven on the real `Keep arguing with her` chain |
+| Compose cross-label routes into one progressive tree | Pending | Downstream events remain beneath the arm that reaches them, shared continuations render once, loops use references, and recursive counts remain 111 events, 594 corridors, 260 controls, and 571 arms |
+| Replace machine-facing route language | Pending | Default event, condition, arm, destination, and rejoin text uses story language; raw expressions and labels remain in Python detail; the first 10 uncovered names pass rendered review before bulk work |
+| Emit state provenance and story navigation links | Pending | State-reading routes link to compatible earlier choices or assignments, destination/rejoin rows link to stable targets, and unresolved provenance is explicit rather than guessed |
+| Fix nested-route disclosure and full-width arm detail | Pending | Closed descendants have no visible content; selected-arm prose spans the route group at a readable measure with no desktop horizontal overflow |
+| Remove completed-story chrome and reader polish defects | In progress | Dead Generate/readiness controls are hidden when no work is actionable, ordinary buttons do not use `aria-selected`, and duplicate recent projects are distinguishable |
+| Regenerate and inspect the corrected whole-game reader | Pending | Disposable real-game review project preserves all Python facts, recursive coverage counts, search/index/back-link navigation, readable prose, and zero console or overflow defects at 1920x1080 |
 | User acceptance of the whole-game timeline | Pending | The user can follow the complete story and its routes by scrolling without interpreting code labels |
 
 Use only `Pending`, `In progress`, `Blocked`, or `Complete`.
+
+Detailed sequencing, ownership rules, gates, file seams, and focused validation live in
+[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).

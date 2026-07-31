@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper master plan
 
-Updated: 2026-07-28
+Updated: 2026-07-30
 
 ## Product goal
 
@@ -100,15 +100,23 @@ event authority.
 The active correction is M15.1 Phase 05: replace chunk-owned presentation with the progressive
 execution/state story walker described above.
 
-## Delivery sequence
+## Current delivery roadmap
 
-1. Build a deterministic progressive walk for the Terrance section.
-2. Render its exact branch tree, state effects, destinations, and rejoin into the scrolling reader.
-3. Add AI titles, summaries, and consequences after the structure is correct.
-4. Let the user inspect that real section.
-5. Once accepted, walk the full game.
-6. Validate the first 10 bulk summaries, then parallelize the rest.
-7. Show the complete desktop timeline and fix only concrete comprehension problems.
+The Terrance proof, full-game deterministic walk, 597-corridor summary pass, and first whole-game
+desktop checkpoint are complete. The active Phase 05 correction now proceeds in this order:
+
+1. Compose cross-label events beneath the exact branch that reaches them, proving the contract on the
+   real fitting-room route before regenerating the whole game.
+2. Replace machine-derived condition, arm, destination, and rejoin wording with human story language,
+   while retaining raw Python as secondary evidence.
+3. Link later state gates, destinations, and rejoins to their earlier or downstream story points.
+4. Fix collapsed descendant behavior and let selected-arm prose use the full route width.
+5. Hide dead completed-story workflow chrome and correct ARIA/recent-project presentation defects.
+6. Regenerate a disposable whole-game review project and obtain user acceptance of the rendered
+   desktop timeline.
+
+The detailed implementation contract, gates, and focused checks are in
+[`docs/milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md).
 
 Run focused tests during implementation. Broad CI, Release, packaging, PR work, and general polish
 wait until the user accepts the story or explicitly asks to ship it.

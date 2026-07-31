@@ -1,14 +1,18 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-29
+Updated: 2026-07-31
 
 ## Active work
 
 - Active milestone: M15.1 Phase 05 progressive story walker.
 - Contract: [`docs/milestones/M15_PHASE_05/GOAL.md`](milestones/M15_PHASE_05/GOAL.md).
 - Task ledger: [`docs/milestones/M15_PHASE_05/TASKS.md`](milestones/M15_PHASE_05/TASKS.md).
-- Branch: `codex/m15-phase05-whole-game-skeleton`.
-- Status: whole-game reader and simplified UI checkpoint are being published; the clean-timeline goal remains open.
+- Implementation roadmap: [`docs/milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md).
+- Active checkout: `codex/m15-phase05-reader-corrections`, created from `main` at `379f627` on
+  2026-07-31.
+- Status: five-part reader correction implementation is in progress. The coordinator owns
+  integration and real-browser acceptance; bounded user-visible Sol/High Codex tasks own the active
+  cross-label proof and independent completed-story shell/recent-project polish.
 - Native Codex goal: none.
 
 ## Current product decision
@@ -74,10 +78,14 @@ and organization surfaces from the default browser. The remaining reader has a s
 client-side event search, wider forks, collapsible deep branches, concise outcome lines, and readable
 expanded prose. It does not change Python story facts.
 
-Current product gaps are now explicit: downstream labels are still appended as top-level events
-instead of remaining beneath the branch that reaches them; machine-derived condition and rejoin
-names remain visible; and state provenance is raw text rather than a back-link to the earlier choice.
-These are the next correction, after the current checkpoint PR.
+Current product gaps and their order are now explicit: downstream labels are still appended as
+top-level events instead of remaining beneath the branch that reaches them; machine-derived
+condition, destination, and rejoin names remain visible; state provenance is raw text rather than a
+back-link to the earlier choice; closed nested routes can leave child content visible and expanded
+arm prose remains constrained to one narrow card; and completed stories retain dead generation
+chrome plus small ARIA/recent-project defects. The active roadmap is
+[`IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md). The next action is to prove
+the minimal cross-label route contract on the real fitting-room chain before changing the whole game.
 
 ## User-selected operating rules
 
