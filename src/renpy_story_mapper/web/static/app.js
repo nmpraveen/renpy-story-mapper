@@ -14,7 +14,7 @@ const state = {
   project: null,
   analysisStatus: null,
   detail: null,
-  storyPage: null, storyItems: new Map(), storyRoutes: new Map(), storyRouteSelectionId: null, storySelectionId: null, storySelectionItem: null, storySelectionControl: null, storySelectionScrollY: 0, storySelectionWindowY: 0, storySelectionViewportTop: 0, storyPath: null, storyPathToken: 0, storyDetailToken: 0, storyDetailDomIndex: 0,
+  storyPage: null, storyItems: new Map(), storyRoutes: new Map(), storyRouteSelectionId: null, storyRouteInteractionUntil: 0, storySelectionId: null, storySelectionItem: null, storySelectionControl: null, storySelectionScrollY: 0, storySelectionWindowY: 0, storySelectionViewportTop: 0, storyPath: null, storyPathToken: 0, storyDetailToken: 0, storyDetailDomIndex: 0,
   storyReader: {
     contract: null, manifest: null, status: null, mapRevision: null, generationId: null,
     currentSectionId: null, currentPage: null, sectionCache: new Map(), branchCache: new Map(),
@@ -259,6 +259,15 @@ function storyRouteRootCode(index) {
 }
 
 function storyRouteTarget(item) {
+  if (item.entry_kind) {
+    const loop = item.entry_kind === "loop";
+    return {
+      kind: loop ? "loop" : "unresolved",
+      text: loop ? `Returns to ${item.title}` : `Ownership unresolved; see ${item.title}`,
+      name: item.title,
+      selectionId: item.target_selection_id || null,
+    };
+  }
   const outcome = storyOutcomeSentence(item);
   if (outcome) {
     const selectionId = outcome.kind === "destination"
@@ -373,17 +382,20 @@ function updateStoryRoutePanel(context, item = null) {
   renderStoryRoutePanelProvenance(context);
 }
 
-function syncStoryRoutePanelForNode(node, item = null) {
+function syncStoryRoutePanelForNode(node, item = null, { hold = false } = {}) {
   if (!progressiveStoryActive()) return;
+  if (hold) state.storyRouteInteractionUntil = Date.now() + 600;
   const context = storyRouteContextForNode(node);
+  const reference = node?.closest?.(".story-route-reference");
+  const panelContext = context && reference?.storyRouteTarget ? { ...context, target: reference.storyRouteTarget } : context;
   const selectionId = node?.closest?.("[data-story-selection-id]")?.dataset.storySelectionId;
   const panel = $("#storyRoutePanel");
-  const routeKey = context?.selectionId || "main";
-  const itemKey = selectionId || item?.selection_id || item?.title || "story";
+  const routeKey = panelContext?.selectionId || "main";
+  const itemKey = selectionId || item?.selection_id || item?.title || reference?.storyRouteTarget?.text || "story";
   if (panel.dataset.storyReadingRoute === routeKey && panel.dataset.storyReadingItem === itemKey) return;
   panel.dataset.storyReadingRoute = routeKey;
   panel.dataset.storyReadingItem = itemKey;
-  updateStoryRoutePanel(context, item || state.storyItems.get(selectionId) || null);
+  updateStoryRoutePanel(panelContext, item || state.storyItems.get(selectionId) || null);
 }
 
 function appendStoryTargets(host, item, { suppressRejoin = false } = {}) {
@@ -510,9 +522,9 @@ function storySelectionControl(item, kind, routeContext = null) {
   control.append(storyTitleNode(title));
   if (summary && summary.trim() !== title.trim()) control.append(element("span", "", summary));
   if (routeContext) {
-    control.setAttribute("aria-label", `Route ${routeContext.code}. ${storyRouteOwnerLabel(routeContext.controlKind)}: ${title}`);
+    control.setAttribute("aria-label", `Route ${routeContext.code}. ${title}. Started by ${storyRouteOwnerLabel(routeContext.controlKind).toLocaleLowerCase()}`);
   }
-  control.addEventListener("focus", () => syncStoryRoutePanelForNode(control, item));
+  control.addEventListener("focus", () => syncStoryRoutePanelForNode(control, item, { hold: true }));
   control.addEventListener("click", () => {
     if (!progressiveStoryActive()) { selectStoryItem(item, control); return; }
     activateStoryItem(item, control); closeStoryPathForOutline();
@@ -707,7 +719,7 @@ function focusProgressiveStorySelection(selectionId, { clearSearch = true, highl
   const target = control.closest(".story-event,.story-arm,.story-continuation") || control;
   scrollStoryTo(target);
   control.focus({ preventScroll: true });
-  syncStoryRoutePanelForNode(control, state.storyItems.get(selectionId) || null);
+  syncStoryRoutePanelForNode(control, state.storyItems.get(selectionId) || null, { hold: true });
   if (highlight) {
     const previous = $("[data-story-navigation-highlight='true']");
     if (previous) delete previous.dataset.storyNavigationHighlight;
@@ -731,11 +743,12 @@ function renderStoryRouteFlow(items, ordinalState, routeContext) {
     else {
       const reference = element("div", "story-route-reference");
       reference.dataset.entryKind = item.entry_kind;
+      reference.storyRouteTarget = storyRouteTarget(item);
       applyStoryRouteContext(reference, routeContext, { reading: true });
       const label = item.entry_kind === "loop" ? "Returns to" : "Ownership unresolved; see";
       reference.append(element("span", "story-route-reference-kind", label));
       const target = element("button", "quiet-button story-route-reference-target", item.title); target.type = "button";
-      target.addEventListener("focus", () => updateStoryRoutePanel(routeContext, { title: item.title }));
+      target.addEventListener("focus", () => syncStoryRoutePanelForNode(reference, { title: item.title }, { hold: true }));
       target.addEventListener("click", () => navigateProgressiveStorySelection(item.target_selection_id, target));
       reference.append(target); host.append(reference);
     }
@@ -817,7 +830,7 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
       // Shallow depth stays visible; heavy sub-trees fold so the main line keeps its shape.
       route.open = descendantCount <= STORY_OPEN_FORK_LIMIT;
       const owner = element("summary", "story-descendant-owner");
-      owner.addEventListener("focus", () => updateStoryRoutePanel(routeContext, arm));
+      owner.addEventListener("focus", () => { state.storyRouteInteractionUntil = Date.now() + 600; updateStoryRoutePanel(routeContext, arm); });
       owner.addEventListener("keydown", (event) => {
         if (!["Enter", " "].includes(event.key)) return;
         event.preventDefault();
@@ -1597,7 +1610,7 @@ async function loadStoryReader() {
 
 function renderStoryMapV2(page) {
   invalidateStoryDetail();
-  state.storyPage = page; state.storyItems = new Map(); state.storyRoutes = new Map(); state.storyRouteSelectionId = null; state.storySelectionId = null; state.storySelectionItem = null; state.storySelectionControl = null; state.storyPath = null; state.storyDetailDomIndex = 0;
+  state.storyPage = page; state.storyItems = new Map(); state.storyRoutes = new Map(); state.storyRouteSelectionId = null; state.storyRouteInteractionUntil = 0; state.storySelectionId = null; state.storySelectionItem = null; state.storySelectionControl = null; state.storyPath = null; state.storyDetailDomIndex = 0;
   const storyBrowser = $("#storyBrowser"); const fallback = page.status === "fallback"; storyBrowser.classList.toggle("is-fallback", fallback);
   const progressive = (page.analysis_notes || []).some((note) => note.startsWith("Phase 05 progressive story walk"));
   const wholeGame = (page.analysis_notes || []).some((note) => note.startsWith("Phase 05 progressive story walk: whole-game reader"));
@@ -1777,7 +1790,7 @@ function updateStoryReadingPosition() {
     if (top <= readingPoint) readingNode = node;
     else break;
   }
-  if (readingNode) syncStoryRoutePanelForNode(readingNode);
+  if (readingNode && Date.now() >= state.storyRouteInteractionUntil) syncStoryRoutePanelForNode(readingNode);
 }
 
 /** Time-throttled rather than rAF-driven: rAF is starved while the tab is not compositing. */
@@ -1885,7 +1898,7 @@ function activateStoryItem(item, control) {
     control.setAttribute("aria-current", "location");
     const location = control.closest(".story-event,.story-arm,.story-continuation");
     if (location) location.dataset.storyCurrent = "true";
-    syncStoryRoutePanelForNode(control, item);
+    syncStoryRoutePanelForNode(control, item, { hold: true });
   }
 }
 
