@@ -118,6 +118,11 @@ desktop checkpoint are complete. The active Phase 05 correction now proceeds in 
 The detailed implementation contract, gates, and focused checks are in
 [`docs/milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md).
 
+All five correction areas are implemented as of 2026-07-31. The final disposable review project
+preserves the Python-owned counts, contains no machine-facing story names, and has working search,
+state backlinks, destination/rejoin navigation, route-wide detail, completed-story chrome, and valid
+ARIA at 1920x1080. Broad shipping work still waits for the user's rendered-story acceptance.
+
 Run focused tests during implementation. Broad CI, Release, packaging, PR work, and general polish
 wait until the user accepts the story or explicitly asks to ship it.
 

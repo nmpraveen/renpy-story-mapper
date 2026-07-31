@@ -14,6 +14,7 @@ from renpy_story_mapper.story_map_v2.whole_game_reader import (
     WHOLE_GAME_READER_MARKER,
     _label_route_plan,
     _resolve_story_name,
+    _state_write_may_set_read,
     build_whole_game_reader_page,
 )
 
@@ -197,6 +198,53 @@ def _fixture() -> tuple[dict[str, object], ...]:
         "story_coverage_grade": "PASS",
         "skeleton": {"label_transitions": [], "loops": []},
     }
+    return graph, control_flow, skeleton, corridors, summaries
+
+
+def _provenance_fixture() -> tuple[dict[str, object], ...]:
+    graph, control_flow, skeleton, corridors, summaries = _fixture()
+    nodes = graph["nodes"]
+    nodes.extend(
+        [
+            _node("trust_before", "python", 4, "$ trust = 1"),
+            _node("trust_sibling", "python", 6, "$ trust = 1"),
+            _node("trust_future", "python", 9, "$ trust = 1"),
+        ]
+    )
+    edges = graph["edges"]
+    edges.remove(_edge("yes", "branch_story"))
+    edges.remove(_edge("no", "end"))
+    edges.remove(_edge("true", "rejoin"))
+    edges.extend(
+        [
+            _edge("yes", "trust_before"),
+            _edge("trust_before", "branch_story"),
+            _edge("no", "trust_sibling"),
+            _edge("trust_sibling", "end"),
+            _edge("true", "trust_future"),
+            _edge("trust_future", "rejoin"),
+        ]
+    )
+    control_flow["ownership"].extend(
+        [
+            {"node_id": "trust_before", "region_id": "menu_region", "arm_id": "menu_yes"},
+            {"node_id": "trust_sibling", "region_id": "menu_region", "arm_id": "menu_no"},
+            {"node_id": "trust_future", "region_id": "gate_region", "arm_id": "gate_true"},
+        ]
+    )
+    gate_true = next(arm for arm in control_flow["arms"] if arm["id"] == "gate_true")
+    gate_true["state_reads"] = [
+        {"variable": "trust", "expression": "trust == 1", "node_id": "true"}
+    ]
+    for node_id in ("trust_before", "trust_sibling", "trust_future"):
+        corridors["mechanics"].append(
+            {
+                "node_id": node_id,
+                "kind": "effect",
+                "label": "start",
+                "state_effect": {"variable": "trust", "operator": "=", "expression": "1"},
+            }
+        )
     return graph, control_flow, skeleton, corridors, summaries
 
 
@@ -595,6 +643,43 @@ def test_story_name_inventory_canary_is_deterministic_and_bounded() -> None:
     assert canary["canary_count"] == 10
     assert canary["wording_only"] is True
     assert canary["items"] == items[:10]
+
+
+def test_state_provenance_links_only_an_earlier_compatible_assignment() -> None:
+    page = build_whole_game_reader_page(*_provenance_fixture())
+    menu = page["sections"][0]["events"][0]["choices"][0]
+    yes, no, _maybe = menu["arms"]
+    gate = yes["nested_choices"][0]
+    true_arm = gate["arms"][0]
+
+    assert true_arm["state_provenance"] == [
+        {
+            "variable": "trust",
+            "relationship_strength": "exact",
+            "target_selection_id": yes["selection_id"],
+            "target_title": yes["caption"],
+            "source": {
+                "relative_path": "game/story.rpy",
+                "start_line": 4,
+                "end_line": 4,
+            },
+        }
+    ]
+    assert true_arm["rejoin_target_selection_id"] == true_arm["rejoin_binding"][
+        "selection_id"
+    ]
+    assert "state_provenance" not in no
+    assert not any(
+        warning.startswith("Earlier state controls this route:")
+        for warning in true_arm["warnings"]
+    )
+
+
+def test_state_write_matching_stays_conservative_for_direct_equality() -> None:
+    assert _state_write_may_set_read("trust == 1", "trust", "=", "1")
+    assert not _state_write_may_set_read("trust == 1", "trust", "=", "0")
+    assert _state_write_may_set_read("trust >= 1", "trust", "=", "0")
+    assert _state_write_may_set_read("trust == 1", "trust", "+=", "1")
 
 
 def test_label_route_plan_keeps_shared_loop_and_interleaved_entries_non_recursive() -> None:

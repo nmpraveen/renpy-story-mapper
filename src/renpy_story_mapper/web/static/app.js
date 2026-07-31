@@ -258,10 +258,62 @@ function appendStoryTargets(host, item) {
     icon.setAttribute("aria-hidden", "true");
     target.append(icon);
   }
-  target.append(element("span", "story-target-text", outcome.text));
+  const selectionId = outcome.kind === "destination"
+    ? item.destination_target_selection_id
+    : item.rejoin_target_selection_id;
+  if (selectionId) {
+    const link = element("button", "quiet-button story-target-text story-navigation-link", outcome.text);
+    link.type = "button";
+    link.addEventListener("click", () => navigateProgressiveStorySelection(selectionId, link));
+    target.append(link);
+  } else target.append(element("span", "story-target-text", outcome.text));
   target.dataset.targetKind = outcome.kind;
   targets.append(target);
   host.append(targets);
+}
+
+function appendStateProvenance(host, item) {
+  const facts = item.state_provenance || [];
+  if (!facts.length) return;
+  const rows = element("div", "story-provenance");
+  const seen = new Set();
+  const unique = [];
+  for (const fact of facts) {
+    const key = `${fact.relationship_strength}:${fact.target_selection_id || "unresolved"}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(fact);
+  }
+  const resolved = unique
+    .filter((fact) => fact.relationship_strength !== "unresolved")
+    .sort((left, right) => (left.relationship_strength === "exact" ? -1 : 1) - (right.relationship_strength === "exact" ? -1 : 1));
+  for (const fact of resolved.slice(0, 3)) {
+    const row = element("p", `story-provenance-row ${fact.relationship_strength}`);
+    const label = fact.relationship_strength === "exact" ? "Set earlier by" : "Can be set earlier by";
+    row.append(element("span", "story-provenance-label", label));
+    const link = element("button", "quiet-button story-provenance-target story-navigation-link", fact.target_title);
+    link.type = "button";
+    link.addEventListener("click", () => navigateProgressiveStorySelection(fact.target_selection_id));
+    row.append(link);
+    rows.append(row);
+  }
+  if (resolved.length > 3) rows.append(element("p", "story-provenance-row story-provenance-more", `${resolved.length - 3} more earlier sources in Python detail`));
+  if (unique.some((fact) => fact.relationship_strength === "unresolved")) {
+    const unresolved = element("p", "story-provenance-row unresolved");
+    unresolved.append(element("span", "story-provenance-label", "Unresolved earlier state"));
+    rows.append(unresolved);
+  }
+  host.append(rows);
+}
+
+function appendStateProvenanceDetail(host, facts) {
+  if (!facts?.length) return;
+  const list = element("ul", "story-provenance-detail");
+  for (const fact of facts) {
+    const source = fact.source ? `${fact.source.relative_path}:${fact.source.start_line}` : "source unavailable";
+    list.append(element("li", "", `${fact.variable} — ${fact.relationship_strength} — ${source}`));
+  }
+  host.append(list);
 }
 
 function appendStoryBadges(host, item) {
@@ -405,6 +457,7 @@ function appendProgressiveStoryDetail(host, item, control) {
   technical.append(element("summary", "", "Python detail"));
   const body = element("div", "story-technical-body");
   appendStoryBadges(body, item); appendStoryWarnings(body, item.warnings || item.unresolved_warnings);
+  appendStateProvenanceDetail(body, item.state_provenance);
   if (item.selection_id) {
     const source = element("button", "quiet-button story-detail-button", "Source / Evidence"); source.type = "button";
     source.addEventListener("click", async () => { if (state.storySelectionId !== item.selection_id || state.storySelectionControl !== control) activateStoryItem(item, control); await openStoryDetail(item.selection_id); });
@@ -497,13 +550,25 @@ function revealProgressiveStoryNode(node) {
   return true;
 }
 
-function focusProgressiveStorySelection(selectionId) {
-  if (state.storyNav.query) { $("#storySearchInput").value = ""; applyStorySearch(""); }
+function focusProgressiveStorySelection(selectionId, { clearSearch = true, highlight = true } = {}) {
+  if (clearSearch && state.storyNav.query) { $("#storySearchInput").value = ""; applyStorySearch(""); }
   const control = $(`button[data-story-selection-id="${CSS.escape(selectionId)}"]`);
   if (!control || !revealProgressiveStoryNode(control)) return false;
-  scrollStoryTo(control.closest(".story-event,.story-arm,.story-continuation") || control);
+  const target = control.closest(".story-event,.story-arm,.story-continuation") || control;
+  scrollStoryTo(target);
   control.focus({ preventScroll: true });
+  if (highlight) {
+    const previous = $("[data-story-navigation-highlight='true']");
+    if (previous) delete previous.dataset.storyNavigationHighlight;
+    target.dataset.storyNavigationHighlight = "true";
+    clearTimeout(state.storyNavigationHighlightTimer);
+    state.storyNavigationHighlightTimer = setTimeout(() => { delete target.dataset.storyNavigationHighlight; }, 1800);
+  }
   return true;
+}
+
+function navigateProgressiveStorySelection(selectionId) {
+  return focusProgressiveStorySelection(selectionId);
 }
 
 function renderStoryRouteFlow(items, ordinalState) {
@@ -517,7 +582,7 @@ function renderStoryRouteFlow(items, ordinalState) {
       const label = item.entry_kind === "loop" ? "Returns to" : "Ownership unresolved; see";
       reference.append(element("span", "story-route-reference-kind", label));
       const target = element("button", "quiet-button story-route-reference-target", item.title); target.type = "button";
-      target.addEventListener("click", () => focusProgressiveStorySelection(item.target_selection_id));
+      target.addEventListener("click", () => navigateProgressiveStorySelection(item.target_selection_id, target));
       reference.append(target); host.append(reference);
     }
   }
@@ -567,7 +632,7 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
     control.prepend(element("span", "story-arm-kind", storyArmPresentation(controlKind)));
     head.append(control);
     if (!progressiveStoryActive()) head.append(storyDetailControl(arm, control));
-    armArticle.append(head); appendStoryTargets(armArticle, arm);
+    armArticle.append(head); appendStoryTargets(armArticle, arm); appendStateProvenance(armArticle, arm);
     if (progressiveStoryActive()) appendProgressiveStoryDetail(detailSlot, arm, control);
     else { appendStoryBadges(armArticle, arm); appendStoryWarnings(armArticle, arm.warnings); }
     const armContinuations = plan.get(JSON.stringify(armPath));

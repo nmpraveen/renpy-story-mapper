@@ -283,6 +283,8 @@ def build_whole_game_reader_page(
     projected_controls: set[str] = set()
     projected_arms: dict[str, dict[str, object]] = {}
     arm_labels: dict[str, str] = {}
+    condition_reads_by_arm: dict[str, list[Mapping[str, object]]] = {}
+    destination_labels_by_arm: dict[str, str] = {}
 
     def project_choice(control_id: str, label: str, ancestors: frozenset[str]) -> dict[str, object]:
         if control_id in ancestors:
@@ -502,14 +504,19 @@ def build_whole_game_reader_page(
         reads = [
             _mapping(item, "state read") for item in _list(arm.get("state_reads"), "state reads")
         ]
+        if control.get("kind") == "if":
+            direct_reads = [
+                item
+                for item in reads
+                if not isinstance(item.get("node_id"), str)
+                or item.get("node_id") in {control.get("id"), entry_id}
+            ]
+            condition_reads_by_arm[arm_id] = direct_reads
+        if destination:
+            destination_labels_by_arm[arm_id] = destination
         warnings = []
         if unresolved:
             warnings.append("Python marked unresolved behavior on this route.")
-        if reads:
-            variables = sorted(
-                {_text(item.get("variable"), "state read variable") for item in reads}
-            )
-            warnings.append(f"Earlier state controls this route: {', '.join(variables)}.")
         if control.get("kind") == "if":
             warnings.append(
                 f"Python condition: {_text(control.get('source_text'), 'condition source').strip()}"
@@ -616,6 +623,151 @@ def build_whole_game_reader_page(
             ),
             "choices": choices,
         }
+
+    for arm_id, destination_label in destination_labels_by_arm.items():
+        destination_event = event_prototypes.get(destination_label)
+        if destination_event is not None:
+            projected_arms[arm_id]["destination_target_selection_id"] = destination_event[
+                "selection_id"
+            ]
+    for projected_arm in projected_arms.values():
+        rejoin_binding = projected_arm.get("rejoin_binding")
+        if isinstance(rejoin_binding, dict):
+            projected_arm["rejoin_target_selection_id"] = rejoin_binding["selection_id"]
+
+    assignment_facts = [
+        mechanic
+        for mechanic in mechanics.values()
+        if mechanic.get("kind") == "effect" and isinstance(mechanic.get("state_effect"), dict)
+    ]
+    assignments_by_variable: dict[str, list[Mapping[str, object]]] = defaultdict(list)
+    for mechanic in assignment_facts:
+        effect = _mapping(mechanic.get("state_effect"), "assignment state effect")
+        assignments_by_variable[_text(effect.get("variable"), "assignment variable")].append(
+            mechanic
+        )
+    graph_outgoing: dict[str, list[str]] = defaultdict(list)
+    for edge in edges:
+        graph_outgoing[_text(edge.get("source"), "provenance edge source")].append(
+            _text(edge.get("target"), "provenance edge target")
+        )
+    relevant_read_nodes = {
+        _text(read.get("node_id"), "provenance read node")
+        for reads in condition_reads_by_arm.values()
+        for read in reads
+        if isinstance(read.get("node_id"), str)
+    }
+    relevant_read_nodes.update(
+        _text(arms[arm_id].get("entry_node_id"), "provenance fallback read node")
+        for arm_id, reads in condition_reads_by_arm.items()
+        if reads and any(not isinstance(read.get("node_id"), str) for read in reads)
+    )
+    reachable_read_nodes: dict[str, set[str]] = {}
+
+    def assignment_target(node_id: str) -> tuple[str, str] | None:
+        node = nodes.get(node_id)
+        if node is None:
+            return None
+        label = _text(node.get("label"), "assignment label")
+        owner = owning_arm(node_id, label)
+        if owner is not None and owner in projected_arms:
+            projected_arm = projected_arms[owner]
+            return (
+                _text(projected_arm.get("selection_id"), "assignment arm selection"),
+                _text(projected_arm.get("caption"), "assignment arm title"),
+            )
+        event = event_prototypes.get(label)
+        if event is None:
+            return None
+        return (
+            _text(event.get("selection_id"), "assignment event selection"),
+            _text(event.get("title"), "assignment event title"),
+        )
+
+    for arm_id, reads in condition_reads_by_arm.items():
+        if not reads:
+            continue
+        entry_id = _text(arms[arm_id].get("entry_node_id"), "provenance arm entry")
+        reads_by_variable: dict[str, list[Mapping[str, object]]] = defaultdict(list)
+        for read in reads:
+            reads_by_variable[_text(read.get("variable"), "state read variable")].append(read)
+        provenance: list[dict[str, object]] = []
+        for variable, variable_reads in sorted(reads_by_variable.items()):
+            read_node_ids = {
+                _text(read.get("node_id"), "state read node")
+                for read in variable_reads
+                if isinstance(read.get("node_id"), str)
+            }
+            if not read_node_ids:
+                read_node_ids = {entry_id}
+            candidates: list[tuple[int, str, Mapping[str, object], str, str]] = []
+            for mechanic in assignments_by_variable.get(variable, ()):
+                node_id = _text(mechanic.get("node_id"), "assignment node")
+                node_flow = flow_order.get(node_id)
+                if node_flow is None:
+                    continue
+                if node_id not in reachable_read_nodes:
+                    reachable_read_nodes[node_id] = _reachable_targets(
+                        node_id, relevant_read_nodes, graph_outgoing
+                    )
+                compatible_reads = [
+                    read
+                    for read in variable_reads
+                    if (
+                        read.get("node_id") in reachable_read_nodes[node_id]
+                        and node_flow < flow_order.get(cast(str, read.get("node_id")), -1)
+                    )
+                ]
+                if not compatible_reads and entry_id in reachable_read_nodes[node_id]:
+                    entry_flow = flow_order.get(entry_id)
+                    if entry_flow is not None and node_flow < entry_flow:
+                        compatible_reads = variable_reads
+                if not compatible_reads:
+                    continue
+                effect = _mapping(mechanic.get("state_effect"), "assignment state effect")
+                if not any(
+                    _state_write_may_set_read(
+                        _text(read.get("expression"), "state read expression"),
+                        variable,
+                        _text(effect.get("operator"), "assignment operator"),
+                        _text(effect.get("expression"), "assignment expression"),
+                    )
+                    for read in compatible_reads
+                ):
+                    continue
+                target = assignment_target(node_id)
+                if target is None:
+                    continue
+                target_selection_id, target_title = target
+                candidates.append((node_flow, node_id, mechanic, target_selection_id, target_title))
+            candidates.sort(key=lambda item: (item[0], item[1]))
+            relationship = "exact" if len(candidates) == 1 else "possible"
+            for _node_flow, node_id, _mechanic, target_selection_id, target_title in candidates:
+                provenance.append(
+                    {
+                        "variable": variable,
+                        "relationship_strength": relationship,
+                        "target_selection_id": target_selection_id,
+                        "target_title": target_title,
+                        "source": _reader_source(_flat_source(nodes[node_id])),
+                    }
+                )
+            if not candidates:
+                evidence_node = next(
+                    (nodes[node_id] for node_id in read_node_ids if node_id in nodes),
+                    nodes[entry_id],
+                )
+                provenance.append(
+                    {
+                        "variable": variable,
+                        "relationship_strength": "unresolved",
+                        "target_selection_id": None,
+                        "target_title": None,
+                        "source": _reader_source(_flat_source(evidence_node)),
+                    }
+                )
+        if provenance:
+            projected_arms[arm_id]["state_provenance"] = provenance
 
     route_plan = _label_route_plan(
         graph=graph,
@@ -1358,6 +1510,47 @@ def _destination_label(
             default=10**9,
         ),
     )
+
+
+def _reachable_targets(
+    source: str,
+    targets: set[str],
+    outgoing: Mapping[str, Sequence[str]],
+) -> set[str]:
+    """Return only requested graph targets reachable after ``source``."""
+
+    found: set[str] = set()
+    pending = deque(outgoing.get(source, ()))
+    seen = {source}
+    while pending and found != targets:
+        node_id = pending.popleft()
+        if node_id in seen:
+            continue
+        seen.add(node_id)
+        if node_id in targets:
+            found.add(node_id)
+        pending.extend(outgoing.get(node_id, ()))
+    return found
+
+
+def _state_write_may_set_read(
+    read_expression: str,
+    variable: str,
+    operator: str,
+    write_expression: str,
+) -> bool:
+    """Match direct equality gates without attempting symbolic state solving."""
+
+    if operator != "=":
+        return True
+    equality = re.compile(
+        rf"(?<![A-Za-z0-9_]){re.escape(variable)}\s*==\s*"
+        r"(?P<value>True|False|None|-?\d+(?:\.\d+)?|'[^']*'|\"[^\"]*\")"
+    )
+    expected_values = {match.group("value") for match in equality.finditer(read_expression)}
+    if not expected_values:
+        return True
+    return write_expression.strip() in expected_values
 
 
 def _effect_text(mechanic: Mapping[str, object]) -> str:

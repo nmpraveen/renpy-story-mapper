@@ -1,6 +1,6 @@
 # M15.1 Phase 05 - Progressive state-aware story timeline
 
-Status: whole-game correction implementation in progress
+Status: whole-game correction implemented; final rendered user acceptance pending
 
 ## User outcome
 
@@ -130,8 +130,9 @@ turned 29 labels without shared corridor prose into neutral control-derived gate
 borrows a child route summary. Phase 05 remains active for the five reader corrections below and
 user acceptance of the assembled whole-game reader.
 
-The 2026-07-30 review identified five remaining corrections before that acceptance: compose
-cross-label routes beneath their owning arms, replace machine-facing route language, emit real state
-back-links and navigation targets, fix nested-route disclosure and full-width arm detail, and remove
-dead completed-story chrome plus small ARIA/recent-project defects. Work follows
-[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md), beginning with the real fitting-room route proof.
+The five 2026-07-30 reader corrections are now implemented. Cross-label events remain beneath their
+owning arms; 79 accepted stable-ID story names leave no machine-facing or fallback names; state,
+destination, and rejoin links navigate to stable targets; closed descendants and route-wide detail
+behave correctly; and completed-story chrome, ARIA, and recent-project presentation are corrected.
+The final disposable review project preserves all structural counts and passes the focused 1920px
+browser checks. User acceptance of that rendered story is the remaining gate.

@@ -374,6 +374,21 @@ def test_story_map_contract_accepts_arm_owned_events_and_stable_route_references
     departure, shelter = page["sections"][0]["events"]
     page["sections"][0]["events"] = [departure]
     bridge, tunnel = departure["choices"][0]["arms"]
+    bridge["destination_target_selection_id"] = shelter["selection_id"]
+    tunnel["rejoin_target_selection_id"] = tunnel["rejoin_binding"]["selection_id"]
+    bridge["state_provenance"] = [
+        {
+            "variable": "trust",
+            "relationship_strength": "exact",
+            "target_selection_id": departure["selection_id"],
+            "target_title": departure["title"],
+            "source": {
+                "relative_path": "game/story.rpy",
+                "start_line": 3,
+                "end_line": 3,
+            },
+        }
+    ]
     bridge["route_flow"] = [
         {
             "kind": "event",
@@ -403,10 +418,18 @@ def test_story_map_contract_accepts_arm_owned_events_and_stable_route_references
       duplicate.sections[0].events.push(structuredClone(duplicate.sections[0].events[0].choices[0].arms[0].route_flow[0].event));
       let duplicateRejected = false;
       try {{ assertStoryMapV2(duplicate); }} catch (_error) {{ duplicateRejected = true; }}
+      const missingProvenance = structuredClone(valid);
+      missingProvenance.sections[0].events[0].choices[0].arms[0].state_provenance[0].target_selection_id = "missing-provenance";
+      let missingProvenanceRejected = false;
+      try {{ assertStoryMapV2(missingProvenance); }} catch (_error) {{ missingProvenanceRejected = true; }}
       process.stdout.write(JSON.stringify({{
         nested: accepted.sections[0].events[0].choices[0].arms[0].route_flow[0].event.selection_id,
         reference: accepted.sections[0].events[0].choices[0].arms[1].route_flow[0].target_selection_id,
+        destination: accepted.sections[0].events[0].choices[0].arms[0].destination_target_selection_id,
+        rejoin: accepted.sections[0].events[0].choices[0].arms[1].rejoin_target_selection_id,
+        provenance: accepted.sections[0].events[0].choices[0].arms[0].state_provenance[0].target_selection_id,
         missingRejected,
+        missingProvenanceRejected,
         duplicateRejected,
       }}));
     """
@@ -420,7 +443,11 @@ def test_story_map_contract_accepts_arm_owned_events_and_stable_route_references
     assert json.loads(completed.stdout) == {
         "nested": "event-shelter",
         "reference": "event-departure",
+        "destination": "event-shelter",
+        "rejoin": tunnel["rejoin_binding"]["selection_id"],
+        "provenance": "event-departure",
         "missingRejected": True,
+        "missingProvenanceRejected": True,
         "duplicateRejected": True,
     }
 
@@ -738,7 +765,14 @@ def test_phase05_progressive_page_precedes_reader_and_shows_human_targets() -> N
     assert 'element("div", "story-inline-detail")' in app
     assert 'element("details", "story-technical-disclosure")' in app
     assert '"Source / Evidence"' in app
+    assert 'element("div", "story-provenance")' in app
+    assert '"Set earlier by"' in app
+    assert '"Can be set earlier by"' in app
+    assert '"Unresolved earlier state"' in app
+    assert "navigateProgressiveStorySelection" in app
     assert ".story-targets" in css
+    assert ".story-provenance" in css
+    assert "data-story-navigation-highlight" in css
     assert ".story-browser.is-progressive-story .story-arms" in css
     assert ".story-browser.is-progressive-story .story-arm::before" in css
     assert ".story-inline-summary" in css

@@ -10,10 +10,9 @@ Updated: 2026-07-31
 - Implementation roadmap: [`docs/milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md).
 - Active checkout: `codex/m15-phase05-reader-corrections`, created from `main` at `379f627` on
   2026-07-31.
-- Status: five-part reader correction implementation is in progress. Gates 1-3 are complete:
-  cross-label topology is integrated, a corrected whole-game canary preserves all counts, and the
-  first 10 unresolved story names passed rendered review. Three user-visible Sol/High Codex tasks
-  own the remaining 74 wording-only items; a fourth owns the bounded state-provenance/link seam.
+- Status: all five reader corrections are implemented and focused validation is complete. The
+  disposable corrected whole-game project is ready for user review; only rendered story acceptance
+  remains pending.
 - Native Codex goal: none.
 
 ## Current product decision
@@ -92,18 +91,23 @@ event titles, or readable narrative before falling back explicitly. It never der
 splitting identifiers. The initial real inventory contained 87 uncovered names; the coordinator's
 10 accepted canary overrides reduced that to 74 because several named structural targets also resolve
 dependent rows. The rendered canary shows the accepted condition question, event, destination, and
-rejoin language while raw Python remains in secondary detail. The remaining 74 wording-only items
-are split 25/25/24 across three user-visible Sol/High tasks.
+rejoin language while raw Python remains in secondary detail. Three user-visible Sol/High tasks
+reviewed the remaining 74 items in 25/25/24 batches. Their 69 safe names plus the accepted first 10
+resolve the entire final inventory: zero user-visible names remain uncovered. The accepted stable-ID
+artifact is [`STORY_NAME_OVERRIDES.json`](milestones/M15_PHASE_05/STORY_NAME_OVERRIDES.json).
 
 Completed progressive stories now hide dead Generate/readiness chrome, while actionable workflow
 controls remain available. Recent project cards show source basename and precise last-opened time
 without returning an absolute path; merely listing recent projects cannot migrate them.
 
 Closed descendant routes now hide their content, selected-arm detail uses one route-wide slot capped
-near 68 characters, and ordinary story buttons no longer use `aria-selected`. The remaining active
-gaps are the 74 reviewed story names, path-compatible provenance back-links/navigation targets, and
-final whole-game regeneration and acceptance. Work continues in the order defined by
-[`IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md).
+near 68 characters, and ordinary story buttons no longer use `aria-selected`. Later state gates now
+carry path-compatible links to earlier assignments or explicit unresolved provenance. Destination
+and rejoin rows navigate to stable story targets. The 1920x1080 final review has zero user-visible
+underscored identifiers, raw expressions, rejected route headings, mechanical shared names, bare
+`Otherwise`, or unnamed destination fallbacks; search, focus/highlight navigation, and Clear work
+without console errors. Page and story overflow are both zero. Evidence and the disposable project
+are under `output/m15-phase05-reader-corrections-20260731/final-review`.
 
 ## User-selected operating rules
 

@@ -2,7 +2,7 @@
 
 Updated: 2026-07-31
 
-Status: implementation in progress; Gates 1-3 complete, Wave 3 provenance and bulk wording active
+Status: Gates 1-5 complete; Gate 6 disposable review project built, awaiting user acceptance
 
 ## Outcome
 
@@ -121,6 +121,10 @@ produce a human story name.
    and outgoing story titles. AI returns wording only.
 8. Inspect the first 10 unresolved names in the coordinator. Only after that rendered canary is useful
    may the remainder be split across user-visible Sol/High Codex tasks.
+
+The accepted whole-game stable-ID wording is checked in as
+[`STORY_NAME_OVERRIDES.json`](STORY_NAME_OVERRIDES.json). It contains presentation wording only and
+does not change any Python-owned structure or mechanics.
 
 ### Acceptance
 

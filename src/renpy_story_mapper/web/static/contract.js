@@ -391,6 +391,9 @@ function storyChoice(value, seenSelections, depth = 0, rejoinSelections = new Ma
     if (Object.hasOwn(arm, "outline_summary")) armKeys.push("outline_summary");
     if (Object.hasOwn(arm, "detail_summary")) armKeys.push("detail_summary");
     if (Object.hasOwn(arm, "route_flow")) armKeys.push("route_flow");
+    if (Object.hasOwn(arm, "state_provenance")) armKeys.push("state_provenance");
+    if (Object.hasOwn(arm, "destination_target_selection_id")) armKeys.push("destination_target_selection_id");
+    if (Object.hasOwn(arm, "rejoin_target_selection_id")) armKeys.push("rejoin_target_selection_id");
     exactKeys(arm, armKeys, "Story Map V2 arm");
     boundedText(arm.selection_id, "Story Map V2 arm selection", 512);
     if (seenSelections.has(arm.selection_id) || continuationBindings.has(arm.selection_id)) throw new TypeError("Duplicate Story Map V2 selection");
@@ -424,6 +427,27 @@ function storyChoice(value, seenSelections, depth = 0, rejoinSelections = new Ma
     if (Object.hasOwn(arm, "route_flow")) {
       if (!Array.isArray(arm.route_flow) || arm.route_flow.length > 64) throw new TypeError("Invalid Story Map V2 arm route flow");
       arm.route_flow.forEach((item) => storyRouteFlowItem(item, seenSelections, eventDepth, budget, continuationBindings, referenceTargets));
+    }
+    for (const key of ["destination_target_selection_id", "rejoin_target_selection_id"]) {
+      if (!Object.hasOwn(arm, key)) continue;
+      boundedText(arm[key], `Story Map V2 ${key}`, 512);
+      referenceTargets.add(arm[key]);
+    }
+    if (Object.hasOwn(arm, "state_provenance")) {
+      if (!Array.isArray(arm.state_provenance) || arm.state_provenance.length > 64) throw new TypeError("Invalid Story Map V2 state provenance");
+      for (const item of arm.state_provenance) {
+        exactKeys(item, ["variable", "relationship_strength", "target_selection_id", "target_title", "source"], "Story Map V2 state provenance item");
+        boundedText(item.variable, "Story Map V2 provenance variable", 256);
+        if (!["exact", "possible", "unresolved"].includes(item.relationship_strength)) throw new TypeError("Invalid Story Map V2 provenance relationship");
+        sourceBinding(item.source);
+        if (item.relationship_strength === "unresolved") {
+          if (item.target_selection_id !== null || item.target_title !== null) throw new TypeError("Unresolved Story Map V2 provenance has a target");
+        } else {
+          boundedText(item.target_selection_id, "Story Map V2 provenance target", 512);
+          boundedText(item.target_title, "Story Map V2 provenance title", 512);
+          referenceTargets.add(item.target_selection_id);
+        }
+      }
     }
   });
   return value;
@@ -479,7 +503,7 @@ export function assertStoryMapV2(value) {
       storyEvent(event, selections, 0, treeBudget, continuationBindings, referenceTargets);
     }
   }
-  for (const target of referenceTargets) if (!selections.has(target)) throw new TypeError("Story Map V2 route-flow reference target is missing");
+  for (const target of referenceTargets) if (!selections.has(target) && !continuationBindings.has(target)) throw new TypeError("Story Map V2 navigation target is missing");
   return value;
 }
 

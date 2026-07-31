@@ -21,11 +21,11 @@
 | Simplify the browser around the scrolling reader | Complete | Obsolete map and workflow surfaces removed; story index, local search, wider forks, collapsible deep branches, and readable prose verified at 1920px |
 | Freeze the cross-label route contract on the fitting-room proof | Complete | The real `Keep arguing with her` call owns the called event, `Push her out` bypasses it, the returned continuation remains canonical, loops/unresolved reuse stable references, and the 1920x1080 proof has no overflow |
 | Compose cross-label routes into one progressive tree | Complete | The real fitting-room route is owned correctly; the regenerated whole-game canary preserves 111 events, 594 corridors, 260 controls, and 571 arms with canonical shared continuations and reference-only reuse |
-| Replace machine-facing route language | In progress | The deterministic resolver and rendered first-10 canary are accepted; three Sol/High wording-only tasks cover the remaining 74 unresolved structural names |
-| Emit state provenance and story navigation links | In progress | A bounded Sol/High task is implementing path-compatible earlier-state backlinks and stable destination/rejoin targets from the integrated branch |
+| Replace machine-facing route language | Complete | The deterministic resolver plus 79 accepted stable-ID names leave zero uncovered names and zero machine-language/fallback hits on the final default surface; raw Python remains secondary detail |
+| Emit state provenance and story navigation links | Complete | All 345 emitted navigation targets resolve; `branch_9` and accepted Terrance facts link to compatible earlier assignments, with unsafe cases explicit and no future/incompatible fixture links |
 | Fix nested-route disclosure and full-width arm detail | Complete | Closed direct descendants measure zero height; one shared route-wide detail slot works at nested levels with readable measure and zero 1920x1080/1280x800 overflow |
 | Remove completed-story chrome and reader polish defects | Complete | Dead completed-story controls are hidden, recent cards use basename/time without migration, and ordinary story buttons use valid ARIA state |
-| Regenerate and inspect the corrected whole-game reader | In progress | The first-10 canary preserves all Python counts and has zero overflow; final regeneration waits for the reviewed 74-name merge and provenance links |
+| Regenerate and inspect the corrected whole-game reader | Complete | The disposable final project preserves 111 events, 594 corridors, 260 controls, and 571 arms; search and links work with zero console errors, machine-text hits, or 1920px overflow |
 | User acceptance of the whole-game timeline | Pending | The user can follow the complete story and its routes by scrolling without interpreting code labels |
 
 Use only `Pending`, `In progress`, `Blocked`, or `Complete`.
