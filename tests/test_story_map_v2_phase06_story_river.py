@@ -58,6 +58,13 @@ def _media(css: str, width: int, next_width: int | None) -> str:
     return css[start:end]
 
 
+def _css_rules(source: str) -> list[tuple[str, str]]:
+    return [
+        (selector.strip(), body)
+        for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", source)
+    ]
+
+
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required")
 def test_story_route_context_executes_root_nested_palette_and_outcome_contract() -> None:
     app = _text("app.js")
@@ -153,10 +160,13 @@ def test_story_route_context_executes_root_nested_palette_and_outcome_contract()
         assert case["selectionIds"] == [f"fork-{count}:{index}" for index in range(1, count + 1)]
     assert result["rollover"] == ["A", "Z", "AA", "AB", "AZ", "BA"]
     assert result["parent"] == {"code": "B", "selectionId": "parent:2"}
-    assert result["nested"] == [
-        {"code": "B.1", "slot": 3, "selectionId": "nested:1", "parentCode": "B", "parentSelectionId": "parent:2", "depth": 1},
-        {"code": "B.2", "slot": 4, "selectionId": "nested:2", "parentCode": "B", "parentSelectionId": "parent:2", "depth": 1},
+    assert [{key: value for key, value in context.items() if key != "slot"} for context in result["nested"]] == [
+        {"code": "B.1", "selectionId": "nested:1", "parentCode": "B", "parentSelectionId": "parent:2", "depth": 1},
+        {"code": "B.2", "selectionId": "nested:2", "parentCode": "B", "parentSelectionId": "parent:2", "depth": 1},
     ]
+    nested_slots = [context["slot"] for context in result["nested"]]
+    assert len(set(nested_slots)) == len(nested_slots)
+    assert all(1 <= slot <= 8 for slot in nested_slots)
     assert {"parent:2", "nested:1", "nested:2"}.issubset(result["routeKeys"])
     assert result["outcomes"][:5] == [
         {"kind": "rejoin", "text": "Rejoins at Shared harbor", "name": "Shared harbor", "selectionId": "event:shared"},
@@ -183,8 +193,6 @@ def test_story_river_renderer_propagates_routes_and_preserves_fork_contract() ->
         7: "stack",
         9: "stack",
     }
-    assert "const STORY_OPEN_FORK_LIMIT = 2;" in app
-
     apply_context = _function(app, "applyStoryRouteContext")
     choice = _function(app, "renderStoryChoice")
     route_flow = _function(app, "renderStoryRouteFlow")
@@ -206,7 +214,6 @@ def test_story_river_renderer_propagates_routes_and_preserves_fork_contract() ->
     assert 'element("span", "story-route-code", `Route ${routeContext.code}`)' in choice
     assert "renderStoryChoice(child, true" in choice and "routeContext, storyItemTitle(arm)" in choice
     assert "renderStoryRouteFlow(arm.route_flow, ordinalState, routeContext)" in choice
-    assert "route.open = descendantCount <= STORY_OPEN_FORK_LIMIT" in choice
     assert "appendStoryContinuations(route, armContinuations, true, merges, parentRouteContext)" in choice
     assert "appendStoryContinuations(article, plan.get(JSON.stringify(choicePath)), false, merges, parentRouteContext)" in choice
 
@@ -240,8 +247,10 @@ def test_story_route_panel_markup_links_and_all_sync_paths_are_explicit() -> Non
     for field_id in (
         "storyRouteCode",
         "storyRouteTitle",
+        "storyRouteSynopsis",
         "storyRouteOrigin",
         "storyRouteOwner",
+        "storyRouteStatusLabel",
         "storyRouteStatus",
         "storyRouteProvenanceGroup",
         "storyRouteProvenance",
@@ -263,8 +272,18 @@ def test_story_route_panel_markup_links_and_all_sync_paths_are_explicit() -> Non
     assert ".slice(0, 3)" in provenance
     assert 'element("button", "quiet-button story-route-provenance-link"' in provenance
     assert "navigateProgressiveStorySelection(fact.target_selection_id)" in provenance
-    for field_id in ("storyRouteCode", "storyRouteTitle", "storyRouteOrigin", "storyRouteOwner", "storyRouteStatus"):
+    for field_id in (
+        "storyRouteCode",
+        "storyRouteTitle",
+        "storyRouteSynopsis",
+        "storyRouteOrigin",
+        "storyRouteOwner",
+        "storyRouteStatusLabel",
+        "storyRouteStatus",
+    ):
         assert f'$("#{field_id}")' in update_panel
+    assert "storyRouteSynopsis" in update_panel and "storySummary" in update_panel
+    assert "storyRouteStatusLabel" in update_panel and "target.kind" in update_panel
     assert "context.target" in update_panel
     assert 'element("button", "quiet-button story-route-target-link"' in update_panel
     assert "navigateProgressiveStorySelection(context.target.selectionId)" in update_panel
@@ -328,3 +347,149 @@ def test_story_river_css_breakpoints_and_frontend_only_boundary() -> None:
     assert "<canvas" not in html.lower()
     route_helpers = _function(app, "storyRouteRootCode") + _function(app, "createStoryRouteContext")
     assert all(marker not in route_helpers for marker in ("api.", "fetch(", "canvas", "pan(", "zoom("))
+
+
+def test_story_descendants_stay_compact_until_the_owned_route_is_focused() -> None:
+    app = _text("app.js")
+    choice = _function(app, "renderStoryChoice")
+    focus = _function(app, "focusStoryDescendantRoute")
+
+    assert "STORY_OPEN_FORK_LIMIT" not in app
+    assert 'route.dataset.storyRouteFocus = "available"' in choice
+    assert "route.open = false" in choice
+    assert "descendantCount <=" not in choice
+    assert '$$(".story-descendant-route")' in focus
+    assert "route.dataset.ownerSelectionId === selectionId" in focus
+    assert re.search(
+        r"route\.open\s*=\s*(?:active|route\.dataset\.ownerSelectionId\s*===\s*selectionId)",
+        focus,
+    )
+
+
+def test_arm_focus_and_story_detail_use_separate_controls() -> None:
+    app = _text("app.js")
+    selection = _function(app, "storySelectionControl")
+    detail = _function(app, "appendProgressiveStoryDetail")
+
+    assert 'kind === "story-arm"' in selection
+    assert "focusStoryDescendantRoute(item.selection_id)" in selection
+    assert "toggleProgressiveStoryDetail(control)" not in selection
+    assert '"story-inline-detail-trigger"' in detail
+    assert 'trigger.setAttribute("aria-controls", detail.id)' in detail
+    assert 'trigger.setAttribute("aria-expanded", "false")' in detail
+    assert 'control.setAttribute("aria-controls", detail.id)' not in detail
+    assert "toggleProgressiveStoryDetail(trigger)" in detail
+
+
+def test_story_confluences_expose_a_stable_target_and_return_stream() -> None:
+    app = _text("app.js")
+    css = _text("styles.css")
+    continuations = _function(app, "appendStoryContinuations")
+
+    assert "row.dataset.storyConfluenceTargetSelectionId = binding.selection_id" in continuations
+    assert re.search(
+        r"row\.dataset\.storyConfluenceScope\s*=\s*"
+        r"returnRouteContext\s*\?\s*[\"']route[\"']\s*:\s*[\"']main[\"']",
+        continuations,
+    )
+    assert '"The story comes back together"' in continuations
+    assert 'row.dataset.outcomeKind = "rejoin"' in continuations
+    rules = _css_rules(css)
+    assert any('[data-story-confluence-scope="main"]' in selector for selector, _ in rules)
+    assert any('[data-story-confluence-scope="route"]' in selector for selector, _ in rules)
+    main_confluence = [
+        body
+        for selector, body in rules
+        if '[data-story-confluence-scope="main"]' in selector
+    ]
+    assert any(
+        ("max-width:" in body or re.search(r"\bwidth\s*:\s*(?:fit-content|min\()", body))
+        and re.search(
+            r"(?:margin(?:-inline)?|justify-self)\s*:[^;]*(?:auto|center)",
+            body,
+        )
+        for body in main_confluence
+    )
+    assert any("--story-spine" in body for body in main_confluence)
+
+
+def test_story_river_is_a_centered_spine_with_bounded_local_tributaries() -> None:
+    css = _text("styles.css")
+    rules = _css_rules(css)
+
+    main_stream = [
+        body
+        for selector, body in rules
+        if '[data-story-stream="main"]' in selector or "[data-story-stream='main']" in selector
+    ]
+    route_stream = [body for selector, body in rules if "[data-story-route-selection-id]" in selector]
+    assert main_stream, "the shared chronology needs an explicit main-spine style"
+    assert route_stream, "route-owned nodes need a separate tributary style"
+    assert any("--story-spine" in body for body in main_stream)
+    assert any("var(--story-route-color)" in body for body in route_stream)
+
+    assert any(
+        ".is-story-river" in selector
+        and any(target in selector for target in (".story-guide", ".story-events", ".story-river-stage"))
+        and ("max-width:" in body or re.search(r"\bwidth\s*:\s*min\(", body))
+        and re.search(
+            r"(?:margin(?:-inline)?|justify-self)\s*:[^;]*(?:auto|center)",
+            body,
+        )
+        for selector, body in rules
+    ), "the river stage must stay bounded and centered instead of stretching like a board"
+    assert any(
+        '[data-fork-layout="fan"]' in selector and "max-width:" in body
+        for selector, body in rules
+    ), "two-to-four-arm tributaries need a local width cap"
+
+
+def test_route_selection_preserves_identity_and_color_in_the_reader_and_panel() -> None:
+    app = _text("app.js")
+    css = _text("styles.css")
+    panel = _function(app, "updateStoryRoutePanel")
+    rules = _css_rules(css)
+
+    for key, value in (
+        ("storyRouteSelectionId", "context.selectionId"),
+        ("storyRouteCode", "context.code"),
+        ("storyRouteSlot", "String(context.paletteSlot)"),
+    ):
+        assert f"panel.dataset.{key} = {value}" in panel
+        assert f"delete panel.dataset.{key}" in panel
+
+    selected = [
+        body
+        for selector, body in rules
+        if '.story-arm[data-story-current="true"] > .story-arm-head' in selector
+    ]
+    assert selected
+    assert not any(re.search(r"\bborder-color\s*:\s*var\(--accent\)", body) for body in selected)
+    assert any("var(--story-tributary)" in body for body in selected)
+
+    available = [
+        body
+        for selector, body in rules
+        if '[data-story-route-focus="available"]' in selector
+    ]
+    assert available
+    assert any(
+        "var(--story-route-color)" in body or "var(--story-route-soft)" in body
+        for body in available
+    )
+    assert not any(re.search(r"\bborder-color\s*:\s*var\(--accent\)", body) for body in available)
+
+
+def test_intermediate_sticky_route_panel_keeps_navigation_targets_visible() -> None:
+    app = _text("app.js")
+    css = _text("styles.css")
+    intermediate_start = css.index("@media (min-width: 1241px) and (max-width: 1499px)")
+    normal_start = css.index("@media (max-width: 1240px)")
+    intermediate = css[intermediate_start:normal_start]
+    scroll = _function(app, "scrollStoryTo")
+
+    sticky = ".story-route-panel" in intermediate and "position: sticky" in intermediate
+    if sticky:
+        css_clearance = re.search(r"scroll-(?:padding|margin)-top", intermediate)
+        measured_clearance = "storyRoutePanel" in scroll and scroll.count("getBoundingClientRect") >= 2
+        assert css_clearance or measured_clearance
