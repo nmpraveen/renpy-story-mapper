@@ -512,7 +512,7 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
 .story-browser.is-progressive-story .story-arm[data-outcome-kind="unresolved"] > .story-arm-head { border-style: dashed; }
 .story-browser.is-progressive-story .story-arm[data-outcome-kind="unresolved"]::before { background: repeating-linear-gradient(to bottom, var(--story-tributary) 0 4px, transparent 4px 7px); }
 .story-browser.is-progressive-story .story-arms.is-stacked > .story-arm[data-outcome-kind="unresolved"]::before { border-color: var(--story-tributary); border-style: dashed; background: none; }
-.story-browser.is-progressive-story .story-arm[data-story-current="true"] > .story-arm-head { border-color: var(--accent); border-left-color: var(--story-tributary); box-shadow: 0 0 0 1px var(--accent); }
+.story-browser.is-progressive-story .story-arm[data-story-current="true"] > .story-arm-head { border-color: var(--story-tributary); border-left-color: var(--story-tributary); box-shadow: 0 0 0 1px var(--story-tributary); }
 .story-browser.is-progressive-story .story-arm-select { display: grid; gap: .28rem; width: 100%; padding: .6rem .8rem .7rem; text-align: left; }
 .story-browser.is-progressive-story .story-arm-kind { display: inline-flex; width: fit-content; max-width: 100%; align-items: center; gap: .4rem; margin: 0; color: color-mix(in srgb, var(--story-control-mark) 82%, var(--ink)); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
 .story-browser.is-progressive-story .story-arm-kind::before,
@@ -635,6 +635,8 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
   .story-reader-shell:has(> .story-route-panel:not([hidden])) > .story-rail { grid-column: 1; grid-row: 1 / span 2; }
   .story-reader-shell:has(> .story-route-panel:not([hidden])) > .story-guide { grid-column: 2; grid-row: 2; }
   .story-reader-shell:has(> .story-route-panel:not([hidden])) > .story-route-panel { position: sticky; z-index: 6; top: 4.4rem; grid-column: 2; grid-row: 1; align-self: start; width: 100%; max-height: min(10rem, calc(100vh - 6rem)); grid-template-columns: minmax(12rem, .65fr) minmax(0, 1.35fr); gap: .45rem .9rem; overflow: auto; padding: .65rem .8rem; }
+  .story-browser.is-story-river { scroll-padding-top: 12rem; }
+  .story-browser.is-story-river :where(.story-event, .story-choice, .story-continuation, .story-descendant-route) { scroll-margin-top: 12rem; }
   .story-browser.is-progressive-story .story-route-panel-head { grid-column: 1; }
   .story-browser.is-progressive-story .story-route-panel .story-route-facts { grid-column: 2; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .25rem .7rem; }
   .story-browser.is-progressive-story .story-route-panel .story-route-fact { grid-template-columns: minmax(4.5rem, auto) minmax(0, 1fr); padding-top: .2rem; }
@@ -725,6 +727,15 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
 .story-browser.is-story-river .story-guide {
   min-width: 0;
   overflow: visible;
+}
+
+.story-browser.is-story-river .story-guide,
+.story-browser.is-story-river .story-events,
+.story-browser.is-story-river .story-river-stage {
+  width: 100%;
+  max-width: var(--story-river-width);
+  margin-inline: auto;
+  justify-self: center;
 }
 
 .story-browser.is-story-river .story-sections {
@@ -1130,6 +1141,22 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
   box-shadow: inset 0 1px color-mix(in srgb, var(--sheet) 26%, transparent), 0 3px 0 color-mix(in srgb, var(--story-link) 28%, var(--paper-deep));
 }
 
+.story-browser.is-story-river [data-story-confluence-scope="main"] {
+  --story-confluence-stream: var(--story-spine);
+  width: fit-content;
+  max-width: min(24rem, calc(100% - 3rem));
+  margin-inline: auto;
+  justify-self: center;
+}
+
+.story-browser.is-story-river [data-story-confluence-scope="route"] {
+  --story-confluence-stream: var(--story-route-color);
+  width: fit-content;
+  max-width: min(24rem, calc(100% - 3rem));
+  margin-inline: auto;
+  justify-self: center;
+}
+
 .story-browser.is-story-river .story-continuation.is-confluence::before {
   top: -4.75rem;
   left: 12%;
@@ -1147,7 +1174,7 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
   width: var(--story-spine-width);
   height: 3.4rem;
   transform: translateX(-50%);
-  background: var(--story-spine);
+  background: var(--story-confluence-stream, var(--story-spine));
   content: "";
 }
 
