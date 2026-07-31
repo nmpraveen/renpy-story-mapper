@@ -10,10 +10,10 @@ Updated: 2026-07-31
 - Implementation roadmap: [`docs/milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md).
 - Active checkout: `codex/m15-phase05-reader-corrections`, created from `main` at `379f627` on
   2026-07-31.
-- Status: five-part reader correction implementation is in progress. Gate 1 cross-label topology and
-  the independent completed-story shell/recent-project slice are integrated. The coordinator owns
-  integration and real-browser acceptance; Wave 2 user-visible Sol/High Codex tasks own human story
-  naming/inventory and the nested-route/detail/ARIA reader correction.
+- Status: five-part reader correction implementation is in progress. Gates 1-3 are complete:
+  cross-label topology is integrated, a corrected whole-game canary preserves all counts, and the
+  first 10 unresolved story names passed rendered review. Three user-visible Sol/High Codex tasks
+  own the remaining 74 wording-only items; a fourth owns the bounded state-provenance/link seam.
 - Native Codex goal: none.
 
 ## Current product decision
@@ -85,15 +85,24 @@ out` bypasses it; the returned shared continuation remains canonical; loop or am
 a stable reference rather than duplicated recursion. Recursive browser search, index navigation, and
 count traversal include nested events. The focused 1920x1080 proof has no horizontal overflow, and an
 in-memory invariant audit remains at 111 events, 594 corridors, 260 controls, and 571 arms. The full
-review project has not yet been regenerated.
+reader has now been regenerated as a first-10 naming canary with the same totals and no overflow.
+
+The deterministic story-name resolver uses accepted stable-ID wording, exact corridor titles, owning
+event titles, or readable narrative before falling back explicitly. It never derives prose by
+splitting identifiers. The initial real inventory contained 87 uncovered names; the coordinator's
+10 accepted canary overrides reduced that to 74 because several named structural targets also resolve
+dependent rows. The rendered canary shows the accepted condition question, event, destination, and
+rejoin language while raw Python remains in secondary detail. The remaining 74 wording-only items
+are split 25/25/24 across three user-visible Sol/High tasks.
 
 Completed progressive stories now hide dead Generate/readiness chrome, while actionable workflow
 controls remain available. Recent project cards show source basename and precise last-opened time
 without returning an absolute path; merely listing recent projects cannot migrate them.
 
-The remaining active gaps are machine-derived story names, path-compatible provenance back-links,
-the closed-descendant/full-width-detail behavior, story-button ARIA state, and whole-game regeneration
-and acceptance. Work continues in the order defined by
+Closed descendant routes now hide their content, selected-arm detail uses one route-wide slot capped
+near 68 characters, and ordinary story buttons no longer use `aria-selected`. The remaining active
+gaps are the 74 reviewed story names, path-compatible provenance back-links/navigation targets, and
+final whole-game regeneration and acceptance. Work continues in the order defined by
 [`IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md).
 
 ## User-selected operating rules

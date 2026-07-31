@@ -2,7 +2,7 @@
 
 Updated: 2026-07-31
 
-Status: implementation in progress; Gate 1 cross-label proof complete, Wave 2 active
+Status: implementation in progress; Gates 1-3 complete, Wave 3 provenance and bulk wording active
 
 ## Outcome
 
