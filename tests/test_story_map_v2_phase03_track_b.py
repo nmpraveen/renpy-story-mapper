@@ -368,6 +368,64 @@ def test_story_map_contract_accepts_nested_local_choices_and_rejects_duplicate_t
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required")
+def test_story_map_contract_accepts_arm_owned_events_and_stable_route_references() -> None:
+    module_uri = (STATIC / "contract.js").as_uri()
+    page = _story_page()
+    departure, shelter = page["sections"][0]["events"]
+    page["sections"][0]["events"] = [departure]
+    bridge, tunnel = departure["choices"][0]["arms"]
+    bridge["route_flow"] = [
+        {
+            "kind": "event",
+            "transfer_kind": "call",
+            "entry_kind": "unique",
+            "event": shelter,
+        }
+    ]
+    tunnel["route_flow"] = [
+        {
+            "kind": "reference",
+            "transfer_kind": "jump",
+            "entry_kind": "loop",
+            "target_selection_id": "event-departure",
+            "title": "Departure",
+        }
+    ]
+    script = f"""
+      import {{ assertStoryMapV2 }} from {json.dumps(module_uri)};
+      const valid = {json.dumps(page)};
+      const accepted = assertStoryMapV2(valid);
+      const missing = structuredClone(valid);
+      missing.sections[0].events[0].choices[0].arms[1].route_flow[0].target_selection_id = "missing-event";
+      let missingRejected = false;
+      try {{ assertStoryMapV2(missing); }} catch (_error) {{ missingRejected = true; }}
+      const duplicate = structuredClone(valid);
+      duplicate.sections[0].events.push(structuredClone(duplicate.sections[0].events[0].choices[0].arms[0].route_flow[0].event));
+      let duplicateRejected = false;
+      try {{ assertStoryMapV2(duplicate); }} catch (_error) {{ duplicateRejected = true; }}
+      process.stdout.write(JSON.stringify({{
+        nested: accepted.sections[0].events[0].choices[0].arms[0].route_flow[0].event.selection_id,
+        reference: accepted.sections[0].events[0].choices[0].arms[1].route_flow[0].target_selection_id,
+        missingRejected,
+        duplicateRejected,
+      }}));
+    """
+    completed = subprocess.run(
+        [shutil.which("node") or "node", "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    assert json.loads(completed.stdout) == {
+        "nested": "event-shelter",
+        "reference": "event-departure",
+        "missingRejected": True,
+        "duplicateRejected": True,
+    }
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required")
 def test_story_map_contract_accepts_only_known_optional_semantic_roles() -> None:
     module_uri = (STATIC / "contract.js").as_uri()
     page = _story_page()
@@ -1139,6 +1197,102 @@ def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline
                 "source": "Source / Evidence",
                 "visible": True,
             }
+            driver._browser_diagnostics(session)
+        finally:
+            session.close()
+            process.terminate()
+            process.wait(timeout=10)
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+
+@pytest.mark.hardware_sensitive
+@pytest.mark.skipif(
+    os.environ.get("RSM_RUN_BROWSER_ACCEPTANCE") != "1",
+    reason="set RSM_RUN_BROWSER_ACCEPTANCE=1 for the provider-free real-browser smoke",
+)
+def test_phase05_progressive_reader_recurses_into_arm_owned_route_events() -> None:
+    page = _story_page()
+    page["status"] = "synthesized"
+    page["analysis_notes"] = [
+        "Phase 05 progressive story walk projected from parser-owned control flow."
+    ]
+    departure, shelter = page["sections"][0]["events"]
+    page["sections"][0]["events"] = [departure]
+    owner = departure["choices"][1]["arms"][1]
+    owner["route_flow"] = [
+        {
+            "kind": "event",
+            "transfer_kind": "call",
+            "entry_kind": "unique",
+            "event": shelter,
+        }
+    ]
+
+    driver = _browser_driver()
+    _SyntheticStoryHandler.story_page = page
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _SyntheticStoryHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    origin = f"http://127.0.0.1:{server.server_port}/"
+    with tempfile.TemporaryDirectory(prefix="rsm-m15-p5-route-flow-reader-") as temporary:
+        process, session = driver._session(driver._browser(), 100, Path(temporary))
+        try:
+            session.command(
+                "Emulation.setDeviceMetricsOverride",
+                {"width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": False},
+            )
+            session.command("Page.navigate", {"url": origin})
+            session.wait(
+                "document.readyState === 'complete' && !!document.querySelector('.recent-card')"
+            )
+            session.evaluate("document.querySelector('.recent-card').click()")
+            session.wait(
+                "document.querySelector('#storyBrowser').classList.contains('is-progressive-story') "
+                "&& !!document.querySelector('[data-story-selection-id=\"event-shelter\"]')"
+            )
+            initial = session.evaluate(
+                "({events:[...document.querySelectorAll('.story-event')].map(node=>node.dataset.storySelectionId),"
+                "numbers:[...document.querySelectorAll('.story-event-number')].map(node=>node.textContent.trim()),"
+                "owner:document.querySelector('[data-story-selection-id=\"event-shelter\"]').closest('.story-descendant-route')?.dataset.ownerSelectionId,"
+                "indexed:[...document.querySelectorAll('#storySectionIndex .story-chapter-link')].some(node=>node.textContent.includes('Shelter from the storm')),"
+                "overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth})"
+            )
+            assert initial == {
+                "events": ["event-departure", "event-shelter"],
+                "numbers": ["01", "02"],
+                "owner": "arm-camp",
+                "indexed": True,
+                "overflow": 0,
+            }
+
+            session.evaluate(
+                "document.querySelector('#storySearchInput').value='Shelter from the storm';"
+                "document.querySelector('#storySearchInput').dispatchEvent(new Event('input',{bubbles:true}))"
+            )
+            session.wait(
+                "document.querySelector('#storySearchStatus').textContent === '1 of 2 events match'"
+            )
+            searched = session.evaluate(
+                "({nestedVisible:!document.querySelector('[data-story-selection-id=\"event-shelter\"]').closest('.story-event').hidden,"
+                "parentVisible:!document.querySelector('[data-story-selection-id=\"event-departure\"]').closest('.story-event').hidden,"
+                "ancestorsOpen:document.querySelector('[data-story-selection-id=\"event-shelter\"]').closest('details')?.open})"
+            )
+            assert searched == {
+                "nestedVisible": True,
+                "parentVisible": True,
+                "ancestorsOpen": True,
+            }
+            session.evaluate("document.querySelector('#storySearchClear').click()")
+
+            session.evaluate(
+                "document.querySelector('[data-story-selection-id=\"event-shelter\"]').closest('details').open=false;"
+                "[...document.querySelectorAll('#storySectionIndex .story-chapter-link')].find(node=>node.textContent.includes('Shelter from the storm')).click()"
+            )
+            session.wait(
+                "document.querySelector('[data-story-selection-id=\"event-shelter\"]').closest('details').open"
+            )
             driver._browser_diagnostics(session)
         finally:
             session.close()

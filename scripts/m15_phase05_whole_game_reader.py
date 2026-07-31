@@ -77,6 +77,7 @@ def _reader_counts(
     route_arms = 0
     nested_controls = 0
     maximum_depth = 0
+    label_events = 0
     outcomes = {"continues": 0, "rejoins": 0, "ends": 0, "unresolved": 0}
 
     def visit_choice(choice: Mapping[str, object], depth: int = 0) -> None:
@@ -107,16 +108,21 @@ def _reader_counts(
                 if not isinstance(raw_choice, dict):
                     raise ValueError("nested reader choice must be an object")
                 visit_choice(raw_choice, depth + 1)
+            route_flow = raw_arm.get("route_flow", [])
+            if not isinstance(route_flow, list):
+                raise ValueError("reader arm route flow must be an array")
+            for raw_item in route_flow:
+                if not isinstance(raw_item, dict):
+                    raise ValueError("reader route-flow item must be an object")
+                if raw_item.get("kind") == "event":
+                    raw_event = raw_item.get("event")
+                    if not isinstance(raw_event, dict):
+                        raise ValueError("reader route-flow event must be an object")
+                    visit_event(raw_event)
 
-    sections = page.get("sections")
-    if not isinstance(sections, list):
-        raise ValueError("reader page has no sections")
-    events: list[Mapping[str, object]] = []
-    for raw_section in sections:
-        if not isinstance(raw_section, dict) or not isinstance(raw_section.get("events"), list):
-            raise ValueError("reader section has no events")
-        events.extend(cast(list[Mapping[str, object]], raw_section["events"]))
-    for event in events:
+    def visit_event(event: Mapping[str, object]) -> None:
+        nonlocal label_events
+        label_events += 1
         raw_choices = event.get("choices")
         if not isinstance(raw_choices, list):
             raise ValueError("reader event has no choices")
@@ -124,6 +130,17 @@ def _reader_counts(
             if not isinstance(raw_choice, dict):
                 raise ValueError("reader choice must be an object")
             visit_choice(raw_choice)
+
+    sections = page.get("sections")
+    if not isinstance(sections, list):
+        raise ValueError("reader page has no sections")
+    root_events: list[Mapping[str, object]] = []
+    for raw_section in sections:
+        if not isinstance(raw_section, dict) or not isinstance(raw_section.get("events"), list):
+            raise ValueError("reader section has no events")
+        root_events.extend(cast(list[Mapping[str, object]], raw_section["events"]))
+    for event in root_events:
+        visit_event(event)
 
     raw_results = summaries.get("results")
     raw_excluded = summaries.get("reader_excluded")
@@ -192,7 +209,7 @@ def _reader_counts(
     if not isinstance(reachable_labels, int):
         raise ValueError("whole-game skeleton reachable label count is invalid")
     return {
-        "label_events": len(events),
+        "label_events": label_events,
         "reachable_labels": reachable_labels,
         "controls": len(controls_by_id),
         "menu_controls": structural_menus,

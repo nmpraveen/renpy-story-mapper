@@ -167,7 +167,7 @@ button:disabled { cursor: default; opacity: .45; }
 .story-browser.is-fallback .story-overview { max-width: 52rem; font-size: clamp(1rem, 1.5vw, 1.18rem); }
 .story-reader-shell { display: grid; width: calc(100% - 2rem); min-width: 0; grid-template-columns: minmax(0, 1fr); gap: clamp(1.5rem, 3vw, 3rem); margin: 0 auto; padding: clamp(1.5rem, 4vw, 3.5rem) 0 6rem; }
 .story-reader-shell:has(.story-path-panel:not([hidden])) { grid-template-columns: minmax(0, 1fr) minmax(15rem, 19rem); }
-.story-guide, .story-sections, .story-section, .story-events, .story-event, .story-choices, .story-choice, .story-arms, .story-arm { min-width: 0; }
+.story-guide, .story-sections, .story-section, .story-events, .story-event, .story-choices, .story-choice, .story-arms, .story-arm, .story-route-flow { min-width: 0; }
 .story-reader-tools { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .75rem; margin-bottom: .75rem; }
 .story-search input { width: 100%; border: 1px solid var(--rule-strong); background: var(--sheet); padding: .72rem .85rem; color: var(--ink); }
 .story-new-toggle { display: flex; align-items: center; gap: .4rem; white-space: nowrap; color: var(--muted); font-size: 12px; }
@@ -477,6 +477,9 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
 .story-browser.is-progressive-story .story-descendant-route:not([open]) > .story-owner-connector span::before { height: .4rem; }
 .story-browser.is-progressive-story .story-choice-sequence { animation: story-reveal 180ms ease-out; }
 .story-browser.is-progressive-story .story-choice-sequence { display: grid; gap: 1.35rem; width: 100%; }
+.story-browser.is-progressive-story .story-route-events { margin-top: .15rem; }
+.story-browser.is-progressive-story .story-route-reference { display: flex; width: fit-content; max-width: 100%; align-items: baseline; gap: .45rem; border-left: 2px solid var(--story-rejoin); padding: .35rem .6rem; color: var(--muted); font-size: 12px; }
+.story-browser.is-progressive-story .story-route-reference-target { min-height: 0; padding: 0; overflow-wrap: anywhere; color: var(--ink); text-align: left; }
 
 /* ==== expanded prose ==== */
 

@@ -2,11 +2,11 @@
   "assets": {
     "API_CONTRACT.md": "7e343208784580b2c8de2e06260fbd6c1840f802efb60defb09355c70cab6e8d",
     "api.js": "82189179d7e22536616b4d85c758f63ea679127d5e2d114a7cd3bbd546f9c3ff",
-    "app.js": "2745f614456884758bd5ba16f09342f09228343d6e9f9925a87835fc7285c3dc",
-    "contract.js": "02a4f768f4ec4b97e79cfdd69f50ccfb11543d2360809b845a467df01e95608a",
+    "app.js": "26adcbdb12a2dd6ada345849184333d4ede9494da96334db6c968d80cda05d08",
+    "contract.js": "5e5e99d2b271efd97cb5d6472fbc9a35bd0a7aba6ba380e8a1863eb259781792",
     "index.html": "6fca0a9d5cab1fce868ecb592698c026e399265a19ae59357651446e0cf4ab7c",
     "story-map-v2-diff.js": "a4841bf6952793df7886a6a0e56ca64689efb2cb4ff76f921f6883483144afb4",
-    "styles.css": "f7e693ad3b77bd55995b4498616efbc4b2609aa00c6d9151178e421ea7ca1253"
+    "styles.css": "53b9add6cf5bb26b29439a34f19b3748fd9fd83acf251c46c210c182d3a5762c"
   },
   "format": 2,
   "hash_basis": "sha256-utf8-lf"

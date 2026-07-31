@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-from collections import defaultdict, deque
-from collections.abc import Mapping, Sequence
+from collections import Counter, defaultdict, deque
+from collections.abc import Callable, Mapping, Sequence
 from typing import cast
 
 from renpy_story_mapper.story_map_v2.progressive_story import PHASE05_PROGRESSIVE_MARKER
@@ -185,6 +185,8 @@ def build_whole_game_reader_page(
     )
 
     projected_controls: set[str] = set()
+    projected_arms: dict[str, dict[str, object]] = {}
+    arm_labels: dict[str, str] = {}
 
     def project_choice(control_id: str, label: str, ancestors: frozenset[str]) -> dict[str, object]:
         if control_id in ancestors:
@@ -307,7 +309,7 @@ def build_whole_game_reader_page(
                 "story_map_v2_continuation",
                 rejoin_source,
             )
-        return {
+        projected = {
             "selection_id": selection_id,
             "caption": caption,
             "outcome_kind": outcome,
@@ -334,9 +336,13 @@ def build_whole_game_reader_page(
             ),
             "rejoin_binding": rejoin_binding,
             "nested_choices": children,
+            "route_flow": [],
         }
+        projected_arms[arm_id] = projected
+        arm_labels[arm_id] = label
+        return projected
 
-    events: list[dict[str, object]] = []
+    event_prototypes: dict[str, dict[str, object]] = {}
     included_corridors: list[str] = []
     for label in label_order:
         assigned = packets_by_label.get(label, [])
@@ -363,26 +369,82 @@ def build_whole_game_reader_page(
         included_corridors.extend(
             _text(packet.get("corridor_id"), "event corridor") for packet in assigned
         )
-        events.append(
+        event_prototypes[label] = {
+            "selection_id": selection_id,
+            "title": title,
+            "summary": outline,
+            "outline_summary": outline,
+            "detail_summary": detail,
+            "characters": [],
+            "reachability": "reachable",
+            "warnings": [f"Python label: {label}"],
+            "binding": _binding(
+                selection_id,
+                "generic_scene",
+                f"story:{_humanize(label)}",
+                "story_map_v2_event",
+                source,
+            ),
+            "choices": choices,
+        }
+
+    route_plan = _label_route_plan(
+        graph=graph,
+        skeleton=skeleton,
+        nodes=nodes,
+        edges=edges,
+        visible_labels=set(event_prototypes),
+        arm_labels=arm_labels,
+        interleaved_arms=set(children_by_arm),
+        owning_arm=owning_arm,
+    )
+    owned_labels: set[str] = set()
+    placements = cast(dict[str, dict[str, object]], route_plan["placements"])
+    for label in label_order:
+        placement = placements.get(label)
+        if not isinstance(placement, dict):
+            continue
+        arm_id = placement.get("arm_id")
+        if not isinstance(arm_id, str):
+            continue
+        projected_arm = projected_arms.get(arm_id)
+        if projected_arm is None:
+            raise ValueError(f"route-flow owner {arm_id} is not reader-visible")
+        route_flow = cast(list[dict[str, object]], projected_arm["route_flow"])
+        route_flow.append(
             {
-                "selection_id": selection_id,
-                "title": title,
-                "summary": outline,
-                "outline_summary": outline,
-                "detail_summary": detail,
-                "characters": [],
-                "reachability": "reachable",
-                "warnings": [f"Python label: {label}"],
-                "binding": _binding(
-                    selection_id,
-                    "generic_scene",
-                    f"story:{_humanize(label)}",
-                    "story_map_v2_event",
-                    source,
-                ),
-                "choices": choices,
+                "kind": "event",
+                "transfer_kind": placement["transfer_kind"],
+                "entry_kind": "unique",
+                "event": event_prototypes[label],
             }
         )
+        owned_labels.add(label)
+
+    for raw_reference in cast(list[dict[str, object]], route_plan["references"]):
+        arm_id = _text(raw_reference.get("arm_id"), "route reference arm")
+        label = _text(raw_reference.get("target_label"), "route reference label")
+        projected_arm = projected_arms.get(arm_id)
+        event = event_prototypes.get(label)
+        if projected_arm is None or event is None:
+            continue
+        cast(list[dict[str, object]], projected_arm["route_flow"]).append(
+            {
+                "kind": "reference",
+                "transfer_kind": raw_reference["transfer_kind"],
+                "entry_kind": raw_reference["entry_kind"],
+                "target_selection_id": event["selection_id"],
+                "title": event["title"],
+            }
+        )
+
+    for projected_arm in projected_arms.values():
+        cast(list[dict[str, object]], projected_arm["route_flow"]).sort(
+            key=lambda item: label_order.index(
+                _route_item_label(item, event_prototypes)
+            )
+        )
+    events = [event_prototypes[label] for label in label_order if label not in owned_labels]
 
     for arm_id, assigned in packets_by_arm.items():
         del arm_id
@@ -423,8 +485,9 @@ def build_whole_game_reader_page(
             WHOLE_GAME_READER_MARKER,
             (
                 f"{len(expected_corridors)} corridor summaries are attached under "
-                f"{len(events)} Python label continuations and their owning route arms."
+                f"{len(event_prototypes)} Python label continuations and their owning route arms."
             ),
+            _route_plan_note(route_plan),
             (
                 f"{len(low_ids)} exact LOW fragments remain in their owning detail flows; "
                 f"{len(excluded)} packet-shape FAIL technical messages are omitted from the reader."
@@ -445,6 +508,252 @@ def build_whole_game_reader_page(
         ],
     }
     return page
+
+
+def _label_route_plan(
+    *,
+    graph: Mapping[str, object],
+    skeleton: Mapping[str, object],
+    nodes: Mapping[str, Mapping[str, object]],
+    edges: Sequence[Mapping[str, object]],
+    visible_labels: set[str],
+    arm_labels: Mapping[str, str],
+    interleaved_arms: set[str],
+    owning_arm: Callable[[str, str], str | None],
+) -> dict[str, object]:
+    """Classify cross-label entries without turning uncertain ownership into nesting."""
+
+    skeleton_story = _mapping(skeleton.get("skeleton"), "whole-game skeleton story")
+    declared_transitions = {
+        (
+            _text(item.get("source_label"), "transition source label"),
+            _text(item.get("target_label"), "transition target label"),
+            _text(item.get("transfer_kind"), "transition kind"),
+        )
+        for raw in _list(skeleton_story.get("label_transitions"), "label transitions")
+        for item in (_mapping(raw, "label transition"),)
+    }
+    transfers: list[dict[str, str]] = []
+    for edge in edges:
+        source_id = _text(edge.get("source"), "route transfer source")
+        target_id = _text(edge.get("target"), "route transfer target")
+        source = nodes.get(source_id)
+        target = nodes.get(target_id)
+        if source is None or target is None:
+            continue
+        if (
+            source.get("reachable_from_entry") is not True
+            or target.get("reachable_from_entry") is not True
+        ):
+            continue
+        source_label = source.get("label")
+        target_label = target.get("label")
+        if (
+            not isinstance(source_label, str)
+            or not isinstance(target_label, str)
+            or source_label == target_label
+        ):
+            continue
+        raw_kind = _text(edge.get("kind"), "route transfer kind")
+        if (source_label, target_label, raw_kind) not in declared_transitions:
+            raise ValueError(
+                "graph cross-label edge is missing from skeleton label_transitions: "
+                f"{source_label} -> {target_label} ({raw_kind})"
+            )
+        transfers.append(
+            {
+                "source_id": source_id,
+                "source_label": source_label,
+                "target_label": target_label,
+                "transfer_kind": _route_transfer_kind(raw_kind),
+            }
+        )
+
+    loop_labels = {
+        _text(raw_label, "loop label")
+        for raw_loop in _list(skeleton_story.get("loops"), "skeleton loops")
+        for loop in (_mapping(raw_loop, "skeleton loop"),)
+        for raw_label in _list(loop.get("labels"), "skeleton loop labels")
+    }
+    incoming: dict[str, list[dict[str, str]]] = defaultdict(list)
+    all_labels = {
+        _text(node.get("label"), "graph node label")
+        for node in nodes.values()
+        if isinstance(node.get("label"), str)
+    }
+    for transfer in transfers:
+        if transfer["transfer_kind"] != "return":
+            incoming[transfer["target_label"]].append(transfer)
+
+    entry_label = _text(graph.get("entry_label"), "route graph entry label")
+    owner_by_label: dict[str, str | None] = {
+        label: None
+        for label in all_labels
+        if label == entry_label or label in loop_labels or not incoming.get(label)
+    }
+    entry_kinds: dict[str, str] = {
+        label: ("loop" if label in loop_labels else "direct") for label in owner_by_label
+    }
+    transfer_kinds_by_label: dict[str, str] = {}
+
+    pending = set(all_labels).difference(owner_by_label)
+    while pending:
+        progressed = False
+        for label in sorted(pending):
+            label_transfers = incoming.get(label, [])
+            candidates: list[str | None] = []
+            unresolved_source = False
+            for transfer in label_transfers:
+                local_owner = owning_arm(transfer["source_id"], transfer["source_label"])
+                if local_owner is not None:
+                    candidates.append(local_owner)
+                elif transfer["source_label"] in owner_by_label:
+                    candidates.append(owner_by_label[transfer["source_label"]])
+                else:
+                    unresolved_source = True
+                    break
+            if unresolved_source:
+                continue
+            kinds = {transfer["transfer_kind"] for transfer in label_transfers}
+            transfer_kinds_by_label[label] = next(iter(kinds)) if len(kinds) == 1 else "unresolved"
+            distinct = set(candidates)
+            if len(distinct) == 1:
+                owner = next(iter(distinct))
+                owner_by_label[label] = owner
+                entry_kinds[label] = "unique" if owner is not None else "direct"
+            else:
+                owner_by_label[label] = None
+                entry_kinds[label] = "shared"
+            pending.remove(label)
+            progressed = True
+        if not progressed:
+            break
+
+    for label in pending:
+        owner_by_label[label] = None
+        entry_kinds[label] = "unresolved"
+        transfer_kinds_by_label[label] = "unresolved"
+
+    placements: dict[str, dict[str, object]] = {
+        label: {
+            "arm_id": owner,
+            "transfer_kind": transfer_kinds_by_label.get(label, "unresolved"),
+        }
+        for label, owner in owner_by_label.items()
+        if label in visible_labels and owner is not None and entry_kinds.get(label) == "unique"
+    }
+    cyclic_placements = _placement_cycle_labels(placements, arm_labels)
+    interleaved_labels = {
+        label
+        for label, placement in placements.items()
+        if placement.get("arm_id") in interleaved_arms
+    }
+    for label in cyclic_placements | interleaved_labels:
+        placements.pop(label, None)
+        owner_by_label[label] = None
+        entry_kinds[label] = "unresolved"
+
+    references: list[dict[str, object]] = []
+    seen_references: set[tuple[str, str, str]] = set()
+    for label in sorted(visible_labels):
+        entry_kind = entry_kinds.get(label)
+        if entry_kind not in {"loop", "unresolved"}:
+            continue
+        for transfer in incoming.get(label, ()):
+            if entry_kind == "loop" and transfer["source_label"] in loop_labels:
+                continue
+            owner = owning_arm(transfer["source_id"], transfer["source_label"])
+            if owner is None:
+                owner = owner_by_label.get(transfer["source_label"])
+            if owner is None:
+                continue
+            key = (owner, label, entry_kind)
+            if key in seen_references:
+                continue
+            seen_references.add(key)
+            references.append(
+                {
+                    "arm_id": owner,
+                    "target_label": label,
+                    "transfer_kind": transfer["transfer_kind"],
+                    "entry_kind": entry_kind,
+                }
+            )
+
+    transfer_counts = Counter(transfer["transfer_kind"] for transfer in transfers)
+    entry_counts = Counter(entry_kinds.get(label, "unresolved") for label in visible_labels)
+    return {
+        "placements": placements,
+        "references": references,
+        "counts": {
+            "jump": transfer_counts["jump"],
+            "fallthrough": transfer_counts["fallthrough"],
+            "call": transfer_counts["call"],
+            "return": transfer_counts["return"],
+            "unique": entry_counts["unique"],
+            "shared": entry_counts["shared"],
+            "loop": entry_counts["loop"],
+            "unresolved": entry_counts["unresolved"],
+            "references": len(references),
+        },
+    }
+
+
+def _route_transfer_kind(value: str) -> str:
+    if value == "choice_body":
+        return "fallthrough"
+    if value in {"jump", "fallthrough", "call", "return"}:
+        return value
+    return "unresolved"
+
+
+def _placement_cycle_labels(
+    placements: Mapping[str, Mapping[str, object]], arm_labels: Mapping[str, str]
+) -> set[str]:
+    cycles: set[str] = set()
+    for start in placements:
+        order: list[str] = []
+        positions: dict[str, int] = {}
+        label = start
+        while label in placements:
+            if label in positions:
+                cycles.update(order[positions[label] :])
+                break
+            positions[label] = len(order)
+            order.append(label)
+            arm_id = placements[label].get("arm_id")
+            if not isinstance(arm_id, str) or arm_id not in arm_labels:
+                break
+            label = arm_labels[arm_id]
+    return cycles
+
+
+def _route_item_label(
+    item: Mapping[str, object], events: Mapping[str, Mapping[str, object]]
+) -> str:
+    if item.get("kind") == "event":
+        event = _mapping(item.get("event"), "route-flow event")
+        selection_id = _text(event.get("selection_id"), "route-flow event selection")
+    else:
+        selection_id = _text(
+            item.get("target_selection_id"), "route-flow reference selection"
+        )
+    for label, event in events.items():
+        if event.get("selection_id") == selection_id:
+            return label
+    raise ValueError(f"route-flow target {selection_id} has no event prototype")
+
+
+def _route_plan_note(route_plan: Mapping[str, object]) -> str:
+    counts = _mapping(route_plan.get("counts"), "route-plan counts")
+    return (
+        "Cross-label flow classified: "
+        f"{counts.get('jump')} jumps, {counts.get('fallthrough')} fallthroughs, "
+        f"{counts.get('call')} calls, and {counts.get('return')} returns; "
+        f"{counts.get('unique')} unique entries, {counts.get('shared')} shared entries, "
+        f"{counts.get('loop')} loop/revisit entries, {counts.get('references')} references, "
+        f"and {counts.get('unresolved')} unresolved owners."
+    )
 
 
 def _validate_inputs(

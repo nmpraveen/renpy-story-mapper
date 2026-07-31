@@ -462,7 +462,42 @@ function countStoryForks(choices) {
   return total;
 }
 
-function renderStoryChoice(choice, nested = false, continuationPlan = null, choicePath = [], seen = null) {
+function revealProgressiveStoryNode(node) {
+  if (!node) return false;
+  for (let ancestor = node.parentElement?.closest("details"); ancestor; ancestor = ancestor.parentElement?.closest("details")) ancestor.open = true;
+  for (let ancestor = node.parentElement?.closest(".story-event"); ancestor; ancestor = ancestor.parentElement?.closest(".story-event")) ancestor.hidden = false;
+  return true;
+}
+
+function focusProgressiveStorySelection(selectionId) {
+  if (state.storyNav.query) { $("#storySearchInput").value = ""; applyStorySearch(""); }
+  const control = $(`[data-story-selection-id="${CSS.escape(selectionId)}"]`);
+  if (!control || !revealProgressiveStoryNode(control)) return false;
+  scrollStoryTo(control.closest(".story-event,.story-arm,.story-continuation") || control);
+  control.focus({ preventScroll: true });
+  return true;
+}
+
+function renderStoryRouteFlow(items, ordinalState) {
+  const host = element("div", "story-route-flow");
+  const events = element("ol", "story-events story-route-events");
+  for (const item of items || []) {
+    if (item.kind === "event") events.append(renderStoryEvent(item.event, ordinalState));
+    else {
+      const reference = element("div", "story-route-reference");
+      reference.dataset.entryKind = item.entry_kind;
+      const label = item.entry_kind === "loop" ? "Returns to" : "Ownership unresolved; see";
+      reference.append(element("span", "story-route-reference-kind", label));
+      const target = element("button", "quiet-button story-route-reference-target", item.title); target.type = "button";
+      target.addEventListener("click", () => focusProgressiveStorySelection(item.target_selection_id));
+      reference.append(target); host.append(reference);
+    }
+  }
+  if (events.children.length) host.prepend(events);
+  return host;
+}
+
+function renderStoryChoice(choice, nested = false, continuationPlan = null, choicePath = [], seen = null, ordinalState = { value: 0 }) {
   const plan = continuationPlan || planStoryContinuations(choice);
   const merges = seen || new Set();
   const article = element("section", `story-choice${nested ? " nested" : ""}`);
@@ -496,7 +531,8 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
     armArticle.dataset.outcomeKind = outcomeKind;
     armArticle.dataset.controlKind = controlKind;
     armArticle.dataset.armIndex = String(armIndex);
-    armArticle.dataset.hasDescendants = String(Boolean(arm.nested_choices?.length));
+    const hasRouteFlow = Boolean(arm.route_flow?.length);
+    armArticle.dataset.hasDescendants = String(Boolean(arm.nested_choices?.length || hasRouteFlow));
     const head = element("div", "story-arm-head");
     const control = storySelectionControl(arm, "story-arm");
     control.prepend(element("span", "story-arm-kind", storyArmPresentation(controlKind)));
@@ -508,7 +544,7 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
     const armContinuations = plan.get(JSON.stringify(armPath));
     if (!arm.nested_choices?.length) appendStoryContinuations(armArticle, armContinuations, true, merges);
     arms.append(armArticle);
-    if (arm.nested_choices?.length) {
+    if (arm.nested_choices?.length || hasRouteFlow) {
       const route = element("details", "story-descendant-route");
       route.dataset.ownerSelectionId = arm.selection_id;
       route.dataset.ownerOutcomeKind = outcomeKind;
@@ -518,17 +554,26 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
       route.style.setProperty("--story-owner-width", `${Math.abs(ownerPosition - 50)}%`);
       const connector = element("div", "story-owner-connector"); connector.setAttribute("aria-hidden", "true"); connector.append(element("span"));
       const forkCount = countStoryForks(arm.nested_choices);
+      const routeEventCount = (arm.route_flow || []).filter((item) => item.kind === "event").length;
+      const routeReferenceCount = (arm.route_flow || []).filter((item) => item.kind === "reference").length;
+      const descendantCount = forkCount + routeEventCount + routeReferenceCount;
       // Shallow depth stays visible; heavy sub-trees fold so the main line keeps its shape.
-      route.open = forkCount <= STORY_OPEN_FORK_LIMIT;
+      route.open = descendantCount <= STORY_OPEN_FORK_LIMIT;
       const owner = element("summary", "story-descendant-owner");
+      const descendantLabel = routeEventCount
+        ? `${routeEventCount} story event${routeEventCount === 1 ? "" : "s"}`
+        : routeReferenceCount
+          ? `${routeReferenceCount} route reference${routeReferenceCount === 1 ? "" : "s"}`
+          : `${forkCount} branch point${forkCount === 1 ? "" : "s"}`;
       owner.append(
         element("span", "story-descendant-owner-label", `Inside ${storyItemTitle(arm)}`),
-        element("span", "story-descendant-owner-count", `${forkCount} branch point${forkCount === 1 ? "" : "s"}`),
+        element("span", "story-descendant-owner-count", descendantLabel),
       );
       route.append(connector, owner);
       const sequence = element("div", "story-choice-sequence");
-      sequence.dataset.sequenceLength = String(arm.nested_choices.length);
-      arm.nested_choices.forEach((child, index) => sequence.append(renderStoryChoice(child, true, plan, [...armPath, `choice:${child.key}:${index}`], merges)));
+      sequence.dataset.sequenceLength = String(arm.nested_choices.length + (arm.route_flow?.length || 0));
+      arm.nested_choices.forEach((child, index) => sequence.append(renderStoryChoice(child, true, plan, [...armPath, `choice:${child.key}:${index}`], merges, ordinalState)));
+      if (hasRouteFlow) sequence.append(renderStoryRouteFlow(arm.route_flow, ordinalState));
       route.append(sequence); appendStoryContinuations(route, armContinuations, true, merges); descendants.append(route);
     }
   });
@@ -538,7 +583,8 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
   return article;
 }
 
-function renderStoryEvent(event, ordinal) {
+function renderStoryEvent(event, ordinalState = { value: 0 }) {
+  const ordinal = ++ordinalState.value;
   state.storyItems.set(event.selection_id, event);
   const article = element("li", "story-event"); article.dataset.storySelectionId = event.selection_id; article.dataset.storyOrdinal = String(ordinal);
   article.id = `story-event-${ordinal}`;
@@ -559,7 +605,7 @@ function renderStoryEvent(event, ordinal) {
   }
   const choices = element("div", "story-choices");
   const merges = new Set();
-  for (const choice of event.choices || []) choices.append(renderStoryChoice(choice, false, null, [], merges));
+  for (const choice of event.choices || []) choices.append(renderStoryChoice(choice, false, null, [], merges, ordinalState));
   if (choices.children.length) article.append(choices);
   return article;
 }
@@ -1292,7 +1338,7 @@ function renderStoryMapV2(page) {
   $("#storyTitle").textContent = page.title;
   $("#storyOverview").textContent = page.overview;
   $("#storyMapStatus").textContent = wholeGame ? "Whole story" : progressive ? "Progressive proof" : page.status === "synthesized" ? "Whole-story guide" : "Deterministic story";
-  const sections = $("#storySections"); sections.replaceChildren(); let eventOrdinal = 0;
+  const sections = $("#storySections"); sections.replaceChildren(); const eventOrdinal = { value: 0 };
   page.sections.forEach((section, sectionIndex) => {
     const id = `story-section-${sectionIndex + 1}`;
     const duplicateFallbackWrapper = (fallback || progressive) && page.sections.length === 1 && section.title.trim() === page.title.trim() && section.summary.trim() === page.overview.trim();
@@ -1301,7 +1347,7 @@ function renderStoryMapV2(page) {
     if (!duplicateFallbackWrapper) { const header = element("header", "story-section-header"); header.append(element("h2", "", section.title), element("p", "story-section-summary", section.summary)); card.append(header); }
     if (progressive && sectionIndex === 0) card.append(storySemanticLegend());
     const events = element("ol", "story-events");
-    for (const event of section.events) events.append(renderStoryEvent(event, ++eventOrdinal));
+    for (const event of section.events) events.append(renderStoryEvent(event, eventOrdinal));
     card.append(events); sections.append(card);
   });
   const notes = $("#storyAnalysisNotesList"); notes.replaceChildren();
@@ -1381,6 +1427,7 @@ function buildStoryNavigation(page) {
     link.append(element("span", "story-chapter-ordinal", String(chapter.ordinal).padStart(2, "0")), element("span", "story-chapter-title", chapter.title));
     link.addEventListener("click", (event) => {
       event.preventDefault();
+      revealProgressiveStoryNode(chapter.node);
       scrollStoryTo(chapter.node);
       markActiveChapter(chapter.id);
       updateStoryReadingPosition();
@@ -1455,7 +1502,9 @@ function scheduleStoryReadingPosition() {
 
 function storySearchHaystack(node) {
   if (node.dataset.searchText === undefined) {
-    node.dataset.searchText = (node.textContent || "").replace(/\s+/gu, " ").toLocaleLowerCase();
+    const ownStory = node.cloneNode(true);
+    for (const nested of ownStory.querySelectorAll(".story-event")) nested.remove();
+    node.dataset.searchText = (ownStory.textContent || "").replace(/\s+/gu, " ").toLocaleLowerCase();
   }
   return node.dataset.searchText;
 }
@@ -1485,7 +1534,10 @@ function applyStorySearch(rawQuery) {
   for (const node of nodes) {
     const hit = storySearchHaystack(node).includes(query);
     node.hidden = !hit;
-    if (hit) matches += 1;
+    if (hit) {
+      matches += 1;
+      revealProgressiveStoryNode(node);
+    }
   }
   for (const section of $$("#storySections .story-section")) {
     section.hidden = !section.querySelector(".story-event:not([hidden])");

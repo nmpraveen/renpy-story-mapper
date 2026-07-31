@@ -353,7 +353,24 @@ function readableStrings(value, label, maximum = 64) {
   return value;
 }
 
-function storyChoice(value, seenSelections, depth = 0, rejoinSelections = new Map(), budget = { choices: 0, arms: 0 }, continuationBindings = new Map()) {
+function storyRouteFlowItem(item, seenSelections, eventDepth, budget, continuationBindings, referenceTargets) {
+  if (!object(item) || !["event", "reference"].includes(item.kind)) throw new TypeError("Invalid Story Map V2 route-flow item");
+  if (!["jump", "fallthrough", "call", "return", "unresolved"].includes(item.transfer_kind)) throw new TypeError("Invalid Story Map V2 route-flow transfer");
+  if (item.kind === "event") {
+    exactKeys(item, ["kind", "transfer_kind", "entry_kind", "event"], "Story Map V2 route-flow event");
+    if (item.entry_kind !== "unique") throw new TypeError("Invalid Story Map V2 route-flow event entry");
+    storyEvent(item.event, seenSelections, eventDepth + 1, budget, continuationBindings, referenceTargets);
+    return item;
+  }
+  exactKeys(item, ["kind", "transfer_kind", "entry_kind", "target_selection_id", "title"], "Story Map V2 route-flow reference");
+  if (!["loop", "unresolved"].includes(item.entry_kind)) throw new TypeError("Invalid Story Map V2 route-flow reference entry");
+  boundedText(item.target_selection_id, "Story Map V2 route-flow reference target", 512);
+  boundedText(item.title, "Story Map V2 route-flow reference title", 512);
+  referenceTargets.add(item.target_selection_id);
+  return item;
+}
+
+function storyChoice(value, seenSelections, depth = 0, rejoinSelections = new Map(), budget = { events: 0, choices: 0, arms: 0 }, continuationBindings = new Map(), referenceTargets = new Set(), eventDepth = 0) {
   const CHOICE_KEYS = ["key", "source", "arms"];
   const ARM_KEYS = ["selection_id", "caption", "outcome_summary", "condition", "effects", "destination_id", "rejoin_node_id", "rejoin_line", "reachability", "warnings", "binding", "rejoin_binding", "nested_choices"];
   const choiceKeys = [...CHOICE_KEYS];
@@ -373,6 +390,7 @@ function storyChoice(value, seenSelections, depth = 0, rejoinSelections = new Ma
     if (Object.hasOwn(arm, "outcome_kind")) armKeys.push("outcome_kind");
     if (Object.hasOwn(arm, "outline_summary")) armKeys.push("outline_summary");
     if (Object.hasOwn(arm, "detail_summary")) armKeys.push("detail_summary");
+    if (Object.hasOwn(arm, "route_flow")) armKeys.push("route_flow");
     exactKeys(arm, armKeys, "Story Map V2 arm");
     boundedText(arm.selection_id, "Story Map V2 arm selection", 512);
     if (seenSelections.has(arm.selection_id) || continuationBindings.has(arm.selection_id)) throw new TypeError("Duplicate Story Map V2 selection");
@@ -402,9 +420,37 @@ function storyChoice(value, seenSelections, depth = 0, rejoinSelections = new Ma
       if (!continuationBindings.has(rejoinId)) continuationBindings.set(rejoinId, encoded);
     }
     if (!Array.isArray(arm.nested_choices) || arm.nested_choices.length > 16) throw new TypeError("Invalid nested Story Map V2 choices");
-    arm.nested_choices.forEach((choice) => storyChoice(choice, seenSelections, depth + 1, rejoinSelections, budget, continuationBindings));
+    arm.nested_choices.forEach((choice) => storyChoice(choice, seenSelections, depth + 1, rejoinSelections, budget, continuationBindings, referenceTargets, eventDepth));
+    if (Object.hasOwn(arm, "route_flow")) {
+      if (!Array.isArray(arm.route_flow) || arm.route_flow.length > 64) throw new TypeError("Invalid Story Map V2 arm route flow");
+      arm.route_flow.forEach((item) => storyRouteFlowItem(item, seenSelections, eventDepth, budget, continuationBindings, referenceTargets));
+    }
   });
   return value;
+}
+
+function storyEvent(event, selections, eventDepth, budget, continuationBindings, referenceTargets) {
+  if (!object(event) || eventDepth > 64) throw new TypeError("Invalid Story Map V2 event nesting");
+  budget.events += 1;
+  if (budget.events > 512) throw new RangeError("Story Map V2 event tree is too large");
+  const eventKeys = ["selection_id", "title", "summary", "characters", "reachability", "warnings", "binding", "choices"];
+  if (Object.hasOwn(event, "outline_summary")) eventKeys.push("outline_summary");
+  if (Object.hasOwn(event, "detail_summary")) eventKeys.push("detail_summary");
+  exactKeys(event, eventKeys, "Story Map V2 event");
+  boundedText(event.selection_id, "Story Map V2 event selection", 512);
+  if (selections.has(event.selection_id) || continuationBindings.has(event.selection_id)) throw new TypeError("Duplicate Story Map V2 selection");
+  selections.add(event.selection_id);
+  boundedText(event.title, "Story Map V2 event title", 512);
+  boundedText(event.summary, "Story Map V2 event summary", 8192, { empty: true });
+  if (Object.hasOwn(event, "outline_summary")) boundedText(event.outline_summary, "Story Map V2 event outline", 8192, { empty: true });
+  if (Object.hasOwn(event, "detail_summary")) boundedText(event.detail_summary, "Story Map V2 event detail", 32768, { empty: true });
+  readableStrings(event.characters, "Story Map V2 characters");
+  readableStrings(event.warnings, "Story Map V2 event warnings");
+  if (!["reachable", "unreachable", "unresolved"].includes(event.reachability)) throw new TypeError("Invalid Story Map V2 event reachability");
+  navigationBinding(event.binding, event.selection_id);
+  if (!Array.isArray(event.choices) || event.choices.length > 32) throw new TypeError("Invalid Story Map V2 event choices");
+  event.choices.forEach((choice) => storyChoice(choice, selections, 0, new Map(), budget, continuationBindings, referenceTargets, eventDepth));
+  return event;
 }
 
 export function assertStoryMapV2(value) {
@@ -420,7 +466,7 @@ export function assertStoryMapV2(value) {
     return value;
   }
   if (!value.sections.length) throw new TypeError("Available Story Map V2 is empty");
-  const sectionIds = new Set(); const selections = new Set(); const continuationBindings = new Map(); let eventCount = 0; const treeBudget = { choices: 0, arms: 0 };
+  const sectionIds = new Set(); const selections = new Set(); const continuationBindings = new Map(); const referenceTargets = new Set(); const treeBudget = { events: 0, choices: 0, arms: 0 };
   for (const section of value.sections) {
     exactKeys(section, ["id", "title", "summary", "events"], "Story Map V2 section");
     boundedText(section.id, "Story Map V2 section ID", 512);
@@ -428,28 +474,12 @@ export function assertStoryMapV2(value) {
     sectionIds.add(section.id);
     boundedText(section.title, "Story Map V2 section title", 512);
     boundedText(section.summary, "Story Map V2 section summary", 8192, { empty: true });
-    if (!Array.isArray(section.events) || !section.events.length || eventCount + section.events.length > 512) throw new TypeError("Invalid Story Map V2 section events");
-    eventCount += section.events.length;
+    if (!Array.isArray(section.events) || !section.events.length || section.events.length > 512) throw new TypeError("Invalid Story Map V2 section events");
     for (const event of section.events) {
-      const eventKeys = ["selection_id", "title", "summary", "characters", "reachability", "warnings", "binding", "choices"];
-      if (Object.hasOwn(event, "outline_summary")) eventKeys.push("outline_summary");
-      if (Object.hasOwn(event, "detail_summary")) eventKeys.push("detail_summary");
-      exactKeys(event, eventKeys, "Story Map V2 event");
-      boundedText(event.selection_id, "Story Map V2 event selection", 512);
-      if (selections.has(event.selection_id) || continuationBindings.has(event.selection_id)) throw new TypeError("Duplicate Story Map V2 selection");
-      selections.add(event.selection_id);
-      boundedText(event.title, "Story Map V2 event title", 512);
-      boundedText(event.summary, "Story Map V2 event summary", 8192, { empty: true });
-      if (Object.hasOwn(event, "outline_summary")) boundedText(event.outline_summary, "Story Map V2 event outline", 8192, { empty: true });
-      if (Object.hasOwn(event, "detail_summary")) boundedText(event.detail_summary, "Story Map V2 event detail", 32768, { empty: true });
-      readableStrings(event.characters, "Story Map V2 characters");
-      readableStrings(event.warnings, "Story Map V2 event warnings");
-      if (!["reachable", "unreachable", "unresolved"].includes(event.reachability)) throw new TypeError("Invalid Story Map V2 event reachability");
-      navigationBinding(event.binding, event.selection_id);
-      if (!Array.isArray(event.choices) || event.choices.length > 32) throw new TypeError("Invalid Story Map V2 event choices");
-      event.choices.forEach((choice) => storyChoice(choice, selections, 0, new Map(), treeBudget, continuationBindings));
+      storyEvent(event, selections, 0, treeBudget, continuationBindings, referenceTargets);
     }
   }
+  for (const target of referenceTargets) if (!selections.has(target)) throw new TypeError("Story Map V2 route-flow reference target is missing");
   return value;
 }
 
