@@ -26,7 +26,7 @@
 | Fix nested-route disclosure and full-width arm detail | Complete | Closed direct descendants measure zero height; one shared route-wide detail slot works at nested levels with readable measure and zero 1920x1080/1280x800 overflow |
 | Remove completed-story chrome and reader polish defects | Complete | Dead completed-story controls are hidden, recent cards use basename/time without migration, and ordinary story buttons use valid ARIA state |
 | Regenerate and inspect the corrected whole-game reader | Complete | The disposable final project preserves 111 events, 594 corridors, 260 controls, and 571 arms; search and links work with zero console errors, machine-text hits, or 1920px overflow |
-| User acceptance of the whole-game timeline | Pending | The user can follow the complete story and its routes by scrolling without interpreting code labels |
+| User acceptance of the Phase 05 functional baseline | Complete | User accepted the corrected reader and moved route-flow navigation into the Phase 06 Story River milestone |
 
 Use only `Pending`, `In progress`, `Blocked`, or `Complete`.
 

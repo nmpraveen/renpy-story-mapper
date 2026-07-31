@@ -1,0 +1,62 @@
+# M15.2 Phase 06 - Story River reader
+
+Status: focused proof in progress
+
+## User outcome
+
+Read a Ren'Py game as one vertically unbounded story river. The shared story runs top to bottom;
+choices and conditions create clearly colored local routes; persistent routes keep their identity
+until a proven rejoin, ending, loop, or unresolved destination; and the reader always shows which
+route is currently in view.
+
+## First proof
+
+Before applying the design to the complete game, prove the Story River presentation on real sections
+that contain:
+
+- the fitting-room split where `Keep arguing with her` owns a cross-label continuation and
+  `Push her out` bypasses it;
+- a simple fork whose arms immediately rejoin; and
+- a nested decision inside one owning route.
+
+The proof is useful when route identity and color remain clear, the correct paths visibly return to
+the shared river, expanded story prose stays readable, navigation links still work, and there is no
+horizontal page overflow at 1920px or 1280px desktop widths.
+
+## Smallest implementation
+
+- Derive frontend-only route contexts from existing arm selection IDs and Python-owned outcomes.
+- Replace the family-tree fork styling with a shared river, local tributaries, full-width route
+  sections, and explicit confluences.
+- Add one automatic selected-route panel synchronized by click, focus, scrolling, search, and story
+  navigation.
+- Keep immediate routes visible, open short descendants, and collapse longer route sections.
+- Preserve existing story text, state backlinks, destination/rejoin links, source evidence, search,
+  event order, and structural counts.
+
+The implementation sequence and internal presentation contract are in
+[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).
+
+## Exclusions
+
+- No pan, zoom, global node coordinates, giant graph canvas, minimap, route filter, or view toggle.
+- No Python graph, HTTP API, database, saved-project schema, AI wording, or source-game changes.
+- No mobile optimization, packaging, Release, broad CI, PR preparation, or whole-game regeneration
+  before the focused rendered proof is accepted.
+
+## Acceptance checks
+
+1. Every visible arm has a stable route code and a non-color route label.
+2. Route color persists through owned nested and cross-label events, then stops at the proven
+   confluence or terminal state.
+3. Two-to-four-arm forks read as local tributaries; five-or-more-arm forks stack without squeezing
+   prose.
+4. Immediate shared targets render once as `The story comes back together`; different targets stay
+   separate.
+5. The selected-route panel reports the current route, origin, decision/condition ownership,
+   outcome, target, and available earlier-state links.
+6. Click, focus, scroll, search, index, destination, rejoin, and provenance navigation keep the panel
+   synchronized.
+7. The focused real proof has correct branch ownership, nesting, rejoins, and zero horizontal page
+   overflow at 1920px and 1280px.
+

@@ -4,18 +4,25 @@ Updated: 2026-07-31
 
 ## Active work
 
-- Active milestone: M15.1 Phase 05 progressive story walker.
-- Contract: [`docs/milestones/M15_PHASE_05/GOAL.md`](milestones/M15_PHASE_05/GOAL.md).
-- Task ledger: [`docs/milestones/M15_PHASE_05/TASKS.md`](milestones/M15_PHASE_05/TASKS.md).
-- Implementation roadmap: [`docs/milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md).
-- Active checkout: `codex/m15-phase05-reader-corrections`, created from `main` at `379f627` on
-  2026-07-31.
-- Status: all five reader corrections are implemented and focused validation is complete. The
-  disposable corrected whole-game project is ready for user review; only rendered story acceptance
-  remains pending.
+- Active milestone: M15.2 Phase 06 Story River reader.
+- Contract: [`docs/milestones/M15_PHASE_06/GOAL.md`](milestones/M15_PHASE_06/GOAL.md).
+- Task ledger: [`docs/milestones/M15_PHASE_06/TASKS.md`](milestones/M15_PHASE_06/TASKS.md).
+- Implementation roadmap: [`docs/milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md).
+- Active checkout: `codex/m15-phase06-story-river`, created from the completed Phase 05 reader at
+  `46763c4` on 2026-07-31.
+- Status: Phase 05 is the accepted factual and language baseline. The focused Story River proof is in
+  progress; whole-game application waits for user acceptance of that proof.
 - Native Codex goal: none.
 
 ## Current product decision
+
+Present the established Python-owned story as a vertically unbounded Story River. Shared chronology
+uses a neutral main stream; each fork receives local route colors and stable visible codes; owned
+events remain on their route until a proven rejoin or terminal; and an automatic panel explains the
+route currently selected or passing through the reading position. This is an HTML scrolling reader,
+not a pan-and-zoom canvas.
+
+The Phase 05 implementation beneath that presentation remains authoritative:
 
 Build the story progressively from actual Ren'Py execution flow and state:
 

@@ -1,6 +1,6 @@
 # M15.1 Phase 05 - Progressive state-aware story timeline
 
-Status: whole-game correction implemented; final rendered user acceptance pending
+Status: accepted functional baseline; superseded by Phase 06 Story River presentation
 
 ## User outcome
 
@@ -135,4 +135,5 @@ owning arms; 79 accepted stable-ID story names leave no machine-facing or fallba
 destination, and rejoin links navigate to stable targets; closed descendants and route-wide detail
 behave correctly; and completed-story chrome, ARIA, and recent-project presentation are corrected.
 The final disposable review project preserves all structural counts and passes the focused 1920px
-browser checks. User acceptance of that rendered story is the remaining gate.
+browser checks. On 2026-07-31 the user accepted this as the functional baseline and moved the remaining
+story-flow navigation work into M15.2 Phase 06.

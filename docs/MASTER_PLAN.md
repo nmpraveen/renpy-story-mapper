@@ -97,8 +97,9 @@ evidence: it misplaced choices, dropped branch arms, flattened nesting, mislabel
 destinations. Its 103 AI summaries and 105 chunks may be diagnostic context, but they are not story
 event authority.
 
-The active correction is M15.1 Phase 05: replace chunk-owned presentation with the progressive
-execution/state story walker described above.
+M15.1 Phase 05 is the accepted functional baseline: it replaced chunk-owned presentation with the
+progressive execution/state story walker described above. M15.2 Phase 06 now replaces only the
+family-tree composition with a Story River reader.
 
 ## Current delivery roadmap
 
@@ -118,10 +119,23 @@ desktop checkpoint are complete. The active Phase 05 correction now proceeds in 
 The detailed implementation contract, gates, and focused checks are in
 [`docs/milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md).
 
-All five correction areas are implemented as of 2026-07-31. The final disposable review project
+All five Phase 05 correction areas are implemented as of 2026-07-31. The final disposable review project
 preserves the Python-owned counts, contains no machine-facing story names, and has working search,
 state backlinks, destination/rejoin navigation, route-wide detail, completed-story chrome, and valid
-ARIA at 1920x1080. Broad shipping work still waits for the user's rendered-story acceptance.
+ARIA at 1920x1080. The user accepted it as the factual and language baseline.
+
+The active M15.2 Phase 06 roadmap is:
+
+1. Derive stable frontend-only route contexts and local route colors from existing arm facts.
+2. Render a vertically unbounded main river with local tributaries, full-width owned route sections,
+   explicit confluences, and no pan or zoom.
+3. Synchronize an automatic selected-route panel with scrolling and existing story navigation.
+4. Prove the presentation on the real fitting-room route, one immediate rejoin, and one nested choice
+   at 1920px and 1280px before applying it to the whole game.
+
+The active contract is
+[`docs/milestones/M15_PHASE_06/GOAL.md`](milestones/M15_PHASE_06/GOAL.md), with detailed sequencing in
+[`docs/milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md).
 
 Run focused tests during implementation. Broad CI, Release, packaging, PR work, and general polish
 wait until the user accepts the story or explicitly asks to ship it.
