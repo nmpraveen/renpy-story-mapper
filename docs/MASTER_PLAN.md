@@ -133,6 +133,11 @@ The active M15.2 Phase 06 roadmap is:
 4. Prove the presentation on the real fitting-room route, one immediate rejoin, and one nested choice
    at 1920px and 1280px before applying it to the whole game.
 
+The first implementation of steps 1-4 was rejected visually on 2026-07-31 because it remained a
+colored family tree rather than matching the selected Story River mock. The focused redesign now
+targets a thick dark main river, broad colored tributaries, compact station cards, an unmistakable
+merge, and selection-opened deep routes. Whole-game work still waits for acceptance of that proof.
+
 The active contract is
 [`docs/milestones/M15_PHASE_06/GOAL.md`](milestones/M15_PHASE_06/GOAL.md), with detailed sequencing in
 [`docs/milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md).

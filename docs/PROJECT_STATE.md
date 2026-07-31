@@ -10,8 +10,8 @@ Updated: 2026-07-31
 - Implementation roadmap: [`docs/milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md).
 - Active checkout: `codex/m15-phase06-story-river`, created from the completed Phase 05 reader at
   `46763c4` on 2026-07-31.
-- Status: Phase 05 is the accepted factual and language baseline. The focused Story River proof is in
-  progress; whole-game application waits for user acceptance of that proof.
+- Status: Phase 05 is the accepted factual and language baseline. The first Story River visual was
+  rejected; a mock-fidelity focused redesign is in progress. Whole-game work remains gated.
 - Native Codex goal: none.
 
 ## Current product decision
@@ -21,6 +21,13 @@ uses a neutral main stream; each fork receives local route colors and stable vis
 events remain on their route until a proven rejoin or terminal; and an automatic panel explains the
 route currently selected or passing through the reading position. This is an HTML scrolling reader,
 not a pan-and-zoom canvas.
+
+The first Phase 06 build retained the correct fitting-room route ownership and navigation, but the
+user rejected its appearance on 2026-07-31: it was still the Phase 05 family tree with route colors,
+not the selected Story River mock. The active correction makes a thick dark shared river, broad
+colored tributaries, compact event and route cards, a strong merge capsule, and selection-opened deep
+routes the dominant visual structure. The rejected screenshots under
+`output/m15-phase06-story-river-proof-20260731` are comparison evidence only.
 
 The Phase 05 implementation beneath that presentation remains authoritative:
 

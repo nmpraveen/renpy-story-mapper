@@ -337,6 +337,7 @@ button:disabled { cursor: default; opacity: .45; }
 /* ==== local route panel ==== */
 
 .story-browser.is-progressive-story .story-route-panel { position: static; display: grid; gap: .7rem; max-height: none; overflow: visible; border: 1px solid color-mix(in srgb, var(--story-route-color) 46%, var(--rule)); border-top: 3px solid var(--story-route-color); border-radius: .55rem; background: color-mix(in srgb, var(--story-route-soft) 66%, var(--sheet)); padding: .85rem; box-shadow: 5px 5px 0 color-mix(in srgb, var(--story-route-soft) 72%, var(--paper-deep)); }
+.story-browser.is-progressive-story .story-route-panel[data-story-route-mode="main"] { --story-route-color: var(--story-neutral); --story-route-soft: var(--story-neutral-soft); }
 .story-browser.is-progressive-story .story-route-panel :where(h2, h3, p, dl, dt, dd, ul, li) { min-width: 0; overflow-wrap: anywhere; }
 .story-browser.is-progressive-story .story-route-panel-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .55rem; }
 .story-browser.is-progressive-story .story-route-panel-head :where(h2, h3, p) { margin: 0; }

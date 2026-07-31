@@ -2,11 +2,11 @@
   "assets": {
     "API_CONTRACT.md": "7e343208784580b2c8de2e06260fbd6c1840f802efb60defb09355c70cab6e8d",
     "api.js": "82189179d7e22536616b4d85c758f63ea679127d5e2d114a7cd3bbd546f9c3ff",
-    "app.js": "e1db8eb5145f764baaa5837739193dbfc12cfb8bd3d566a62f96ad02aeeb9db2",
+    "app.js": "2ee2ff1a6da8348624337c6b7f36d594704cff1e67d0a8dfa78e09ed090cdbf7",
     "contract.js": "920719770428e1070c826d5a55fd7113b01ed266fc48ca2f5bbf4f1161361140",
     "index.html": "766f8c063535511e007320afd187e820bd8bfe457a40014df73e6005c597f234",
     "story-map-v2-diff.js": "a4841bf6952793df7886a6a0e56ca64689efb2cb4ff76f921f6883483144afb4",
-    "styles.css": "b51c512b1fd43173cc67f75d486f470eb1eff415fd3fa9be01a58fdd13cd3a1f"
+    "styles.css": "3382db9580f04545efdfdb52030946acdec6f350106b5642c04492ea78949bc5"
   },
   "format": 2,
   "hash_basis": "sha256-utf8-lf"

@@ -1,6 +1,6 @@
 # M15.2 Phase 06 - Story River reader
 
-Status: focused proof in progress
+Status: mock-fidelity redesign in progress
 
 ## User outcome
 
@@ -60,3 +60,15 @@ The implementation sequence and internal presentation contract are in
 7. The focused real proof has correct branch ownership, nesting, rejoins, and zero horizontal page
    overflow at 1920px and 1280px.
 
+## Rejected first visual attempt
+
+The first focused build preserved the correct route facts and interactions, but the user rejected its
+presentation on 2026-07-31. It remained a wide family tree with thin connectors, colored borders, and
+large nested route boxes; it did not resemble the selected Story River mock closely enough.
+
+The replacement proof must use the mock's visual hierarchy: one thick dark central river, compact
+centered event stations, broad colored tributaries, compact route cards sitting on those streams, a
+strong shared merge capsule, and generous whitespace. Deep owned routes start collapsed and reveal
+on route selection instead of filling the page by default. The rejected screenshot remains under
+[`output/m15-phase06-story-river-proof-20260731`](../../../output/m15-phase06-story-river-proof-20260731)
+only as comparison evidence; it is not an accepted proof.

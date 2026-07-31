@@ -154,8 +154,8 @@ def test_story_route_context_executes_root_nested_palette_and_outcome_contract()
     assert result["rollover"] == ["A", "Z", "AA", "AB", "AZ", "BA"]
     assert result["parent"] == {"code": "B", "selectionId": "parent:2"}
     assert result["nested"] == [
-        {"code": "B.1", "slot": 1, "selectionId": "nested:1", "parentCode": "B", "parentSelectionId": "parent:2", "depth": 1},
-        {"code": "B.2", "slot": 2, "selectionId": "nested:2", "parentCode": "B", "parentSelectionId": "parent:2", "depth": 1},
+        {"code": "B.1", "slot": 3, "selectionId": "nested:1", "parentCode": "B", "parentSelectionId": "parent:2", "depth": 1},
+        {"code": "B.2", "slot": 4, "selectionId": "nested:2", "parentCode": "B", "parentSelectionId": "parent:2", "depth": 1},
     ]
     assert {"parent:2", "nested:1", "nested:2"}.issubset(result["routeKeys"])
     assert result["outcomes"][:5] == [
@@ -191,6 +191,7 @@ def test_story_river_renderer_propagates_routes_and_preserves_fork_contract() ->
     event = _function(app, "renderStoryEvent")
     continuations = _function(app, "appendStoryContinuations")
     targets = _function(app, "appendStoryTargets")
+    detail = _function(app, "appendProgressiveStoryDetail")
 
     assert "node.dataset.storyRouteSelectionId = context.selectionId" in apply_context
     assert "node.dataset.storyRouteCode = context.code" in apply_context
@@ -223,6 +224,8 @@ def test_story_river_renderer_propagates_routes_and_preserves_fork_contract() ->
     assert '"This path rejoins the story"' not in continuations
     assert "suppressRejoin" in targets and 'outcome.kind === "rejoin"' in targets
     assert "appendStoryTargets(armArticle, arm, { suppressRejoin:" in choice
+    assert "suppressOutcome" in detail and "storyTextWithoutOutcome(storyDetailSummary(item), item)" in detail
+    assert "suppressOutcome: Boolean(arm.rejoin_binding)" in choice
 
 
 def test_story_route_panel_markup_links_and_all_sync_paths_are_explicit() -> None:
@@ -255,6 +258,7 @@ def test_story_route_panel_markup_links_and_all_sync_paths_are_explicit() -> Non
     schedule_reading = _function(app, "scheduleStoryReadingPosition")
     activate = _function(app, "activateStoryItem")
     route_flow = _function(app, "renderStoryRouteFlow")
+    search = _function(app, "applyStorySearch")
 
     assert ".slice(0, 3)" in provenance
     assert 'element("button", "quiet-button story-route-provenance-link"' in provenance
@@ -264,16 +268,20 @@ def test_story_route_panel_markup_links_and_all_sync_paths_are_explicit() -> Non
     assert "context.target" in update_panel
     assert 'element("button", "quiet-button story-route-target-link"' in update_panel
     assert "navigateProgressiveStorySelection(context.target.selectionId)" in update_panel
-    assert "storyRouteTarget(item)" in update_panel
-    assert "updateStoryRoutePanel(routeContext, item)" in route_flow
+    assert "reference.storyRouteTarget = storyRouteTarget(item)" in route_flow
+    assert "syncStoryRoutePanelForNode(reference" in route_flow
 
-    assert 'control.addEventListener("focus", () => syncStoryRoutePanelForNode(control, item))' in selection_control
+    assert 'control.addEventListener("focus", () => syncStoryRoutePanelForNode(control, item, { hold: true }))' in selection_control
     assert 'control.addEventListener("click"' in selection_control and "activateStoryItem(item, control)" in selection_control
-    assert "syncStoryRoutePanelForNode(control, item)" in activate
+    assert "syncStoryRoutePanelForNode(control, item, { hold: true })" in activate
     assert "control.focus({ preventScroll: true })" in focus_selection
     assert "syncStoryRoutePanelForNode(control" in focus_selection
+    assert "Date.now() >= state.storyRouteInteractionUntil" in reading_position
     assert "syncStoryRoutePanelForNode(readingNode)" in reading_position
     assert "setTimeout" in schedule_reading and "updateStoryReadingPosition()" in schedule_reading
+    assert "firstMatch ||= node" in search
+    assert "scrollStoryTo(firstMatch)" in search
+    assert "syncStoryRoutePanelForNode(control" in search and "{ hold: true }" in search
 
 
 def test_story_river_css_breakpoints_and_frontend_only_boundary() -> None:
@@ -291,9 +299,13 @@ def test_story_river_css_breakpoints_and_frontend_only_boundary() -> None:
     assert "var(--story-route-color)" in css
     assert "var(--story-route-soft)" in css
 
-    wide = css[: css.index("@media (max-width: 1240px)")]
-    intermediate = _media(css, 1240, 900)
-    narrow = _media(css, 900, 620)
+    wide_start = css.index("@media (min-width: 1500px)")
+    intermediate_start = css.index("@media (min-width: 1241px) and (max-width: 1499px)")
+    normal_start = css.index("@media (max-width: 1240px)")
+    narrow_start = css.index("@media (max-width: 900px)")
+    wide = css[wide_start:intermediate_start]
+    intermediate = css[intermediate_start:normal_start]
+    normal = css[normal_start:narrow_start]
     assert ".story-route-panel" in wide and "position: sticky" in wide
     assert re.search(
         r"(?:story-reader-shell[^\{]*story-route-panel|is-story-river[^\{]*story-reader-shell)[^\{]*\{[^}]*grid-template-columns",
@@ -301,8 +313,8 @@ def test_story_river_css_breakpoints_and_frontend_only_boundary() -> None:
         re.DOTALL,
     )
     assert ".story-route-panel" in intermediate and "position: sticky" in intermediate
-    assert ".story-route-panel" in narrow and "position: static" in narrow
-    assert "width: 100%" in narrow
+    assert ".story-route-panel" in normal and "position: static" in normal
+    assert "width: 100%" in normal
 
     assert "storyRouteRootCode" in app and "createStoryRouteContext" in app
     for source in (api, contract):

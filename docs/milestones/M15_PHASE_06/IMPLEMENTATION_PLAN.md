@@ -2,7 +2,7 @@
 
 Updated: 2026-07-31
 
-Status: focused proof implementation in progress
+Status: mock-fidelity redesign in progress
 
 ## Outcome and boundary
 
@@ -77,3 +77,24 @@ fitting-room cross-label route plus one immediate rejoin and one nested decision
 
 Stop after presenting that proof. Whole-game regeneration, broad CI, packaging, Release, review, and
 PR work wait for explicit user acceptance.
+
+## Mock-fidelity correction
+
+The first implementation passed its structural checks but was rejected visually on 2026-07-31. It
+treated the existing family tree as the base and added route color; the selected mock instead makes
+the river itself the dominant organizing object.
+
+The correction therefore changes the focused presentation contract:
+
+- the shared chronology is a thick, continuous dark river behind compact centered event cards;
+- two-to-four immediate choices leave it as broad colored tributaries carrying compact route cards;
+- proven siblings visibly flow into one strong merge capsule and then back into the dark river;
+- descendant route sections are closed initially and only the selected arm's owned continuation
+  opens, so nested decisions do not dominate the default timeline; and
+- the route panel keeps the working synchronization behavior but adopts the mock's quieter current
+  path, outcome synopsis, and return-to-story hierarchy.
+
+Two new visible `gpt-5.6-sol` Ultra tasks own the CSS reset and mock-fidelity tests. The coordinator
+owns the compact focus behavior, panel composition, integration, and new browser proof. The rejected
+screenshots remain comparison evidence only. Whole-game regeneration and broad validation are still
+gated on acceptance of the corrected focused proof.
