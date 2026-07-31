@@ -2,7 +2,7 @@
 
 Updated: 2026-07-31
 
-Status: mock-fidelity redesign in progress
+Status: implementation integrated; browser acceptance paused by user
 
 ## Outcome and boundary
 
@@ -98,3 +98,7 @@ Two new visible `gpt-5.6-sol` Ultra tasks own the CSS reset and mock-fidelity te
 owns the compact focus behavior, panel composition, integration, and new browser proof. The rejected
 screenshots remain comparison evidence only. Whole-game regeneration and broad validation are still
 gated on acceptance of the corrected focused proof.
+
+The implementation and focused static checks are complete. Per the user's 2026-07-31 instruction,
+stop here: do not open the browser, capture replacement screenshots, or claim visual acceptance until
+the user explicitly resumes the browser-acceptance gate.

@@ -10,8 +10,9 @@ Updated: 2026-07-31
 - Implementation roadmap: [`docs/milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md).
 - Active checkout: `codex/m15-phase06-story-river`, created from the completed Phase 05 reader at
   `46763c4` on 2026-07-31.
-- Status: Phase 05 is the accepted factual and language baseline. The first Story River visual was
-  rejected; a mock-fidelity focused redesign is in progress. Whole-game work remains gated.
+- Status: Phase 05 is the accepted factual and language baseline. The mock-fidelity Story River
+  redesign is integrated and passes focused static checks. Browser proof and acceptance are paused
+  at the user's request; whole-game work remains gated.
 - Native Codex goal: none.
 
 ## Current product decision
@@ -28,6 +29,10 @@ not the selected Story River mock. The active correction makes a thick dark shar
 colored tributaries, compact event and route cards, a strong merge capsule, and selection-opened deep
 routes the dominant visual structure. The rejected screenshots under
 `output/m15-phase06-story-river-proof-20260731` are comparison evidence only.
+
+The replacement implementation is deliberately not called visually accepted yet. On 2026-07-31 the
+user asked to pause before browser acceptance, so no replacement screenshot or 1920px/1280px visual
+verdict has been produced.
 
 The Phase 05 implementation beneath that presentation remains authoritative:
 

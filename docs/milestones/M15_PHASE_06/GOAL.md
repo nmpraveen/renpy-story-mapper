@@ -1,6 +1,6 @@
 # M15.2 Phase 06 - Story River reader
 
-Status: mock-fidelity redesign in progress
+Status: implementation integrated; browser acceptance paused by user
 
 ## User outcome
 
@@ -72,3 +72,7 @@ strong shared merge capsule, and generous whitespace. Deep owned routes start co
 on route selection instead of filling the page by default. The rejected screenshot remains under
 [`output/m15-phase06-story-river-proof-20260731`](../../../output/m15-phase06-story-river-proof-20260731)
 only as comparison evidence; it is not an accepted proof.
+
+The replacement renderer, panel, route-focus behavior, and CSS are integrated and pass the focused
+non-browser contract. Browser inspection and user acceptance remain pending because the user paused
+the milestone immediately before that gate.

@@ -939,6 +939,10 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
   padding: 5rem 0 0;
 }
 
+.story-browser.is-story-river .story-choice[data-fork-layout="fan"] > .story-arms {
+  max-width: 48rem;
+}
+
 .story-browser.is-story-river .story-arm {
   position: relative;
   display: grid;
@@ -1270,6 +1274,11 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
 
 .story-browser.is-story-river .story-descendant-owner:hover {
   background: color-mix(in srgb, var(--sheet) 94%, var(--story-route-soft));
+}
+
+.story-browser.is-story-river .story-descendant-route[data-story-route-focus="available"] > .story-descendant-owner {
+  border-color: color-mix(in srgb, var(--story-route-color) 55%, var(--rule));
+  background: color-mix(in srgb, var(--sheet) 96%, var(--story-route-soft));
 }
 
 .story-browser.is-story-river .story-descendant-owner-count {
