@@ -10,9 +10,10 @@ Updated: 2026-07-31
 - Implementation roadmap: [`docs/milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md).
 - Active checkout: `codex/m15-phase05-reader-corrections`, created from `main` at `379f627` on
   2026-07-31.
-- Status: five-part reader correction implementation is in progress. The coordinator owns
-  integration and real-browser acceptance; bounded user-visible Sol/High Codex tasks own the active
-  cross-label proof and independent completed-story shell/recent-project polish.
+- Status: five-part reader correction implementation is in progress. Gate 1 cross-label topology and
+  the independent completed-story shell/recent-project slice are integrated. The coordinator owns
+  integration and real-browser acceptance; Wave 2 user-visible Sol/High Codex tasks own human story
+  naming/inventory and the nested-route/detail/ARIA reader correction.
 - Native Codex goal: none.
 
 ## Current product decision
@@ -78,14 +79,22 @@ and organization surfaces from the default browser. The remaining reader has a s
 client-side event search, wider forks, collapsible deep branches, concise outcome lines, and readable
 expanded prose. It does not change Python story facts.
 
-Current product gaps and their order are now explicit: downstream labels are still appended as
-top-level events instead of remaining beneath the branch that reaches them; machine-derived
-condition, destination, and rejoin names remain visible; state provenance is raw text rather than a
-back-link to the earlier choice; closed nested routes can leave child content visible and expanded
-arm prose remains constrained to one narrow card; and completed stories retain dead generation
-chrome plus small ARIA/recent-project defects. The active roadmap is
-[`IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md). The next action is to prove
-the minimal cross-label route contract on the real fitting-room chain before changing the whole game.
+The 2026-07-31 Gate 1 implementation adds the smallest arm-owned cross-label route flow. The real
+fitting-room proof places the called argument event only beneath `Keep arguing with her`; `Push her
+out` bypasses it; the returned shared continuation remains canonical; loop or ambiguous reuse becomes
+a stable reference rather than duplicated recursion. Recursive browser search, index navigation, and
+count traversal include nested events. The focused 1920x1080 proof has no horizontal overflow, and an
+in-memory invariant audit remains at 111 events, 594 corridors, 260 controls, and 571 arms. The full
+review project has not yet been regenerated.
+
+Completed progressive stories now hide dead Generate/readiness chrome, while actionable workflow
+controls remain available. Recent project cards show source basename and precise last-opened time
+without returning an absolute path; merely listing recent projects cannot migrate them.
+
+The remaining active gaps are machine-derived story names, path-compatible provenance back-links,
+the closed-descendant/full-width-detail behavior, story-button ARIA state, and whole-game regeneration
+and acceptance. Work continues in the order defined by
+[`IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md).
 
 ## User-selected operating rules
 

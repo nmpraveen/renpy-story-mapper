@@ -2,7 +2,7 @@
 
 Updated: 2026-07-31
 
-Status: implementation in progress; Gate 0 cross-label topology proof active
+Status: implementation in progress; Gate 1 cross-label proof complete, Wave 2 active
 
 ## Outcome
 
