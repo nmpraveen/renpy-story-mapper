@@ -74,8 +74,12 @@ def test_story_route_context_executes_root_nested_palette_and_outcome_contract()
             "storySemanticKind",
             "humanStoryTarget",
             "storyOutcomeSentence",
+            "storyOutlineSummary",
+            "storyTextWithoutOutcome",
+            "storySummaryWithoutOutcome",
             "storyRouteRootCode",
             "storyRouteTarget",
+            "storyRouteSynopsis",
             "createStoryRouteContext",
         )
     )
@@ -286,7 +290,7 @@ def test_story_route_panel_markup_links_and_all_sync_paths_are_explicit() -> Non
     assert "storyRouteStatusLabel" in update_panel and "target.kind" in update_panel
     assert "context.target" in update_panel
     assert 'element("button", "quiet-button story-route-target-link"' in update_panel
-    assert "navigateProgressiveStorySelection(context.target.selectionId)" in update_panel
+    assert "navigateProgressiveStorySelection(target.selectionId)" in update_panel
     assert "reference.storyRouteTarget = storyRouteTarget(item)" in route_flow
     assert "syncStoryRoutePanelForNode(reference" in route_flow
 
@@ -370,15 +374,16 @@ def test_arm_focus_and_story_detail_use_separate_controls() -> None:
     app = _text("app.js")
     selection = _function(app, "storySelectionControl")
     detail = _function(app, "appendProgressiveStoryDetail")
+    trigger = _function(app, "storyProgressiveDetailTrigger")
 
     assert 'kind === "story-arm"' in selection
     assert "focusStoryDescendantRoute(item.selection_id)" in selection
     assert "toggleProgressiveStoryDetail(control)" not in selection
-    assert '"story-inline-detail-trigger"' in detail
-    assert 'trigger.setAttribute("aria-controls", detail.id)' in detail
-    assert 'trigger.setAttribute("aria-expanded", "false")' in detail
+    assert "story-inline-detail-trigger" in trigger
+    assert 'trigger.setAttribute("aria-controls", detail.id)' in trigger
+    assert 'trigger.setAttribute("aria-expanded", "false")' in trigger
     assert 'control.setAttribute("aria-controls", detail.id)' not in detail
-    assert "toggleProgressiveStoryDetail(trigger)" in detail
+    assert "toggleProgressiveStoryDetail(trigger)" in trigger
 
 
 def test_story_confluences_expose_a_stable_target_and_return_stream() -> None:

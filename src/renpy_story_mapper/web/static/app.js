@@ -369,11 +369,13 @@ function updateStoryRoutePanel(context, item = null) {
   panel.toggleAttribute("data-story-route-selection-id", Boolean(context));
   if (context) {
     panel.dataset.storyRouteSelectionId = context.selectionId;
+    panel.dataset.storyRouteCode = context.code;
     panel.dataset.storyRouteSlot = String(context.paletteSlot);
     panel.style.setProperty("--story-route-color", `var(--story-route-${context.paletteSlot})`);
     panel.style.setProperty("--story-route-soft", `var(--story-route-${context.paletteSlot}-soft)`);
   } else {
     delete panel.dataset.storyRouteSelectionId;
+    delete panel.dataset.storyRouteCode;
     delete panel.dataset.storyRouteSlot;
     panel.style.removeProperty("--story-route-color");
     panel.style.removeProperty("--story-route-soft");
@@ -388,14 +390,15 @@ function updateStoryRoutePanel(context, item = null) {
   const status = $("#storyRouteStatus"); status.replaceChildren();
   const statusLabel = $("#storyRouteStatusLabel");
   const statusLabels = { rejoin: "Returns to shared story", destination: "Continues at", ending: "Route ending", unresolved: "Unresolved route", loop: "Returns earlier", continuation: "Route continues" };
-  statusLabel.textContent = context ? statusLabels[context.target?.kind] || "Route outcome" : "Shared story";
-  if (context?.target) {
-    if (context.target.selectionId) {
-      const link = element("button", "quiet-button story-route-target-link", context.target.text);
+  const target = context ? context.target : null;
+  statusLabel.textContent = context ? (target && statusLabels[target.kind]) || "Route outcome" : "Shared story";
+  if (target) {
+    if (target.selectionId) {
+      const link = element("button", "quiet-button story-route-target-link", target.text);
       link.type = "button";
-      link.addEventListener("click", () => navigateProgressiveStorySelection(context.target.selectionId));
+      link.addEventListener("click", () => navigateProgressiveStorySelection(target.selectionId));
       status.append(link);
-    } else status.textContent = context.target.text;
+    } else status.textContent = target.text;
   } else status.textContent = context ? "Continues on this route" : "Routes are together";
   renderStoryRoutePanelProvenance(context);
 }
@@ -549,9 +552,14 @@ function storySelectionControl(item, kind, routeContext = null) {
   control.addEventListener("click", () => {
     if (!progressiveStoryActive()) { selectStoryItem(item, control); return; }
     activateStoryItem(item, control); closeStoryPathForOutline();
-    if (kind !== "story-arm") toggleProgressiveStoryDetail(control);
+    if (kind === "story-arm") focusStoryDescendantRoute(item.selection_id);
+    else toggleStorySelectionDetail(control);
   });
   return control;
+}
+
+function toggleStorySelectionDetail(control) {
+  toggleProgressiveStoryDetail(control);
 }
 
 function storyDetailControl(item, control) {
@@ -620,8 +628,6 @@ function appendProgressiveStoryDetail(host, item, control, { suppressOutcome = f
   const detail = element("div", "story-inline-detail"); detail.hidden = true;
   detail.id = `story-inline-detail-${++state.storyDetailDomIndex}`;
   detail.dataset.ownerSelectionId = item.selection_id;
-  control.setAttribute("aria-controls", detail.id);
-  control.setAttribute("aria-expanded", "false");
   const title = storyItemTitle(item);
   const prose = suppressOutcome ? storyTextWithoutOutcome(storyDetailSummary(item), item) : storyDetailSummary(item);
   // A merge row carries no prose of its own; echoing its own title back reads as a duplicate.
@@ -644,9 +650,12 @@ function appendProgressiveStoryDetail(host, item, control, { suppressOutcome = f
   return detail;
 }
 
+function bindProgressiveStoryDetail(control, detail) {
+  control.setAttribute("aria-controls", detail.id);
+  control.setAttribute("aria-expanded", "false");
+}
+
 function storyProgressiveDetailTrigger(item, primaryControl, detail) {
-  primaryControl.removeAttribute("aria-controls");
-  primaryControl.removeAttribute("aria-expanded");
   const trigger = element("button", "quiet-button story-inline-detail-trigger", "⋯");
   trigger.type = "button";
   trigger.setAttribute("aria-label", `Show story and Python detail for ${storyItemTitle(item)}`);
@@ -705,6 +714,8 @@ function appendStoryContinuations(host, bindings, armOwned = false, seen = null,
     const row = element("div", `story-continuation${armOwned ? " is-route-return" : " is-confluence"}`);
     row.dataset.outcomeKind = "rejoin";
     row.dataset.storySelectionId = continuation.selection_id;
+    if (binding.selection_id) row.dataset.storyConfluenceTargetSelectionId = binding.selection_id;
+    row.dataset.storyConfluenceScope = returnRouteContext ? "route" : "main";
     applyStoryRouteContext(row, returnRouteContext, { reading: true });
     const mark = element("span", "story-continuation-mark", "⤳");
     mark.setAttribute("aria-hidden", "true");
@@ -713,6 +724,7 @@ function appendStoryContinuations(host, bindings, armOwned = false, seen = null,
     row.append(control);
     if (progressiveStoryActive()) {
       const detail = appendProgressiveStoryDetail(row, continuation, control);
+      bindProgressiveStoryDetail(control, detail);
       applyStoryRouteContext(detail, returnRouteContext, { reading: true });
     }
     else row.append(storyDetailControl(continuation, control));
@@ -742,9 +754,13 @@ function countStoryForks(choices) {
   return total;
 }
 
-function focusStoryDescendantRoute(host, selectedRoute = null) {
-  for (const route of host.children) {
-    if (route.classList.contains("story-descendant-route")) route.open = route === selectedRoute;
+function focusStoryDescendantRoute(selectionId) {
+  const control = $(`button.story-arm-select[data-story-selection-id="${CSS.escape(selectionId)}"]`);
+  const host = control?.closest(".story-choice")?.querySelector(":scope > .story-descendants");
+  if (!host) return;
+  for (const route of $$(".story-descendant-route")) {
+    if (route.parentElement !== host) continue;
+    route.open = route.dataset.ownerSelectionId === selectionId;
   }
 }
 
@@ -843,7 +859,6 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
     armArticle.dataset.hasDescendants = String(Boolean(arm.nested_choices?.length || hasRouteFlow));
     const head = element("div", "story-arm-head");
     const control = storySelectionControl(arm, "story-arm", routeContext);
-    let ownedRoute = null;
     control.prepend(element("span", "story-route-code", `Route ${routeContext.code}`));
     control.prepend(element("span", "story-arm-kind", storyArmPresentation(controlKind)));
     head.append(control);
@@ -860,7 +875,6 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
     arms.append(armArticle);
     if (arm.nested_choices?.length || hasRouteFlow) {
       const route = element("details", "story-descendant-route");
-      ownedRoute = route;
       route.dataset.ownerSelectionId = arm.selection_id;
       route.dataset.ownerOutcomeKind = outcomeKind;
       applyStoryRouteContext(route, routeContext, { reading: true });
@@ -900,7 +914,6 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
       if (hasRouteFlow) sequence.append(renderStoryRouteFlow(arm.route_flow, ordinalState, routeContext));
       route.append(sequence); appendStoryContinuations(route, armContinuations, true, merges, parentRouteContext); descendants.append(route);
     }
-    control.addEventListener("click", () => focusStoryDescendantRoute(descendants, ownedRoute));
   });
   article.append(arms);
   if (detailSlot.children.length) article.append(detailSlot);
@@ -925,6 +938,7 @@ function renderStoryEvent(event, ordinalState = { value: 0 }, routeContext = nul
   article.append(head);
   if (progressiveStoryActive()) {
     const detail = appendProgressiveStoryDetail(article, event, control);
+    bindProgressiveStoryDetail(control, detail);
     applyStoryRouteContext(detail, routeContext, { reading: true });
   }
   else { appendStoryBadges(article, event); appendStoryWarnings(article, event.warnings); }
