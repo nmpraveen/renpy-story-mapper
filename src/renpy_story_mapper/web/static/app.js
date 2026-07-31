@@ -14,7 +14,7 @@ const state = {
   project: null,
   analysisStatus: null,
   detail: null,
-  storyPage: null, storyItems: new Map(), storySelectionId: null, storySelectionItem: null, storySelectionControl: null, storySelectionScrollY: 0, storySelectionWindowY: 0, storySelectionViewportTop: 0, storyPath: null, storyPathToken: 0, storyDetailToken: 0,
+  storyPage: null, storyItems: new Map(), storySelectionId: null, storySelectionItem: null, storySelectionControl: null, storySelectionScrollY: 0, storySelectionWindowY: 0, storySelectionViewportTop: 0, storyPath: null, storyPathToken: 0, storyDetailToken: 0, storyDetailDomIndex: 0,
   storyReader: {
     contract: null, manifest: null, status: null, mapRevision: null, generationId: null,
     currentSectionId: null, currentPage: null, sectionCache: new Map(), branchCache: new Map(),
@@ -314,18 +314,13 @@ function storyTitleNode(title) {
 function storySelectionControl(item, kind) {
   const control = element("button", `${kind}-select`); control.type = "button";
   control.dataset.storySelectionId = item.selection_id;
-  control.setAttribute("aria-selected", "false");
-  control.setAttribute("aria-expanded", "false");
   const title = storyItemTitle(item); const summary = storySummaryWithoutOutcome(item);
   control.append(storyTitleNode(title));
   if (summary && summary.trim() !== title.trim()) control.append(element("span", "", summary));
   control.addEventListener("click", () => {
     if (!progressiveStoryActive()) { selectStoryItem(item, control); return; }
     activateStoryItem(item, control); closeStoryPathForOutline();
-    const detail = control.closest(".story-event,.story-arm,.story-continuation")?.querySelector(":scope > .story-inline-detail");
-    if (!detail) return;
-    const expanded = detail.hidden;
-    detail.hidden = !expanded; control.setAttribute("aria-expanded", String(expanded));
+    toggleProgressiveStoryDetail(control);
   });
   return control;
 }
@@ -363,8 +358,41 @@ function renderStoryProse(host, text, title) {
   }
 }
 
+function preserveStoryControlPosition(control, update) {
+  const browser = $("#storyBrowser");
+  const before = control.getBoundingClientRect().top;
+  update();
+  const delta = control.getBoundingClientRect().top - before;
+  if (Math.abs(delta) < 0.5) return;
+  if (browser.contains(control) && browser.scrollHeight > browser.clientHeight + 1) browser.scrollTop += delta;
+  else window.scrollBy(0, delta);
+}
+
+function toggleProgressiveStoryDetail(control) {
+  const detail = document.getElementById(control.getAttribute("aria-controls") || "");
+  if (!detail) return;
+  const expand = detail.hidden;
+  const slot = detail.closest(".story-route-detail-slot");
+  preserveStoryControlPosition(control, () => {
+    if (slot) {
+      for (const candidate of slot.querySelectorAll(":scope > .story-inline-detail")) candidate.hidden = true;
+      for (const candidate of slot.closest(".story-choice").querySelectorAll("button[aria-controls]")) {
+        const owned = document.getElementById(candidate.getAttribute("aria-controls") || "");
+        if (owned?.parentElement === slot) candidate.setAttribute("aria-expanded", "false");
+      }
+    }
+    detail.hidden = !expand;
+    control.setAttribute("aria-expanded", String(expand));
+    if (slot) slot.hidden = !expand;
+  });
+}
+
 function appendProgressiveStoryDetail(host, item, control) {
   const detail = element("div", "story-inline-detail"); detail.hidden = true;
+  detail.id = `story-inline-detail-${++state.storyDetailDomIndex}`;
+  detail.dataset.ownerSelectionId = item.selection_id;
+  control.setAttribute("aria-controls", detail.id);
+  control.setAttribute("aria-expanded", "false");
   const title = storyItemTitle(item);
   const prose = storyDetailSummary(item);
   // A merge row carries no prose of its own; echoing its own title back reads as a duplicate.
@@ -471,7 +499,7 @@ function revealProgressiveStoryNode(node) {
 
 function focusProgressiveStorySelection(selectionId) {
   if (state.storyNav.query) { $("#storySearchInput").value = ""; applyStorySearch(""); }
-  const control = $(`[data-story-selection-id="${CSS.escape(selectionId)}"]`);
+  const control = $(`button[data-story-selection-id="${CSS.escape(selectionId)}"]`);
   if (!control || !revealProgressiveStoryNode(control)) return false;
   scrollStoryTo(control.closest(".story-event,.story-arm,.story-continuation") || control);
   control.focus({ preventScroll: true });
@@ -522,6 +550,7 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
   const arms = element("div", `story-arms${stacked ? " is-stacked" : ""}`);
   arms.dataset.armCount = String(choice.arms.length);
   arms.style.setProperty("--story-arm-count", String(choice.arms.length));
+  const detailSlot = element("div", "story-route-detail-slot"); detailSlot.hidden = true;
   const descendants = element("div", "story-descendants");
   choice.arms.forEach((arm, armIndex) => {
     const armPath = [...choicePath, `arm:${arm.selection_id}`];
@@ -539,7 +568,7 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
     head.append(control);
     if (!progressiveStoryActive()) head.append(storyDetailControl(arm, control));
     armArticle.append(head); appendStoryTargets(armArticle, arm);
-    if (progressiveStoryActive()) appendProgressiveStoryDetail(armArticle, arm, control);
+    if (progressiveStoryActive()) appendProgressiveStoryDetail(detailSlot, arm, control);
     else { appendStoryBadges(armArticle, arm); appendStoryWarnings(armArticle, arm.warnings); }
     const armContinuations = plan.get(JSON.stringify(armPath));
     if (!arm.nested_choices?.length) appendStoryContinuations(armArticle, armContinuations, true, merges);
@@ -560,6 +589,11 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
       // Shallow depth stays visible; heavy sub-trees fold so the main line keeps its shape.
       route.open = descendantCount <= STORY_OPEN_FORK_LIMIT;
       const owner = element("summary", "story-descendant-owner");
+      owner.addEventListener("keydown", (event) => {
+        if (!["Enter", " "].includes(event.key)) return;
+        event.preventDefault();
+        route.open = !route.open;
+      });
       const descendantLabel = routeEventCount
         ? `${routeEventCount} story event${routeEventCount === 1 ? "" : "s"}`
         : routeReferenceCount
@@ -578,6 +612,7 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
     }
   });
   article.append(arms);
+  if (detailSlot.children.length) article.append(detailSlot);
   if (descendants.children.length) { descendants.dataset.routeCount = String(descendants.children.length); article.append(descendants); }
   appendStoryContinuations(article, plan.get(JSON.stringify(choicePath)), false, merges);
   return article;
@@ -651,7 +686,6 @@ function appendStoryReaderNew(host, item) {
 function readerItemControl(item, ordinal) {
   const control = element("button", "story-event-select"); control.type = "button";
   control.dataset.storySelectionId = item.selection_id;
-  control.setAttribute("aria-selected", "false");
   const title = element("strong", "", storyItemTitle(item)); appendStoryReaderNew(title, item);
   control.append(title, element("span", "", storyOutlineSummary(item)));
   control.setAttribute("aria-label", `${ordinal ? `Story moment ${ordinal}: ` : ""}${storyItemTitle(item)}`);
@@ -1328,7 +1362,7 @@ async function loadStoryReader() {
 
 function renderStoryMapV2(page) {
   invalidateStoryDetail();
-  state.storyPage = page; state.storyItems = new Map(); state.storySelectionId = null; state.storySelectionItem = null; state.storySelectionControl = null; state.storyPath = null;
+  state.storyPage = page; state.storyItems = new Map(); state.storySelectionId = null; state.storySelectionItem = null; state.storySelectionControl = null; state.storyPath = null; state.storyDetailDomIndex = 0;
   const storyBrowser = $("#storyBrowser"); const fallback = page.status === "fallback"; storyBrowser.classList.toggle("is-fallback", fallback);
   const progressive = (page.analysis_notes || []).some((note) => note.startsWith("Phase 05 progressive story walk"));
   const wholeGame = (page.analysis_notes || []).some((note) => note.startsWith("Phase 05 progressive story walk: whole-game reader"));
@@ -1429,6 +1463,7 @@ function buildStoryNavigation(page) {
       event.preventDefault();
       revealProgressiveStoryNode(chapter.node);
       scrollStoryTo(chapter.node);
+      chapter.node.querySelector("button[data-story-selection-id]")?.focus({ preventScroll: true });
       markActiveChapter(chapter.id);
       updateStoryReadingPosition();
     });
@@ -1591,9 +1626,14 @@ function activateStoryItem(item, control) {
   state.storySelectionScrollY = $("#storyBrowser").scrollTop;
   state.storySelectionWindowY = window.scrollY;
   state.storySelectionViewportTop = control?.getBoundingClientRect().top || 0;
-  for (const node of $$('[data-story-selection-id][aria-selected="true"]')) node.setAttribute("aria-selected", "false");
-  for (const node of $$(".story-event[aria-current],.story-arm[aria-current]")) node.removeAttribute("aria-current");
-  control?.setAttribute("aria-selected", "true"); control?.closest(".story-event,.story-arm")?.setAttribute("aria-current", "true");
+  for (const node of $$('button[data-story-current="true"]')) { delete node.dataset.storyCurrent; node.removeAttribute("aria-current"); }
+  for (const node of $$(".story-event[data-story-current],.story-arm[data-story-current],.story-continuation[data-story-current]")) delete node.dataset.storyCurrent;
+  if (control) {
+    control.dataset.storyCurrent = "true";
+    control.setAttribute("aria-current", "location");
+    const location = control.closest(".story-event,.story-arm,.story-continuation");
+    if (location) location.dataset.storyCurrent = "true";
+  }
 }
 
 async function selectStoryItem(item, control) {
@@ -1657,9 +1697,9 @@ function invalidateStoryDetail() {
 
 function currentStorySelectionControl(selectionId = state.storySelectionId) {
   const control = state.storySelectionControl;
-  if (control?.isConnected && control.dataset.storySelectionId === selectionId && control.hasAttribute("aria-selected")) return control;
+  if (control?.isConnected && control.dataset.storySelectionId === selectionId) return control;
   if (!selectionId) return null;
-  return $(`[data-story-selection-id="${CSS.escape(selectionId)}"][aria-selected]`);
+  return $(`button[data-story-selection-id="${CSS.escape(selectionId)}"]`);
 }
 
 function returnToStorySelection(scroll = true) {
