@@ -6,6 +6,7 @@ import json
 import os
 import threading
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 from renpy_story_mapper.web.contracts import JsonValue, json_value
@@ -18,6 +19,8 @@ DEFAULT_SETTINGS: dict[str, JsonValue] = {
     "show_requirements": True,
     "show_effects": True,
 }
+
+_RECENT_PROJECT_OPENED = "recent_project_opened"
 
 
 class UserStateStore:
@@ -50,16 +53,29 @@ class UserStateStore:
         return current
 
     def recent_projects(self) -> tuple[Path, ...]:
+        return tuple(path for path, _last_opened in self.recent_project_entries())
+
+    def recent_project_entries(self) -> tuple[tuple[Path, str | None], ...]:
         with self._lock:
-            raw = self._read().get("recent_projects")
+            data = self._read()
+        raw = data.get("recent_projects")
         if not isinstance(raw, list):
             return ()
-        result: list[Path] = []
+        opened = data.get(_RECENT_PROJECT_OPENED)
+        opened_by_path = opened if isinstance(opened, dict) else {}
+        result: list[tuple[Path, str | None]] = []
         for value in raw[:12]:
             if isinstance(value, str):
                 path = Path(value)
                 if path.suffix.lower() == ".rsmproj" and path.is_file():
-                    result.append(path.resolve())
+                    resolved = path.resolve()
+                    last_opened = opened_by_path.get(os.path.normcase(str(resolved)))
+                    result.append(
+                        (
+                            resolved,
+                            last_opened if isinstance(last_opened, str) else None,
+                        )
+                    )
         return tuple(result)
 
     def record_project(self, path: Path) -> None:
@@ -75,6 +91,22 @@ class UserStateStore:
                 item for item in existing if os.path.normcase(item) != target
             ]
             data["recent_projects"] = json_value(values[:12])
+            raw_opened = data.get(_RECENT_PROJECT_OPENED)
+            opened = (
+                {key: value for key, value in raw_opened.items() if isinstance(value, str)}
+                if isinstance(raw_opened, dict)
+                else {}
+            )
+            opened[target] = datetime.now(UTC).isoformat(timespec="milliseconds").replace(
+                "+00:00", "Z"
+            )
+            data[_RECENT_PROJECT_OPENED] = json_value(
+                {
+                    os.path.normcase(item): opened[os.path.normcase(item)]
+                    for item in values[:12]
+                    if os.path.normcase(item) in opened
+                }
+            )
             self._write(data)
 
     def _read(self) -> dict[str, JsonValue]:

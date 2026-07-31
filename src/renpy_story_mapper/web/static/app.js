@@ -51,6 +51,16 @@ function showPrimary(name) {
   $("#refreshProject").hidden = name !== "workspace";
 }
 
+function setStoryWorkflowChrome({ prepare = false, progress = false, cancel = false, resume = false, retry = false } = {}) {
+  const prepareAction = $("#storyPrepareAction");
+  prepareAction.hidden = !prepare;
+  prepareAction.disabled = !prepare || !api.storyWorkflowRoutes || state.storyWorkflow.busy;
+  $("#storyRunBar").hidden = !progress;
+  $("#storyCancelRun").hidden = !progress || !cancel;
+  $("#storyResumeRun").hidden = !progress || !resume;
+  $("#storyRetryRun").hidden = !progress || !retry;
+}
+
 function showLevel(level) {
   const detail = level === "detail_evidence";
   $("#routeMapView").hidden = detail;
@@ -63,7 +73,16 @@ function renderRecent(projects) {
   $("#recentCount").textContent = `${projects.length} saved locally`;
   for (const project of projects) {
     const button = element("button", "recent-card"); button.type = "button";
-    button.append(element("span", "recent-type", project.source_type || "Project"), element("strong", "", project.name || "Saved project"), element("span", "recent-meta", `${project.last_opened || "Saved locally"} · ${project.organization || "Technical Structure"}`));
+    const opened = new Date(project.last_opened || "");
+    const lastOpened = Number.isNaN(opened.valueOf())
+      ? "Opened time unavailable"
+      : `Opened ${opened.toLocaleString([], { dateStyle: "medium", timeStyle: "medium" })}`;
+    button.append(
+      element("span", "recent-type", project.source_type || "Project"),
+      element("strong", "", project.name || "Saved project"),
+      element("span", "recent-meta", `Source · ${project.source_basename || "Unavailable"}`),
+      element("span", "recent-meta", lastOpened),
+    );
     button.addEventListener("click", () => openSelection({ id: project.selection_id || project.id, display_name: project.name }, true));
     host.append(button);
   }
@@ -119,11 +138,14 @@ function showStorySurface(visible) {
   if (!visible) invalidateStoryDetail();
   const prepare = $("#storyPrepareAction");
   // With no readable story yet, the first generation has to stay reachable from the masthead.
-  if (visible) $(".story-hero-meta").append(prepare);
+  if (visible) {
+    $(".story-hero-meta").append(prepare);
+    setStoryWorkflowChrome();
+  }
   else if (api.storyWorkflowRoutes) {
     $(".masthead-actions").insertBefore(prepare, $("#refreshProject"));
     prepare.textContent = "Generate";
-    prepare.disabled = state.storyWorkflow.busy;
+    setStoryWorkflowChrome({ prepare: true });
   }
   $("#storyBrowser").hidden = !visible;
   $("#storyUnavailablePanel").hidden = visible;
@@ -828,7 +850,6 @@ function renderStoryReaderManifest(manifest) {
   $("#storyTitle").textContent = manifest.overview.title; $("#storyOverview").textContent = manifest.overview.summary;
   $("#storyMapStatus").textContent = manifest.freshness === "stale" ? "Stale map" : manifest.freshness === "building" ? "Building" : manifest.freshness === "phase03_compatible" ? "Compatible map" : "Current map";
   $("#storyPrepareAction").textContent = manifest.freshness === "phase03_compatible" || !manifest.generation_id ? "Generate" : "Update";
-  $("#storyPrepareAction").disabled = !api.storyWorkflowRoutes || state.storyWorkflow.busy;
   const index = $("#storySectionIndex"); index.replaceChildren();
   const grouped = storyReaderGroupedTimeline();
   $("#storyBrowser").classList.remove("is-progressive-story");
@@ -848,6 +869,7 @@ function renderStoryReaderManifest(manifest) {
   index.hidden = !manifest.sections.length;
   $("#storyAnalysisNotes").hidden = true; $("#storyPathPanel").hidden = true; $("#storyRunDetails").open = false; clearStoryPathWitness();
   $("#storyBrowser").classList.toggle("hide-new", state.storyReader.hideNew); showStorySurface(true);
+  setStoryWorkflowChrome({ prepare: Boolean(api.storyWorkflowRoutes) });
 }
 
 function renderStoryReaderStatus(status) {
@@ -859,9 +881,9 @@ function renderStoryReaderStatus(status) {
   $("#storyRunProgress").textContent = `${progress.completed_jobs}/${progress.total_jobs} jobs · ${progress.failed_jobs} failed · ${progress.indeterminate_jobs} indeterminate`;
   $("#storyRunProgressBar").style.width = `${Math.max(0, Math.min(100, percent))}%`;
   $(".story-run-track").setAttribute("aria-valuenow", String(percent));
-  if (!state.storyWorkflow.response) {
-    $("#storyCancelRun").hidden = true; $("#storyResumeRun").hidden = true; $("#storyRetryRun").hidden = true;
-  }
+  const active = Boolean(status.active_build_generation) || ["running", "starting", "cancelling", "queued", "building"].includes(status.state);
+  const actionableRun = active || status.actions.can_cancel || status.actions.can_resume || status.actions.retry_approval_required;
+  setStoryWorkflowChrome({ prepare: !actionableRun && Boolean(api.storyWorkflowRoutes), progress: actionableRun });
 }
 
 function storyWorkflowTotal(status) {
@@ -941,10 +963,13 @@ function renderStoryWorkflow(response) {
   $("#storyRunProgress").textContent = `${completed} of ${total} jobs completed`;
   $("#storyRunProgressBar").style.width = `${percent}%`;
   $(".story-run-track").setAttribute("aria-valuenow", String(percent));
-  $("#storyCancelRun").hidden = !status.can_cancel;
-  $("#storyResumeRun").hidden = !status.can_resume;
-  $("#storyRetryRun").hidden = true;
-  $("#storyPrepareAction").disabled = !api.storyWorkflowRoutes || state.storyWorkflow.busy;
+  const actionableRun = status.can_cancel || status.can_resume;
+  setStoryWorkflowChrome({
+    prepare: !actionableRun && Boolean(api.storyWorkflowRoutes),
+    progress: actionableRun,
+    cancel: status.can_cancel,
+    resume: status.can_resume,
+  });
   renderStoryWorkflowDetails(response);
 }
 
@@ -1285,6 +1310,7 @@ function renderStoryMapV2(page) {
   $("#storyAnalysisNotes").hidden = !notes.children.length;
   $("#storyPathPanel").hidden = true; clearStoryPathWitness();
   showStorySurface(true);
+  if (!progressive) setStoryWorkflowChrome({ prepare: Boolean(api.storyWorkflowRoutes) });
   buildStoryNavigation(page);
   resetStorySearch();
 }

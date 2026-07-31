@@ -412,6 +412,19 @@ def test_settings_and_recent_projects_are_durable(tmp_path: Path, analyzed_proje
     reopened = UserStateStore(state.path)
     assert reopened.settings()["zoom"] == 2
     assert reopened.recent_projects() == (analyzed_project.resolve(),)
+    [(recent_path, last_opened)] = reopened.recent_project_entries()
+    assert recent_path == analyzed_project.resolve()
+    assert isinstance(last_opened, str) and last_opened.endswith("Z")
+
+    api = ProjectApi(FakeDialogs(), state_store=reopened)
+    try:
+        [recent] = api.dispatch("GET", "/api/v1/recent", {})["recent_projects"]
+    finally:
+        api.close()
+    assert recent["name"] == "story"
+    assert recent["source_basename"] == "story.rpy"
+    assert recent["last_opened"] == last_opened
+    assert str(tmp_path) not in json.dumps(recent)
 
 
 def test_legacy_organization_consent_route_is_absent_and_provider_free(

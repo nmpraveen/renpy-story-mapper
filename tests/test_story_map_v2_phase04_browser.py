@@ -327,8 +327,11 @@ def test_reader_v2_static_contract_and_transport_are_bounded() -> None:
     assert "story-map-v2-workflow-http-v1" not in "\n".join((contract, api, app))
     assert "story_map_v2_workflow" in app
     assert 'id="storyPrepareAction"' in html and "disabled" in html[html.index('id="storyPrepareAction"') : html.index('id="storyPrepareAction"') + 160]
+    assert 'id="storyRunBar"' in html and "hidden" in html[html.index('id="storyRunBar"') : html.index('id="storyRunBar"') + 120]
     assert 'id="storyRunDetails"' in html and 'id="storyRunRows"' in html
     assert "renderStoryWorkflowDetails" in app
+    assert "setStoryWorkflowChrome" in app
+    assert "project.source_basename" in app and 'timeStyle: "medium"' in app
     assert "/workflow/approve" not in "\n".join((contract, api, app, html))
 
 
@@ -487,7 +490,7 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
             self._json(
                 {
                     "api_version": "v1",
-                    "recent_projects": [{"selection_id": "reader-project", "name": "Reader fixture", "source_type": "Project", "organization": "Story Map V2"}],
+                    "recent_projects": [{"selection_id": "reader-project", "name": "Reader fixture", "source_type": "Project", "source_basename": "story.rpy", "last_opened": "2026-07-31T14:05:06.000Z", "organization": "Story Map V2"}],
                     "settings": {"theme": "light", "include_technical": True, "include_unresolved": True},
                     "contracts": {},
                     "routes": {
@@ -680,6 +683,8 @@ def test_reader_v2_late_section_path_and_detail_responses_cannot_steal_state() -
         try:
             session.command("Page.navigate", {"url": origin})
             session.wait("document.readyState === 'complete' && !!document.querySelector('.recent-card')")
+            recent_text = session.evaluate("document.querySelector('.recent-card').innerText")
+            assert "story.rpy" in recent_text and "2026" in recent_text
             session.evaluate("document.querySelector('.recent-card').click()")
             session.wait("document.querySelector('#storySections h2')?.textContent === 'Prologue'")
 
@@ -926,7 +931,7 @@ def test_workflow_v2_completed_progress_details_load_after_refresh() -> None:
             session.command("Page.navigate", {"url": origin})
             session.wait("document.readyState === 'complete' && !!document.querySelector('.recent-card')")
             session.evaluate("document.querySelector('.recent-card').click()")
-            session.wait("!document.querySelector('#storyRunDetails').hidden && document.querySelector('#storyRunProgress').textContent.includes('jobs')")
+            session.wait("document.querySelector('#storyRunBar').hidden && !document.querySelector('#storyRunDetails').hidden && document.querySelector('#storyRunProgress').textContent.includes('jobs')")
             session.evaluate("document.querySelector('#storyRunDetails summary').click()")
             session.wait("document.querySelectorAll('#storyRunRows tr').length === 1")
             text = session.evaluate("document.querySelector('#storyRunRows').innerText")
