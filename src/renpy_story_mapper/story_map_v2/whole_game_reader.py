@@ -217,16 +217,16 @@ def build_whole_game_reader_page(
     for packet in packets:
         corridor_id = _text(packet.get("corridor_id"), "packet id")
         packet_title = _text(results[corridor_id].get("title"), "summary title")
-        for raw in packet.get("next_control_points", []):
+        for raw in _list(packet.get("next_control_points", []), "next controls"):
             control = _mapping(raw, "next control")
-            control_id = control.get("node_id")
-            if isinstance(control_id, str):
-                incoming_packet_titles[control_id].append(packet_title)
-        for raw in packet.get("incoming_control_points", []):
+            next_node_id = control.get("node_id")
+            if isinstance(next_node_id, str):
+                incoming_packet_titles[next_node_id].append(packet_title)
+        for raw in _list(packet.get("incoming_control_points", []), "incoming controls"):
             control = _mapping(raw, "incoming control")
-            control_id = control.get("node_id")
-            if isinstance(control_id, str):
-                outgoing_packet_titles[control_id].append(packet_title)
+            incoming_node_id = control.get("node_id")
+            if isinstance(incoming_node_id, str):
+                outgoing_packet_titles[incoming_node_id].append(packet_title)
 
     visible_labels = set(packets_by_label)
     visible_labels.update(
@@ -528,10 +528,12 @@ def build_whole_game_reader_page(
         selection_id = f"whole-game:arm:{arm_id}"
         rejoin_binding = None
         if merge_id:
-            rejoin_source = (
+            # Distinct from the `rejoin_source` name-provenance string above: this is the
+            # merge node's source location.
+            rejoin_location = (
                 _flat_source(nodes[merge_id]) if merge_id in nodes else _flat_source(control)
             )
-            source_identity = _reader_source(rejoin_source)
+            source_identity = _reader_source(rejoin_location)
             continuation_identity = (
                 f"{merge_id}\0{source_identity['relative_path']}\0"
                 f"{source_identity['start_line']}\0{source_identity['end_line']}"
@@ -545,7 +547,7 @@ def build_whole_game_reader_page(
                 "generic_scene",
                 merge_id,
                 "story_map_v2_continuation",
-                rejoin_source,
+                rejoin_location,
             )
         projected = {
             "selection_id": selection_id,
@@ -785,13 +787,13 @@ def build_whole_game_reader_page(
         placement = placements.get(label)
         if not isinstance(placement, dict):
             continue
-        arm_id = placement.get("arm_id")
-        if not isinstance(arm_id, str):
+        placement_arm_id = placement.get("arm_id")
+        if not isinstance(placement_arm_id, str):
             continue
-        projected_arm = projected_arms.get(arm_id)
-        if projected_arm is None:
-            raise ValueError(f"route-flow owner {arm_id} is not reader-visible")
-        route_flow = cast(list[dict[str, object]], projected_arm["route_flow"])
+        owner_arm = projected_arms.get(placement_arm_id)
+        if owner_arm is None:
+            raise ValueError(f"route-flow owner {placement_arm_id} is not reader-visible")
+        route_flow = cast(list[dict[str, object]], owner_arm["route_flow"])
         route_flow.append(
             {
                 "kind": "event",
@@ -805,11 +807,11 @@ def build_whole_game_reader_page(
     for raw_reference in cast(list[dict[str, object]], route_plan["references"]):
         arm_id = _text(raw_reference.get("arm_id"), "route reference arm")
         label = _text(raw_reference.get("target_label"), "route reference label")
-        projected_arm = projected_arms.get(arm_id)
+        reference_arm = projected_arms.get(arm_id)
         event = event_prototypes.get(label)
-        if projected_arm is None or event is None:
+        if reference_arm is None or event is None:
             continue
-        cast(list[dict[str, object]], projected_arm["route_flow"]).append(
+        cast(list[dict[str, object]], reference_arm["route_flow"]).append(
             {
                 "kind": "reference",
                 "transfer_kind": raw_reference["transfer_kind"],
@@ -853,12 +855,12 @@ def build_whole_game_reader_page(
     incoming_labels: dict[str, list[str]] = defaultdict(list)
     outgoing_labels: dict[str, list[str]] = defaultdict(list)
     for edge in edges:
-        source = nodes.get(_text(edge.get("source"), "inventory edge source"))
-        target = nodes.get(_text(edge.get("target"), "inventory edge target"))
-        if source is None or target is None:
+        source_node = nodes.get(_text(edge.get("source"), "inventory edge source"))
+        target_node = nodes.get(_text(edge.get("target"), "inventory edge target"))
+        if source_node is None or target_node is None:
             continue
-        source_label = source.get("label")
-        target_label = target.get("label")
+        source_label = source_node.get("label")
+        target_label = target_node.get("label")
         if (
             isinstance(source_label, str)
             and isinstance(target_label, str)
@@ -910,7 +912,9 @@ def build_whole_game_reader_page(
 
     def inventory_context(item: Mapping[str, object]) -> list[dict[str, object]]:
         packet_ids = [
-            raw_id for raw_id in item.get("packet_ids", []) if isinstance(raw_id, str)
+            raw_id
+            for raw_id in _list(item.get("packet_ids", []), "inventory packet ids")
+            if isinstance(raw_id, str)
         ]
         if not packet_ids:
             packet_ids = [
@@ -949,26 +953,28 @@ def build_whole_game_reader_page(
     inventory_items: list[dict[str, object]] = []
     for item in sorted_uncovered:
         label = _text(item.get("label"), "inventory label")
-        control_id = item.get("control_id")
-        arm_id = item.get("arm_id")
+        item_control_id = item.get("control_id")
+        item_arm_id = item.get("arm_id")
         incoming_titles = [
             event_names[value] for value in incoming_labels.get(label, ()) if value in event_names
         ]
         outgoing_titles = [
             event_names[value] for value in outgoing_labels.get(label, ()) if value in event_names
         ]
-        if isinstance(control_id, str):
-            incoming_titles.extend(incoming_packet_titles.get(control_id, ()))
-            outgoing_titles.extend(outgoing_packet_titles.get(control_id, ()))
-        if isinstance(arm_id, str):
-            incoming_titles.append(event_names.get(arm_labels.get(arm_id, label), _UNNAMED_ROUTE))
-            for packet in packets_by_arm.get(arm_id, ()):
+        if isinstance(item_control_id, str):
+            incoming_titles.extend(incoming_packet_titles.get(item_control_id, ()))
+            outgoing_titles.extend(outgoing_packet_titles.get(item_control_id, ()))
+        if isinstance(item_arm_id, str):
+            incoming_titles.append(
+                event_names.get(arm_labels.get(item_arm_id, label), _UNNAMED_ROUTE)
+            )
+            for packet in packets_by_arm.get(item_arm_id, ()):
                 corridor_id = _text(packet.get("corridor_id"), "inventory arm corridor")
                 outgoing_titles.append(_text(results[corridor_id].get("title"), "arm title"))
         nearby_context = inventory_context(item)
         if not nearby_context:
             nearby_context = [
-                {"corridor_id": None, "title": title, "story_excerpt": ""}
+                cast(dict[str, object], {"corridor_id": None, "title": title, "story_excerpt": ""})
                 for title in _unique_text(incoming_titles + outgoing_titles)
                 if _safe_story_name(title)
             ][:3]
