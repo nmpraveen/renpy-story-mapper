@@ -51,6 +51,12 @@ function showPrimary(name) {
   $("#refreshProject").hidden = name !== "workspace";
 }
 
+/** The stable reader owns prepare/generate; the progressive river has no run chrome. */
+function storyWorkflowChromeForMode() {
+  if (progressiveStoryActive()) return {};
+  return { prepare: Boolean(api.storyWorkflowRoutes) };
+}
+
 function setStoryWorkflowChrome({ prepare = false, progress = false, cancel = false, resume = false, retry = false } = {}) {
   const prepareAction = $("#storyPrepareAction");
   prepareAction.hidden = !prepare;
@@ -140,7 +146,9 @@ function showStorySurface(visible) {
   // With no readable story yet, the first generation has to stay reachable from the masthead.
   if (visible) {
     $(".story-hero-meta").append(prepare);
-    setStoryWorkflowChrome();
+    // Returning from detail comes back through here, so restore the chrome this mode should
+    // have rather than blanking it and leaving the reader without Update/Generate.
+    setStoryWorkflowChrome(storyWorkflowChromeForMode());
   }
   else if (api.storyWorkflowRoutes) {
     $(".masthead-actions").insertBefore(prepare, $("#refreshProject"));
@@ -308,7 +316,11 @@ function createStoryRouteContext(arm, armIndex, parent, forkTitle, controlKind) 
     controlKind,
     outcomeKind: storySemanticKind(arm.outcome_kind, STORY_OUTCOME_KINDS),
     depth: parent ? parent.depth + 1 : 0,
-    paletteSlot: parent ? ((parent.paletteSlot + armIndex) % 8) + 1 : (armIndex % 8) + 1,
+    // Slots restart at every fork and are read positionally, so a nested arm takes the same
+    // slot its position would take at the root. Offsetting by the parent slot did not avoid
+    // collisions either -- it only moved which sibling a nested route clashed with -- and the
+    // visible code, never the colour, is what identifies a route.
+    paletteSlot: (armIndex % 8) + 1,
     target: storyRouteTarget(arm),
     provenance: arm.state_provenance || [],
   };
@@ -853,7 +865,12 @@ function renderStoryChoice(choice, nested = false, continuationPlan = null, choi
     state.storyItems.set(arm.selection_id, arm);
     const routeContext = createStoryRouteContext(arm, armIndex, parentRouteContext, forkTitle, controlKind);
     const armArticle = element("article", "story-arm"); armArticle.dataset.storySelectionId = arm.selection_id;
-    applyStoryRouteContext(armArticle, routeContext);
+    // The painter groups arms by the merge they actually prove, so the proven target has to
+    // be readable from the DOM it measures.
+    if (arm.rejoin_binding?.selection_id) armArticle.dataset.storyRejoinTargetSelectionId = arm.rejoin_binding.selection_id;
+    // Immediate arms are reading targets too: without this, scrolling through a fork leaves
+    // the route panel reporting the shared story it already left.
+    applyStoryRouteContext(armArticle, routeContext, { reading: true });
     const outcomeKind = storySemanticKind(arm.outcome_kind, STORY_OUTCOME_KINDS);
     armArticle.dataset.outcomeKind = outcomeKind;
     armArticle.dataset.controlKind = controlKind;
@@ -1704,7 +1721,7 @@ function renderStoryMapV2(page) {
   $("#storyPathPanel").hidden = true; clearStoryPathWitness();
   $("#storyRoutePanel").hidden = !progressive;
   showStorySurface(true);
-  if (!progressive) setStoryWorkflowChrome({ prepare: Boolean(api.storyWorkflowRoutes) });
+  setStoryWorkflowChrome(storyWorkflowChromeForMode());
   buildStoryNavigation(page);
   resetStorySearch();
   if (progressive) {
@@ -1848,12 +1865,16 @@ function updateStoryReadingPosition() {
   markActiveChapter(nearestChapterId(browser.scrollTop));
   const readingPoint = browser.scrollTop + browser.clientHeight * 0.42;
   let readingNode = null;
+  let readingTop = -Infinity;
   const browserTop = browser.getBoundingClientRect().top;
   for (const node of nav.readingNodes) {
     if (node.hidden || !node.getClientRects().length) continue;
     const top = browser.scrollTop + node.getBoundingClientRect().top - browserTop;
-    if (top <= readingPoint) readingNode = node;
-    else break;
+    if (top > readingPoint) break;
+    // A fan puts its arms on one line, so ties would otherwise report whichever sits
+    // furthest right. Keep the first arm in document order instead, so scrolling past a
+    // two-way fork always names the same route.
+    if (top > readingTop || readingNode === null) { readingNode = node; readingTop = top; }
   }
   if (readingNode && Date.now() >= state.storyRouteInteractionUntil) syncStoryRoutePanelForNode(readingNode);
 }

@@ -213,7 +213,9 @@ def test_story_river_renderer_propagates_routes_and_preserves_fork_contract() ->
     assert 'article.dataset.forkLayout = stacked ? "stack" : "fan"' in choice
     assert '`story-arms${stacked ? " is-stacked" : ""}`' in choice
     assert "const routeContext = createStoryRouteContext(arm, armIndex, parentRouteContext" in choice
-    assert "applyStoryRouteContext(armArticle, routeContext)" in choice
+    # Arms are reading targets, so scrolling a fork moves the route panel off the shared story.
+    assert "applyStoryRouteContext(armArticle, routeContext, { reading: true })" in choice
+    assert "armArticle.dataset.storyRejoinTargetSelectionId = arm.rejoin_binding.selection_id" in choice
     assert "armArticle.dataset.outcomeKind = outcomeKind" in choice
     assert 'element("span", "story-route-code", `Route ${routeContext.code}`)' in choice
     assert "renderStoryChoice(child, true" in choice and "routeContext, storyItemTitle(arm)" in choice
