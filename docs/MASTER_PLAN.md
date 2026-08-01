@@ -137,8 +137,10 @@ The first implementation of steps 1-4 was rejected visually on 2026-07-31 becaus
 colored family tree rather than matching the selected Story River mock. The focused redesign now
 targets a thick dark main river, broad colored tributaries, compact station cards, an unmistakable
 merge, and selection-opened deep routes. Whole-game work still waits for acceptance of that proof.
-The replacement implementation is integrated and statically checked; browser acceptance is paused at
-the user's request and remains the next milestone gate.
+The replacement implementation is integrated and statically checked. Focused browser proof at
+1920px and 1280px now demonstrates the fitting-room owned route, nested routes, confluence links,
+state backlinks, panel synchronization, and zero horizontal page overflow. User acceptance remains
+the gate before whole-game application.
 
 The active contract is
 [`docs/milestones/M15_PHASE_06/GOAL.md`](milestones/M15_PHASE_06/GOAL.md), with detailed sequencing in

@@ -7,7 +7,7 @@
 | Build Story River route styling | Complete | Static implementation now supplies the thick main river, broad tributaries, compact cards, merge capsule, and desktop breakpoints; browser verdict remains pending |
 | Add focused Story River tests | Complete | Ten Phase 06 contracts cover route identity, nesting, focus disclosure, confluences, panel sync, and mock-level layout hooks |
 | Integrate the automatic selected-route panel | Complete | Click, focus, scroll, search, links, synopsis, route identity, and outcome share the synchronization seam |
-| Render the focused real-game proof | Pending | Paused by the user before browser acceptance; no replacement screenshot or visual verdict yet |
+| Render the focused real-game proof | Complete | 1920px and 1280px evidence confirms fitting-room route ownership, B.1/B.2 nesting, confluence and provenance navigation, panel synchronization, and zero horizontal page overflow |
 | User acceptance of the focused Story River proof | Pending | User confirms the story flow is easier to follow before whole-game work |
 | Apply Story River to the whole game | Pending | Runs only after focused proof acceptance and preserves established structural counts |
 
@@ -15,5 +15,5 @@ Use only `Pending`, `In progress`, `Blocked`, or `Complete`.
 
 Detailed behavior and validation are in [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).
 
-Pause boundary: static implementation may be recorded, but browser inspection and acceptance remain
-pending until the user explicitly resumes them.
+The focused browser proof is ready for review. Whole-game application remains gated on explicit
+user acceptance of the focused rendered proof.

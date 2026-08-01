@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-31
+Updated: 2026-08-01
 
 ## Active work
 
@@ -11,8 +11,8 @@ Updated: 2026-07-31
 - Active checkout: `codex/m15-phase06-story-river`, created from the completed Phase 05 reader at
   `46763c4` on 2026-07-31.
 - Status: Phase 05 is the accepted factual and language baseline. The mock-fidelity Story River
-  redesign is integrated and passes focused static checks. Browser proof and acceptance are paused
-  at the user's request; whole-game work remains gated.
+  redesign is integrated and passes focused static checks. The focused 1920px/1280px browser proof
+  is ready for user review; whole-game work remains gated on visual acceptance.
 - Native Codex goal: none.
 
 ## Current product decision
@@ -30,9 +30,10 @@ colored tributaries, compact event and route cards, a strong merge capsule, and 
 routes the dominant visual structure. The rejected screenshots under
 `output/m15-phase06-story-river-proof-20260731` are comparison evidence only.
 
-The replacement implementation is deliberately not called visually accepted yet. On 2026-07-31 the
-user asked to pause before browser acceptance, so no replacement screenshot or 1920px/1280px visual
-verdict has been produced.
+The replacement implementation is deliberately not called visually accepted yet. The focused proof
+now confirms the fitting-room Route B owns its cross-label event, nested routes B.1/B.2 retain their
+stream identity, rejoin and state-backlink navigation synchronize the panel, and neither required
+desktop width has horizontal page overflow. User review is still pending.
 
 The Phase 05 implementation beneath that presentation remains authoritative:
 

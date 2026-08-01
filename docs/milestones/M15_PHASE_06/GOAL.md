@@ -1,6 +1,6 @@
 # M15.2 Phase 06 - Story River reader
 
-Status: implementation integrated; browser acceptance paused by user
+Status: focused browser proof ready for user acceptance
 
 ## User outcome
 
@@ -74,5 +74,7 @@ on route selection instead of filling the page by default. The rejected screensh
 only as comparison evidence; it is not an accepted proof.
 
 The replacement renderer, panel, route-focus behavior, and CSS are integrated and pass the focused
-non-browser contract. Browser inspection and user acceptance remain pending because the user paused
-the milestone immediately before that gate.
+contract. The 2026-08-01 real-game browser proof confirms Route B ownership across the fitting-room
+event, B.1/B.2 nesting, confluence and provenance navigation, panel synchronization, and zero
+horizontal page overflow at 1920px and 1280px. Visual acceptance remains pending until the user
+reviews that proof.

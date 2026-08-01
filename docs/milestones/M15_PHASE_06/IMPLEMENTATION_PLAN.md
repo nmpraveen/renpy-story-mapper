@@ -1,8 +1,8 @@
 # M15.2 Phase 06 - Story River implementation plan
 
-Updated: 2026-07-31
+Updated: 2026-08-01
 
-Status: implementation integrated; browser acceptance paused by user
+Status: focused browser proof ready for user acceptance
 
 ## Outcome and boundary
 
@@ -99,6 +99,6 @@ owns the compact focus behavior, panel composition, integration, and new browser
 screenshots remain comparison evidence only. Whole-game regeneration and broad validation are still
 gated on acceptance of the corrected focused proof.
 
-The implementation and focused static checks are complete. Per the user's 2026-07-31 instruction,
-stop here: do not open the browser, capture replacement screenshots, or claim visual acceptance until
-the user explicitly resumes the browser-acceptance gate.
+The implementation, focused static checks, and focused 1920px/1280px real-game browser proof are
+complete. The user-acceptance gate remains open. Do not apply or regenerate the whole game until the
+user accepts the focused proof.
