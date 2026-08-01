@@ -558,7 +558,10 @@ def build_whole_game_reader_page(
             "detail_summary": detail,
             "condition": condition,
             "effects": effect_text,
-            "destination_id": f"story:{destination_title or caption}",
+            # Only a proven destination goes here. Falling back to the caption made every
+            # plain continuation claim it goes to itself, which also made the reader's
+            # "Continues on this route" sentence unreachable.
+            "destination_id": f"story:{destination_title}" if destination_title else None,
             "rejoin_node_id": f"story:{rejoin_title}" if rejoin_title else None,
             "rejoin_line": (
                 _flat_source(nodes[merge_id])["start_line"]
