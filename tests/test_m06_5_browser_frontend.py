@@ -7,7 +7,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / "src" / "renpy_story_mapper" / "web" / "static"
-SCRIPTS = ("app.js", "api.js", "contract.js", "story-map-v2-diff.js")
+SCRIPTS = ("app.js", "api.js", "contract.js", "river.js", "story-map-v2-diff.js")
+# createElementNS needs this exact literal to build SVG nodes. It names a namespace and is
+# never fetched, so it is the one URL-shaped string the local-assets rule may contain.
+SVG_NAMESPACE_LITERAL = '"http://www.w3.org/2000/svg"'
 
 
 def _text(name: str) -> str:
@@ -24,7 +27,8 @@ def test_assets_are_local_and_csp_compatible() -> None:
     assets = "\n".join(_text(name) for name in ("index.html", "styles.css", *SCRIPTS))
     assert "Content-Security-Policy" in html
     assert "script-src 'self'" in html
-    assert not re.search(r"https?://|//cdn", assets, re.IGNORECASE)
+    fetchable = assets.replace(SVG_NAMESPACE_LITERAL, '""')
+    assert not re.search(r"https?://|//cdn", fetchable, re.IGNORECASE)
     assert '<script type="module" src="./app.js"></script>' in html
     assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>\s*\S", html, re.IGNORECASE)
     assert "eval(" not in assets

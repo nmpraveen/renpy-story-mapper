@@ -19,6 +19,7 @@
   --story-continuation-soft: #e8f5eb;
   --story-link: #7654ad;
   --story-link-soft: #f0eafa;
+  --story-spine: #252522;
   --story-ending: #bd4037;
   --story-ending-soft: #fbe8e4;
   --story-neutral: #777168;
@@ -65,6 +66,7 @@ html[data-theme="dark"] {
   --story-continuation-soft: #2e4432;
   --story-link: #b5a0d3;
   --story-link-soft: #3d334b;
+  --story-spine: #cdc3b1;
   --story-ending: #e28f7e;
   --story-ending-soft: #4d302b;
   --story-neutral: #aaa197;
@@ -109,6 +111,7 @@ html[data-theme="dark"] {
     --story-continuation-soft: #2e4432;
     --story-link: #b5a0d3;
     --story-link-soft: #3d334b;
+    --story-spine: #cdc3b1;
     --story-ending: #e28f7e;
     --story-ending-soft: #4d302b;
     --story-neutral: #aaa197;
@@ -628,6 +631,12 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
   .story-reader-shell:has(> .story-route-panel:not([hidden])) > .story-rail { grid-column: 1; }
   .story-reader-shell:has(> .story-route-panel:not([hidden])) > .story-guide { grid-column: 2; }
   .story-reader-shell:has(> .story-route-panel:not([hidden])) > .story-route-panel { position: sticky; z-index: 5; top: 4.4rem; grid-column: 3; align-self: start; max-height: calc(100vh - 7rem); overflow: auto; }
+
+  /* Column rules give the river its banks, the way the reference reading view does. */
+  .story-browser.is-story-river .story-reader-shell > .story-guide {
+    border-inline: 1px solid var(--rule);
+    padding-inline: clamp(1rem, 1.8vw, 2.25rem);
+  }
 }
 
 @media (min-width: 1241px) and (max-width: 1499px) {
@@ -716,12 +725,64 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
 /* ==== story river: mock 5 visual reset ==== */
 
 .story-browser.is-story-river {
-  --story-spine: #252522;
-  --story-spine-edge: #3a3934;
-  --story-spine-width: 3rem;
-  --story-river-width: 52rem;
-  --story-station-width: 30rem;
-  --story-card-width: 15.5rem;
+  --story-river-width: 72rem;
+  --story-station-width: 21rem;
+  --story-card-width: 16rem;
+}
+
+/*
+ * Flow is painted, not bordered. river.js measures the laid-out stations and fills one
+ * SVG per event; these rules only say what colour the water is and that it sits behind
+ * every card. Geometry lives in river.js because a clipped rectangle cannot curve.
+ */
+
+.story-river-canvas {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.story-river-canvas .river-band {
+  fill: var(--river-flow, var(--story-spine));
+  fill-opacity: .94;
+}
+
+.story-river-canvas .river-band--tributary { fill-opacity: .9; }
+.story-river-canvas .river-band--route { fill-opacity: .82; }
+.story-river-canvas .river-band--tail { fill-opacity: var(--river-fade, .5); }
+
+.story-river-canvas .river-arrow {
+  fill: none;
+  stroke: color-mix(in srgb, var(--sheet) 90%, transparent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/*
+ * Every connector the flat progressive tree drew with a hairline or a border is now water,
+ * so switch them all off here rather than relying on each later rule to out-specify them.
+ */
+.story-browser.is-story-river .story-event::before,
+.story-browser.is-story-river .story-choice-control::after,
+.story-browser.is-story-river .story-arm::before,
+.story-browser.is-story-river .story-arms > .story-arm::before,
+.story-browser.is-story-river .story-arms > .story-arm::after,
+.story-browser.is-story-river .story-arms > .story-arm:not(:last-child)::after,
+.story-browser.is-story-river .story-arms.is-stacked::before,
+.story-browser.is-story-river .story-arms.is-stacked > .story-arm::before,
+.story-browser.is-story-river .story-arms.is-stacked > .story-arm[data-outcome-kind="unresolved"]::before,
+.story-browser.is-story-river .story-arms:not(.is-stacked) > .story-arm[data-outcome-kind="unresolved"]::before,
+.story-browser.is-story-river .story-continuation::before,
+.story-browser.is-story-river .story-continuation::after,
+.story-browser.is-story-river .story-continuation.is-confluence::before,
+.story-browser.is-story-river .story-continuation.is-confluence::after,
+.story-browser.is-story-river .story-continuation.is-route-return::before,
+.story-browser.is-story-river .story-route-events .story-event::before,
+.story-browser.is-story-river .story-descendant-route[open] > .story-choice-sequence::before {
+  content: none;
 }
 
 .story-browser.is-story-river .story-guide {
@@ -755,6 +816,7 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
 /* Main-story events sit directly on one broad, uninterrupted spine. */
 
 .story-browser.is-story-river .story-event[data-story-stream="main"] {
+  --river-flow: var(--story-spine);
   position: relative;
   isolation: isolate;
   display: grid;
@@ -763,43 +825,17 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
   justify-items: center;
   gap: 0;
   border: 0;
-  padding: 2.35rem 0 5.25rem;
-}
-
-.story-browser.is-story-river .story-event[data-story-stream="main"]::before {
-  position: absolute;
-  z-index: 0;
-  inset-block: 0;
-  left: 50%;
-  width: var(--story-spine-width);
-  transform: translateX(-50%);
-  background: linear-gradient(90deg, var(--story-spine-edge), var(--story-spine) 18% 82%, var(--story-spine-edge));
-  box-shadow: inset 1px 0 rgba(255, 255, 255, .08), inset -1px 0 rgba(255, 255, 255, .05);
-  content: "";
-}
-
-.story-browser.is-story-river .story-event[data-story-stream="main"]::after {
-  position: absolute;
-  z-index: 2;
-  bottom: 2.05rem;
-  left: 50%;
-  transform: translateX(-50%);
-  color: color-mix(in srgb, var(--sheet) 92%, transparent);
-  content: "\2193";
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 1.45rem;
-  font-weight: 400;
-  line-height: 1;
+  padding: 2.5rem 0 4.5rem;
 }
 
 .story-browser.is-story-river .story-event[data-story-stream="main"] > .story-event-number {
   position: absolute;
   z-index: 4;
-  top: 3.25rem;
-  left: max(1.5rem, calc(50% - 15rem));
+  top: 3.4rem;
+  left: calc(50% - var(--story-station-width) / 2);
   width: 2.45rem;
   height: 2.45rem;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
   border: 1px solid color-mix(in srgb, var(--rule-strong) 72%, transparent);
   background: var(--paper);
   color: var(--muted);
@@ -822,11 +858,11 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
 
 .story-browser.is-story-river .story-event[data-story-stream="main"] .story-event-select {
   gap: .42rem;
-  border: 1px solid color-mix(in srgb, var(--rule-strong) 64%, transparent);
-  border-radius: .55rem;
-  background: color-mix(in srgb, var(--sheet) 96%, var(--paper));
-  padding: .95rem 1.25rem 1rem 2.7rem;
-  box-shadow: 0 3px 0 color-mix(in srgb, var(--paper-deep) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--rule-strong) 40%, transparent);
+  border-radius: .85rem;
+  background: var(--sheet);
+  padding: 1.05rem 1.35rem 1.15rem 1.55rem;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 7%, transparent), 0 10px 22px -14px color-mix(in srgb, var(--ink) 42%, transparent);
 }
 
 .story-browser.is-story-river .story-event[data-story-stream="main"] .story-event-select:hover {
@@ -902,17 +938,6 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
   box-shadow: 0 3px 0 color-mix(in srgb, var(--story-control-soft) 70%, var(--paper-deep));
 }
 
-.story-browser.is-story-river .story-choice-control::after {
-  z-index: -1;
-  top: 100%;
-  left: 50%;
-  width: var(--story-spine-width);
-  height: 5rem;
-  transform: translateX(-50%);
-  background: var(--story-stream-color);
-  box-shadow: inset 1px 0 color-mix(in srgb, var(--sheet) 12%, transparent), inset -1px 0 color-mix(in srgb, var(--ink) 18%, transparent);
-}
-
 .story-browser.is-story-river .story-control-icon {
   border-radius: .28rem;
 }
@@ -930,17 +955,17 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
 .story-browser.is-story-river .story-arms {
   position: relative;
   z-index: 2;
-  width: min(48rem, 100%);
+  width: min(46rem, 100%);
   max-width: 100%;
   grid-template-columns: repeat(var(--story-arm-count, 2), minmax(0, 1fr));
   align-items: start;
   gap: 1.15rem var(--story-fork-gap);
   margin-inline: auto;
-  padding: 5rem 0 0;
+  padding: 7rem 0 0;
 }
 
 .story-browser.is-story-river .story-choice[data-fork-layout="fan"] > .story-arms {
-  max-width: 48rem;
+  max-width: 46rem;
 }
 
 .story-browser.is-story-river .story-arm {
@@ -951,111 +976,41 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
   align-content: start;
 }
 
-.story-browser.is-story-river .story-arm::before {
-  position: absolute;
-  z-index: -1;
-  top: -5rem;
-  height: 5.15rem;
-  border: 0;
-  border-radius: 0;
-  background: var(--story-tributary);
-  pointer-events: none;
-  content: "";
-}
-
-.story-browser.is-story-river .story-arms > .story-arm::after {
-  content: none;
-}
-
-.story-browser.is-story-river .story-arms[data-arm-count="1"] > .story-arm::before {
-  left: calc(50% - .75rem);
-  width: 1.5rem;
-}
-
-.story-browser.is-story-river .story-arms[data-arm-count="2"] > .story-arm[data-arm-index="0"]::before {
-  left: 50%;
-  width: calc(50% + var(--story-fork-half-gap));
-  clip-path: polygon(78% 0, 100% 0, 22% 100%, 0 100%);
-}
-
-.story-browser.is-story-river .story-arms[data-arm-count="2"] > .story-arm[data-arm-index="1"]::before {
-  right: 50%;
-  width: calc(50% + var(--story-fork-half-gap));
-  clip-path: polygon(0 0, 22% 0, 100% 100%, 78% 100%);
-}
-
-.story-browser.is-story-river .story-arms[data-arm-count="3"] > .story-arm[data-arm-index="0"]::before {
-  left: 50%;
-  width: calc(100% + var(--story-fork-gap));
-  clip-path: polygon(86% 0, 100% 0, 14% 100%, 0 100%);
-}
-
-.story-browser.is-story-river .story-arms[data-arm-count="3"] > .story-arm[data-arm-index="1"]::before {
-  left: calc(50% - .75rem);
-  width: 1.5rem;
-}
-
-.story-browser.is-story-river .story-arms[data-arm-count="3"] > .story-arm[data-arm-index="2"]::before {
-  right: 50%;
-  width: calc(100% + var(--story-fork-gap));
-  clip-path: polygon(0 0, 14% 0, 100% 100%, 86% 100%);
-}
-
-.story-browser.is-story-river .story-arms[data-arm-count="4"] > .story-arm[data-arm-index="0"]::before {
-  left: 50%;
-  width: calc(150% + var(--story-fork-gap) + var(--story-fork-half-gap));
-  clip-path: polygon(90% 0, 100% 0, 10% 100%, 0 100%);
-}
-
-.story-browser.is-story-river .story-arms[data-arm-count="4"] > .story-arm[data-arm-index="1"]::before {
-  left: 50%;
-  width: calc(50% + var(--story-fork-half-gap));
-  clip-path: polygon(78% 0, 100% 0, 22% 100%, 0 100%);
-}
-
-.story-browser.is-story-river .story-arms[data-arm-count="4"] > .story-arm[data-arm-index="2"]::before {
-  right: 50%;
-  width: calc(50% + var(--story-fork-half-gap));
-  clip-path: polygon(0 0, 22% 0, 100% 100%, 78% 100%);
-}
-
-.story-browser.is-story-river .story-arms[data-arm-count="4"] > .story-arm[data-arm-index="3"]::before {
-  right: 50%;
-  width: calc(150% + var(--story-fork-gap) + var(--story-fork-half-gap));
-  clip-path: polygon(0 0, 10% 0, 100% 100%, 90% 100%);
-}
-
-.story-browser.is-story-river .story-arm[data-outcome-kind="unresolved"]::before {
-  background: repeating-linear-gradient(135deg, var(--story-tributary) 0 8px, color-mix(in srgb, var(--story-tributary) 34%, transparent) 8px 13px);
-}
-
 .story-browser.is-story-river .story-arm-head {
   position: relative;
   z-index: 2;
   width: min(var(--story-card-width), 100%);
   max-width: 100%;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--rule-strong) 66%, transparent);
-  border-left: 1px solid color-mix(in srgb, var(--rule-strong) 66%, transparent);
-  border-radius: .5rem;
-  background: color-mix(in srgb, var(--sheet) 97%, var(--story-tributary-soft));
-  box-shadow: 0 3px 0 color-mix(in srgb, var(--story-tributary-soft) 82%, var(--paper-deep));
+  border: 1px solid color-mix(in srgb, var(--rule-strong) 40%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--rule-strong) 40%, transparent);
+  border-radius: .8rem;
+  background: var(--sheet);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 7%, transparent), 0 10px 22px -14px color-mix(in srgb, var(--ink) 42%, transparent);
 }
 
 .story-browser.is-story-river .story-arm-head:hover {
   border-color: var(--story-tributary);
   border-left-color: var(--story-tributary);
-  box-shadow: 0 3px 0 color-mix(in srgb, var(--story-tributary-soft) 82%, var(--paper-deep));
 }
 
 .story-browser.is-story-river .story-arm[data-story-current="true"] > .story-arm-head {
   border-color: var(--story-tributary);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--story-tributary) 36%, transparent), 0 3px 0 var(--story-tributary-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--story-tributary) 36%, transparent), 0 10px 22px -14px color-mix(in srgb, var(--ink) 42%, transparent);
 }
 
+/* Route identity leads, the control kind follows it on the same line, then the caption. */
 .story-browser.is-story-river .story-arm-select {
-  gap: .34rem;
-  padding: .72rem .85rem .82rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: .38rem .5rem;
+  padding: .8rem .9rem .85rem;
+}
+
+.story-browser.is-story-river .story-arm-select > .story-route-code { order: -1; }
+
+.story-browser.is-story-river .story-arm-select > :where(strong, span:not(.story-arm-kind, .story-route-code)) {
+  grid-column: 1 / -1;
 }
 
 .story-browser.is-story-river .story-arm-kind {
@@ -1092,35 +1047,16 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
 /* Five-plus arms become a compact tributary list with a visible trunk. */
 
 .story-browser.is-story-river .story-arms.is-stacked {
-  width: min(40rem, 100%);
+  width: min(44rem, 100%);
   grid-template-columns: minmax(0, 1fr);
-  gap: .85rem;
-  padding: 3.5rem 0 0 4.25rem;
-}
-
-.story-browser.is-story-river .story-arms.is-stacked::before {
-  top: 0;
-  bottom: 0;
-  left: 1.2rem;
-  width: 1.35rem;
-  border-radius: 0 0 999px 999px;
-  background: var(--story-stream-color);
+  gap: 1.1rem;
+  padding: 4.5rem 0 0 6rem;
 }
 
 .story-browser.is-story-river .story-arms.is-stacked > .story-arm {
   width: 100%;
   max-width: var(--story-measure);
   justify-items: start;
-}
-
-.story-browser.is-story-river .story-arms.is-stacked > .story-arm::before {
-  top: 1.05rem;
-  left: -3.05rem;
-  width: 3.05rem;
-  height: 1rem;
-  border: 0;
-  border-radius: 999px 0 0 999px;
-  background: var(--story-tributary);
 }
 
 .story-browser.is-story-river .story-arms.is-stacked .story-arm-head {
@@ -1137,12 +1073,12 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
 
 .story-browser.is-story-river .story-continuation.is-confluence {
   width: min(24rem, calc(100% - 3rem));
-  margin-top: 5.25rem;
+  margin-top: 6.5rem;
   border: 0;
   border-radius: 999px;
   background: var(--story-link);
-  padding: .52rem .82rem;
-  box-shadow: inset 0 1px color-mix(in srgb, var(--sheet) 26%, transparent), 0 3px 0 color-mix(in srgb, var(--story-link) 28%, var(--paper-deep));
+  padding: .6rem .9rem;
+  box-shadow: inset 0 1px color-mix(in srgb, var(--sheet) 26%, transparent), 0 10px 22px -14px color-mix(in srgb, var(--ink) 46%, transparent);
 }
 
 .story-browser.is-story-river [data-story-confluence-scope="main"] {
@@ -1159,27 +1095,6 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
   max-width: min(24rem, calc(100% - 3rem));
   margin-inline: auto;
   justify-self: center;
-}
-
-.story-browser.is-story-river .story-continuation.is-confluence::before {
-  top: -4.75rem;
-  left: 12%;
-  width: 76%;
-  height: 4.9rem;
-  background:
-    linear-gradient(to bottom right, transparent 39%, var(--story-link) 40% 60%, transparent 61%) left / 50% 100% no-repeat,
-    linear-gradient(to bottom left, transparent 39%, var(--story-link) 40% 60%, transparent 61%) right / 50% 100% no-repeat;
-}
-
-.story-browser.is-story-river .story-continuation.is-confluence::after {
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  width: var(--story-spine-width);
-  height: 3.4rem;
-  transform: translateX(-50%);
-  background: var(--story-confluence-stream, var(--story-spine));
-  content: "";
 }
 
 .story-browser.is-story-river .story-continuation.is-confluence .story-continuation-mark {
@@ -1227,33 +1142,8 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
   padding: 0;
 }
 
-.story-browser.is-story-river .story-owner-connector {
-  position: absolute;
-  top: -2.65rem;
-  left: var(--story-owner-left);
-  width: max(var(--story-owner-width), .75rem);
-  height: 2.65rem;
-  border: 0;
-  border-top: .75rem solid var(--story-route-color);
-  border-radius: 999px 999px 0 0;
-  pointer-events: none;
-}
-
-.story-browser.is-story-river .story-owner-connector::before,
-.story-browser.is-story-river .story-owner-connector::after {
-  position: absolute;
-  top: -.75rem;
-  display: block;
-  width: .75rem;
-  height: 2.65rem;
-  border-radius: 999px;
-  background: var(--story-route-color);
-  content: "";
-}
-
-.story-browser.is-story-river .story-owner-connector::before { left: 0; }
-.story-browser.is-story-river .story-owner-connector::after { right: 0; }
-.story-browser.is-story-river .story-owner-connector span { display: none; }
+/* The link from an arm to the route it owns is painted with the rest of the flow. */
+.story-browser.is-story-river .story-owner-connector { display: none; }
 
 .story-browser.is-story-river .story-descendant-owner {
   display: grid;
@@ -1299,18 +1189,6 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
   padding: 3.5rem 0 0;
 }
 
-.story-browser.is-story-river .story-descendant-route[open] > .story-choice-sequence::before {
-  position: absolute;
-  z-index: -1;
-  inset-block: 0;
-  left: 50%;
-  width: 1.35rem;
-  transform: translateX(-50%);
-  border-radius: 0 0 999px 999px;
-  background: var(--story-route-color);
-  content: "";
-}
-
 .story-browser.is-story-river .story-route-events {
   width: min(38rem, 100%);
   margin: 0 auto;
@@ -1320,15 +1198,6 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
   grid-template-columns: 2.35rem minmax(0, 1fr);
   gap: 0 .75rem;
   padding: 0 0 1.5rem;
-}
-
-.story-browser.is-story-river .story-route-events .story-event::before {
-  top: 2rem;
-  bottom: 0;
-  left: 1rem;
-  width: .7rem;
-  border-radius: 999px;
-  background: var(--story-route-color);
 }
 
 .story-browser.is-story-river .story-route-events .story-event-number {
@@ -1660,7 +1529,7 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
 
 @media (max-width: 900px) {
   .story-browser.is-story-river .story-event[data-story-stream="main"] > .story-event-number {
-    left: max(1.2rem, calc(50% - 13rem));
+    left: max(1.2rem, calc(50% - var(--story-station-width) / 2));
   }
 
   .story-browser.is-story-river .story-arms:not(.is-stacked) {
@@ -1668,29 +1537,6 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
     grid-template-columns: minmax(0, 1fr);
     gap: .9rem;
     padding: 3.75rem 0 0 3.5rem;
-  }
-
-  .story-browser.is-story-river .story-arms:not(.is-stacked)::before {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 1rem;
-    width: 1.25rem;
-    border-radius: 0 0 999px 999px;
-    background: var(--story-stream-color);
-    content: "";
-  }
-
-  .story-browser.is-story-river .story-arms:not(.is-stacked) > .story-arm::before {
-    top: 1rem;
-    left: -2.5rem;
-    right: auto;
-    width: 2.5rem;
-    height: 1rem;
-    border: 0;
-    border-radius: 999px 0 0 999px;
-    background: var(--story-tributary);
-    clip-path: none;
   }
 
   .story-browser.is-story-river .story-arms:not(.is-stacked) > .story-arm {
@@ -1703,18 +1549,10 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
 }
 
 @media (max-width: 620px) {
-  .story-browser.is-story-river {
-    --story-spine-width: 2.25rem;
-  }
-
   .story-browser.is-story-river .story-event[data-story-stream="main"] > .story-event-number {
     top: 3rem;
     left: 1.25rem;
     width: 2rem;
     height: 2rem;
-  }
-
-  .story-browser.is-story-river .story-event[data-story-stream="main"] .story-event-select {
-    padding-left: 2.25rem;
   }
 }

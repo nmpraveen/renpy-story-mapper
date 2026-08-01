@@ -73,8 +73,23 @@ on route selection instead of filling the page by default. The rejected screensh
 [`output/m15-phase06-story-river-proof-20260731`](../../../output/m15-phase06-story-river-proof-20260731)
 only as comparison evidence; it is not an accepted proof.
 
-The replacement renderer, panel, route-focus behavior, and CSS are integrated and pass the focused
+## Rejected second visual attempt
+
+The 2026-07-31 replacement kept the correct route facts but drew its flow with CSS pseudo-elements:
+rectangles, thick borders, and `clip-path` polygons. The user rejected it on 2026-08-01 because the
+tributaries read as stiff straight bars rather than water. A clipped rectangle cannot curve, taper,
+or flare, so no amount of CSS tuning could reach the mock.
+
+The accepted approach paints flow instead of bordering it. `web/static/river.js` measures each
+event's laid-out boxes and fills one SVG layer per event containing the trunk, its mouth flare at a
+split, the bezier tributaries out to each arm card, the merge back into the confluence, the tapered
+tails of routes that end, and the stream into an owned route. Long carries run down an edge lane so
+a rejoin never drags a band across another route's opened story. Colour and every card, chip, and
+type decision stay in CSS; only geometry moved.
+
+The renderer, panel, route-focus behavior, painter, and CSS are integrated and pass the focused
 contract. The 2026-08-01 real-game browser proof confirms Route B ownership across the fitting-room
 event, B.1/B.2 nesting, confluence and provenance navigation, panel synchronization, and zero
-horizontal page overflow at 1920px and 1280px. Visual acceptance remains pending until the user
-reviews that proof.
+horizontal page overflow at 1920px and 1280px, in light and dark themes. Evidence is under
+[`output/m15-phase06-story-river-proof-20260801`](../../../output/m15-phase06-story-river-proof-20260801).
+Visual acceptance remains pending until the user reviews that proof.

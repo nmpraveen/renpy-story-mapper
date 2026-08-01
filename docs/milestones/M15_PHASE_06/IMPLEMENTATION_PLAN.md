@@ -36,7 +36,10 @@ rejoin, ending, and unresolved markers independent of route color.
 - Render the shared story as an ordinary top-to-bottom DOM document with no canvas bounds.
 - Keep event stations on a neutral main stream.
 - Render two-to-four immediate arm headers as a local tributary fan; stack five or more as colored
-  elbows. Connectors are local decorative CSS or SVG and require no global geometry measurement.
+  elbows. Connectors are painted per event by `river.js` as one local decorative SVG layer measured
+  from that event's own laid-out boxes. Clipped rectangles cannot curve, taper, or flare, so the
+  flow geometry lives in that painter while CSS keeps every card, colour, and type decision. The
+  painter reads only the event it draws and needs no global node coordinates, canvas, pan, or zoom.
 - Place owned prose, nested choices, and cross-label route events in full-width colored route sections
   below the immediate headers rather than permanent narrow lanes.
 - Keep sections with at most two descendant items open; collapse longer sections behind a concise

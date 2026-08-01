@@ -10,9 +10,10 @@ Updated: 2026-08-01
 - Implementation roadmap: [`docs/milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md).
 - Active checkout: `codex/m15-phase06-story-river`, created from the completed Phase 05 reader at
   `46763c4` on 2026-07-31.
-- Status: Phase 05 is the accepted factual and language baseline. The mock-fidelity Story River
-  redesign is integrated and passes focused static checks. The focused 1920px/1280px browser proof
-  is ready for user review; whole-game work remains gated on visual acceptance.
+- Status: Phase 05 is the accepted factual and language baseline. The Story River flow is now
+  painted by `web/static/river.js` instead of drawn with CSS borders and `clip-path` polygons, and
+  passes focused static checks. The focused 1920px/1280px browser proof is ready for user review;
+  whole-game work remains gated on visual acceptance.
 - Native Codex goal: none.
 
 ## Current product decision
@@ -30,10 +31,19 @@ colored tributaries, compact event and route cards, a strong merge capsule, and 
 routes the dominant visual structure. The rejected screenshots under
 `output/m15-phase06-story-river-proof-20260731` are comparison evidence only.
 
-The replacement implementation is deliberately not called visually accepted yet. The focused proof
-now confirms the fitting-room Route B owns its cross-label event, nested routes B.1/B.2 retain their
-stream identity, rejoin and state-backlink navigation synchronize the panel, and neither required
-desktop width has horizontal page overflow. User review is still pending.
+That first correction was itself rejected on 2026-08-01: it drew its flow with rectangles, thick
+borders, and `clip-path` polygons, so the tributaries read as stiff straight bars rather than water.
+Flow is now painted. `web/static/river.js` measures each event's laid-out boxes and fills one SVG
+layer per event with the trunk, its mouth flare, curved tributaries, the confluence merge, tapered
+tails for routes that end, and the stream into an owned route. Long carries take an edge lane so a
+rejoin never crosses another route's opened story. CSS still owns every card, colour, and type
+decision; only geometry moved. There is still no canvas, pan, zoom, or global node coordinate.
+
+The implementation is deliberately not called visually accepted yet. The focused proof under
+`output/m15-phase06-story-river-proof-20260801` confirms the fitting-room Route B owns its
+cross-label event, nested routes B.1/B.2 retain their stream identity, rejoin and state-backlink
+navigation synchronize the panel, a seven-arm fork stacks onto a rail, both themes read, and neither
+required desktop width has horizontal page overflow. User review is still pending.
 
 The Phase 05 implementation beneath that presentation remains authoritative:
 

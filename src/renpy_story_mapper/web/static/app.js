@@ -1,5 +1,6 @@
 import { LocalApi } from "./api.js";
 import { STORY_WORKFLOW_CONTRACT } from "./contract.js";
+import { mountStoryRiver, repaintStoryRiver, unmountStoryRiver } from "./river.js";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -622,6 +623,7 @@ function toggleProgressiveStoryDetail(control) {
     control.setAttribute("aria-expanded", String(expand));
     if (slot) slot.hidden = !expand;
   });
+  repaintStoryRiver(control);
 }
 
 function appendProgressiveStoryDetail(host, item, control, { suppressOutcome = false } = {}) {
@@ -762,6 +764,7 @@ function focusStoryDescendantRoute(selectionId) {
     if (route.parentElement !== host) continue;
     route.open = route.dataset.ownerSelectionId === selectionId;
   }
+  repaintStoryRiver(host);
 }
 
 function revealProgressiveStoryNode(node) {
@@ -1707,7 +1710,8 @@ function renderStoryMapV2(page) {
   if (progressive) {
     updateStoryRoutePanel(null, page.sections[0]?.events[0] || null);
     updateStoryReadingPosition();
-  }
+    mountStoryRiver($("#storySections"));
+  } else unmountStoryRiver();
 }
 
 const STORY_CHAPTER_SPAN = 6;
