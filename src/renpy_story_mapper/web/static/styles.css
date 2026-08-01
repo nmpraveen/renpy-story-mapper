@@ -513,7 +513,6 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
 .story-browser.is-progressive-story .story-arm-head { position: relative; display: block; border: 1px solid color-mix(in srgb, var(--story-tributary) 42%, var(--rule)); border-left: 4px solid var(--story-tributary); background: color-mix(in srgb, var(--story-tributary-soft) 34%, var(--sheet)); transition: border-color 120ms ease, box-shadow 120ms ease; }
 .story-browser.is-progressive-story .story-arm-head:hover { border-color: color-mix(in srgb, var(--story-tributary) 66%, var(--rule-strong)); border-left-color: var(--story-tributary); box-shadow: 0 1px 0 var(--rule); }
 .story-browser.is-progressive-story .story-arm[data-outcome-kind="unresolved"] > .story-arm-head { border-style: dashed; }
-.story-browser.is-progressive-story .story-arm[data-outcome-kind="unresolved"]::before { background: repeating-linear-gradient(to bottom, var(--story-tributary) 0 4px, transparent 4px 7px); }
 .story-browser.is-progressive-story .story-arms.is-stacked > .story-arm[data-outcome-kind="unresolved"]::before { border-color: var(--story-tributary); border-style: dashed; background: none; }
 .story-browser.is-progressive-story .story-arm[data-story-current="true"] > .story-arm-head { border-color: var(--story-tributary); border-left-color: var(--story-tributary); box-shadow: 0 0 0 1px var(--story-tributary); }
 .story-browser.is-progressive-story .story-arm-select { display: grid; gap: .28rem; width: 100%; padding: .6rem .8rem .7rem; text-align: left; }
@@ -561,7 +560,6 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
 .story-browser.is-progressive-story .story-continuation-select strong { max-width: var(--story-measure); overflow-wrap: anywhere; color: color-mix(in srgb, var(--story-link) 74%, var(--ink)); font-size: 12.5px; font-weight: 400; letter-spacing: .01em; }
 .story-browser.is-progressive-story .story-continuation-select span { display: none; }
 .story-browser.is-progressive-story .story-continuation.is-confluence { margin-top: 1.8rem; border-top: 2px solid var(--story-link); background: color-mix(in srgb, var(--story-link-soft) 72%, var(--sheet)); }
-.story-browser.is-progressive-story .story-continuation.is-confluence::before { top: -1.45rem; left: 18%; width: 64%; height: 1.45rem; background: linear-gradient(to bottom right, transparent calc(50% - 1px), var(--story-link) 50%, transparent calc(50% + 1px)) left / 50% 100% no-repeat, linear-gradient(to bottom left, transparent calc(50% - 1px), var(--story-link) 50%, transparent calc(50% + 1px)) right / 50% 100% no-repeat; }
 .story-browser.is-progressive-story .story-continuation.is-confluence::after { content: ""; position: absolute; top: -1.45rem; left: 18%; width: 64%; height: 1px; background: color-mix(in srgb, var(--story-link) 68%, var(--story-line)); }
 .story-browser.is-progressive-story .story-continuation.is-route-return { margin-top: 1.25rem; border-color: color-mix(in srgb, var(--story-route-color) 48%, var(--rule)); border-left: 3px solid var(--story-route-color); background: color-mix(in srgb, var(--story-route-soft) 68%, var(--sheet)); }
 .story-browser.is-progressive-story .story-continuation.is-route-return::before { top: -1.25rem; left: 1rem; width: 1rem; height: 1.25rem; border-bottom: 2px solid var(--story-route-color); border-left: 2px solid var(--story-route-color); border-radius: 0 0 0 .45rem; background: none; }
@@ -678,7 +676,6 @@ dialog::backdrop { background: rgb(20 18 15 / 72%); }
   .story-browser.is-progressive-story .story-arms { grid-template-columns: minmax(0, 1fr); gap: .8rem; padding-top: var(--story-stem); padding-left: 2.1rem; }
   .story-browser.is-progressive-story .story-arms > .story-arm::before { top: 1.5rem; left: -2.1rem; width: 2.1rem; height: 1px; }
   .story-browser.is-progressive-story .story-arms > .story-arm:not(:last-child)::after { top: 1.5rem; left: -2.1rem; width: 1px; height: calc(100% + .8rem); }
-  .story-browser.is-progressive-story .story-arms:not(.is-stacked) > .story-arm[data-outcome-kind="unresolved"]::before { background: repeating-linear-gradient(to right, var(--story-tributary) 0 4px, transparent 4px 7px); }
   .story-browser.is-progressive-story .story-choice-control::after { left: 1.05rem; }
   .story-browser.is-progressive-story .story-choice { justify-items: stretch; }
   .story-browser.is-progressive-story .story-choice-control { width: auto; }
