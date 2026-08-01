@@ -11,9 +11,9 @@ Updated: 2026-08-01
 - Active checkout: `codex/m15-phase06-story-river`, created from the completed Phase 05 reader at
   `46763c4` on 2026-07-31.
 - Status: Phase 05 is the accepted factual and language baseline. The Story River flow is now
-  painted by `web/static/river.js` instead of drawn with CSS borders and `clip-path` polygons, and
-  passes focused static checks. The focused 1920px/1280px browser proof is ready for user review;
-  whole-game work remains gated on visual acceptance.
+  painted by `web/static/river.js` instead of drawn with CSS borders and `clip-path` polygons. The
+  user accepted that presentation on 2026-08-01, so the visual gate is closed; whole-game work is
+  unblocked but still needs its own go-ahead.
 - Native Codex goal: none.
 
 ## Current product decision
@@ -39,11 +39,11 @@ tails for routes that end, and the stream into an owned route. Long carries take
 rejoin never crosses another route's opened story. CSS still owns every card, colour, and type
 decision; only geometry moved. There is still no canvas, pan, zoom, or global node coordinate.
 
-The implementation is deliberately not called visually accepted yet. The focused proof under
-`output/m15-phase06-story-river-proof-20260801` confirms the fitting-room Route B owns its
-cross-label event, nested routes B.1/B.2 retain their stream identity, rejoin and state-backlink
-navigation synchronize the panel, a seven-arm fork stacks onto a rail, both themes read, and neither
-required desktop width has horizontal page overflow. User review is still pending.
+The focused proof under `output/m15-phase06-story-river-proof-20260801` confirms the fitting-room
+Route B owns its cross-label event, nested routes B.1/B.2 retain their stream identity, rejoin and
+state-backlink navigation synchronize the panel, a seven-arm fork stacks onto a rail, both themes
+read, and neither required desktop width has horizontal page overflow. The user reviewed that proof
+and accepted the presentation on 2026-08-01.
 
 The Phase 05 implementation beneath that presentation remains authoritative:
 

@@ -92,4 +92,6 @@ contract. The 2026-08-01 real-game browser proof confirms Route B ownership acro
 event, B.1/B.2 nesting, confluence and provenance navigation, panel synchronization, and zero
 horizontal page overflow at 1920px and 1280px, in light and dark themes. Evidence is under
 [`output/m15-phase06-story-river-proof-20260801`](../../../output/m15-phase06-story-river-proof-20260801).
-Visual acceptance remains pending until the user reviews that proof.
+
+The user accepted this presentation on 2026-08-01, which closes the visual gate that the two
+rejected attempts left open.
