@@ -357,20 +357,25 @@ function paintStack(canvas, arms, armEls, axis, enterY, width, slot) {
   return { y: foot, rail: { x: railX, width: railWidth, foot } };
 }
 
-/** Arms that neither end nor keep their own continuation are the ones that rejoin. */
-function mergingArms(choice, armEls) {
+/**
+ * Arms that rejoin *at this confluence*. A fork can carry more than one proven target, so an
+ * arm only merges into the confluence its own rejoin binding names; painting every
+ * non-terminal arm into the first confluence would assert a merge the story never proves.
+ */
+function mergingArms(choice, armEls, confluence) {
+  const target = confluence.dataset.storyConfluenceTargetSelectionId || null;
   return armEls.filter((arm) => {
     if (arm.querySelector(":scope > .story-continuation.is-route-return")) return false;
     if (ownedDescendant(choice, arm)) return false;
-    return !["ending", "unresolved"].includes(arm.dataset.outcomeKind || "");
+    if (["ending", "unresolved"].includes(arm.dataset.outcomeKind || "")) return false;
+    return (arm.dataset.storyRejoinTargetSelectionId || null) === target;
   });
 }
 
-function paintMerge(canvas, choice, armEls, confluence, width) {
+function paintMerge(canvas, choice, merging, confluence, width) {
   const unit = canvas.unit;
   const tuck = TUCK_REM * unit;
   const target = canvas.rect(confluence);
-  const merging = mergingArms(choice, armEls);
   const mouth = mouthWidth(width, Math.max(1, merging.length));
   const lane = mouth / Math.max(1, merging.length);
   merging.forEach((arm, index) => {
@@ -395,8 +400,7 @@ function paintMerge(canvas, choice, armEls, confluence, width) {
  * rejoin to the confluence. Drawing a return elbow per arm would comb the margin with
  * near-identical strokes and say nothing the rail does not already say.
  */
-function paintRailMerge(canvas, choice, armEls, confluence, rail, width, slot) {
-  const merging = mergingArms(choice, armEls);
+function paintRailMerge(canvas, merging, confluence, rail, width, slot) {
   if (!merging.length) return 0;
   const target = canvas.rect(confluence);
   canvas.stream(
@@ -410,7 +414,7 @@ function paintRailMerge(canvas, choice, armEls, confluence, rail, width, slot) {
 }
 
 /** Arms that end, stay unresolved, or keep their own identity run out instead of merging. */
-function paintOpenTails(canvas, choice, armEls, confluence, rail) {
+function paintOpenTails(canvas, choice, armEls, merged, rail) {
   const unit = canvas.unit;
   for (const arm of armEls) {
     const head = arm.querySelector(":scope > .story-arm-head");
@@ -445,7 +449,7 @@ function paintOpenTails(canvas, choice, armEls, confluence, rail) {
       );
       continue;
     }
-    if (confluence && !["ending", "unresolved"].includes(arm.dataset.outcomeKind || "")) continue;
+    if (merged.has(arm)) continue;
     const spent = arm.dataset.outcomeKind === "ending" ? 0.7 : 0.45;
     canvas.band(
       tail(box.centre, foot, foot + TAIL_REM * unit, unit * ROUTE_TRUNK_REM),
@@ -482,18 +486,20 @@ function paintChoice(canvas, choice, enterY, width, slot) {
     : paintFan(canvas, choice, armEls, axis, y, width, slot);
   y = fork.y;
 
-  const confluence = choice.querySelector(":scope > .story-continuation.is-confluence");
-  if (confluence) {
-    const merged = fork.rail
-      ? paintRailMerge(canvas, choice, armEls, confluence, fork.rail, width, slot)
-      : paintMerge(canvas, choice, armEls, confluence, width);
-    paintOpenTails(canvas, choice, armEls, confluence, fork.rail);
+  // A fork can prove several different merges. Each confluence takes only the arms whose own
+  // rejoin binding names it, and anything left over runs out as a tail.
+  const merged = new Set();
+  for (const confluence of choice.querySelectorAll(":scope > .story-continuation.is-confluence")) {
+    const merging = mergingArms(choice, armEls, confluence);
+    for (const arm of merging) merged.add(arm);
+    const count = fork.rail
+      ? paintRailMerge(canvas, merging, confluence, fork.rail, width, slot)
+      : paintMerge(canvas, choice, merging, confluence, width);
     const box = canvas.rect(confluence);
-    if (merged) canvas.band(trunk(axis, box.bottom, box.bottom + unit * 3.4, width, { mouth: mouthWidth(width, merged), flareUp: true }), { slot });
+    if (count) canvas.band(trunk(axis, box.bottom, box.bottom + unit * 3.4, width, { mouth: mouthWidth(width, count), flareUp: true }), { slot });
     y = Math.max(y, box.bottom);
-  } else {
-    paintOpenTails(canvas, choice, armEls, null, fork.rail);
   }
+  paintOpenTails(canvas, choice, armEls, merged, fork.rail);
 
   for (const descendant of choice.querySelectorAll(":scope > .story-descendants > .story-descendant-route")) {
     paintDescendant(canvas, descendant);
