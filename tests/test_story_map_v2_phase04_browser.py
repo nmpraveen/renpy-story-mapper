@@ -1211,7 +1211,7 @@ def test_reader_v2_real_browser_lazy_reader_and_restoration(
             session.evaluate("document.activeElement.click()")
             session.wait("!document.querySelector('#storyPathPanel').hidden && document.querySelector('#storyPathSteps').children.length === 2")
             assert "Path" in session.evaluate("document.querySelector('#storyPathTitle').textContent") or session.evaluate("document.querySelector('#storyPathTitle').textContent") == "Take Route A"
-            entry_scroll = session.evaluate("const browser=document.querySelector('#storyBrowser'); browser.style.height='120px'; browser.style.overflow='auto'; browser.scrollTop=80; document.querySelector('[data-story-selection-id=\"arm:a\"][aria-selected=\"true\"]').focus(); browser.scrollTop")
+            entry_scroll = session.evaluate("const browser=document.querySelector('#storyBrowser'); browser.style.height='120px'; browser.style.overflow='auto'; browser.scrollTop=80; document.querySelector('[data-story-selection-id=\"arm:a\"][data-story-current=\"true\"][aria-current=\"location\"]').focus(); browser.scrollTop")
             session.evaluate("document.querySelector('#storyDetailAction').click()")
             session.wait("!document.querySelector('#detailView').hidden && document.querySelector('#evidenceList').textContent.includes('game/story.rpy')")
             session.evaluate("document.querySelector('#backToRouteMap').click()")
@@ -1220,11 +1220,11 @@ def test_reader_v2_real_browser_lazy_reader_and_restoration(
 
             saved_before = session.evaluate("document.querySelector('#storyBrowser').dataset.viewStateSaved || ''")
             content_requests_before = len(_ReaderHandler.requests)
-            session.evaluate("document.querySelector('.story-branch-page [data-reader-item-id]').dataset.preserveMarker='hydrated'; document.querySelector('[data-story-selection-id=\"arm:a\"][aria-selected=\"true\"]').focus()")
+            session.evaluate("document.querySelector('.story-branch-page [data-reader-item-id]').dataset.preserveMarker='hydrated'; document.querySelector('[data-story-selection-id=\"arm:a\"][data-story-current=\"true\"][aria-current=\"location\"]').focus()")
             session.evaluate("document.querySelector('#storyHideNew').click()")
             session.wait("document.querySelector('#storyBrowser').classList.contains('hide-new')")
             session.wait(f"document.querySelector('#storyBrowser').dataset.viewStateSaved?.startsWith('7:') && document.querySelector('#storyBrowser').dataset.viewStateSaved !== {json.dumps(saved_before)}")
-            preserved = session.evaluate("({marker:document.querySelector('.story-branch-page [data-reader-item-id]')?.dataset.preserveMarker || null,selected:document.querySelector('[data-story-selection-id=\"arm:a\"][aria-selected=\"true\"]')?.dataset.storySelectionId || null,focused:document.activeElement?.dataset?.storySelectionId || null,scroll:document.querySelector('#storyBrowser').scrollTop})")
+            preserved = session.evaluate("({marker:document.querySelector('.story-branch-page [data-reader-item-id]')?.dataset.preserveMarker || null,selected:document.querySelector('[data-story-selection-id=\"arm:a\"][data-story-current=\"true\"][aria-current=\"location\"]')?.dataset.storySelectionId || null,focused:document.activeElement?.dataset?.storySelectionId || null,scroll:document.querySelector('#storyBrowser').scrollTop})")
             assert preserved == {"marker": "hydrated", "selected": "arm:a", "focused": "arm:a", "scroll": entry_scroll}
             new_requests = _ReaderHandler.requests[content_requests_before:]
             assert [request[0] for request in new_requests] == [_ReaderHandler.fixture["routes"]["save_view_state"]]
@@ -1248,7 +1248,7 @@ def test_reader_v2_real_browser_lazy_reader_and_restoration(
             assert reopen["visible"] and reopen["checked"], {"browser": reopen, "view_state": _ReaderHandler.view_state, "requests": _ReaderHandler.requests[-12:]}
             assert reopen["active"] == "event:page-two"
             assert not [request for request in _ReaderHandler.requests if "/workflow/" in request[0]]
-            restored = session.evaluate("({selected:document.querySelector('[data-story-selection-id=\"event:page-two\"][aria-selected=\"true\"]')?.dataset.storySelectionId || null,live:Number(document.querySelector('#storyBrowser').dataset.liveStoryItems),overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth,remote:[...performance.getEntriesByType('resource')].map(x=>x.name).filter(x=>!x.startsWith(location.origin))})")
+            restored = session.evaluate("({selected:document.querySelector('[data-story-selection-id=\"event:page-two\"][data-story-current=\"true\"][aria-current=\"location\"]')?.dataset.storySelectionId || null,live:Number(document.querySelector('#storyBrowser').dataset.liveStoryItems),overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth,remote:[...performance.getEntriesByType('resource')].map(x=>x.name).filter(x=>!x.startsWith(location.origin))})")
             assert restored["selected"] == "event:page-two"
             assert restored["live"] <= 600
             assert restored["overflow"] == 0
