@@ -186,6 +186,7 @@ def test_story_route_context_executes_root_nested_palette_and_outcome_contract()
 
 def test_story_river_renderer_propagates_routes_and_preserves_fork_contract() -> None:
     app = _text("app.js")
+    river = _text("river.js")
     threshold_match = re.search(r"const STORY_STACK_THRESHOLD = (\d+);", app)
     assert threshold_match
     threshold = int(threshold_match.group(1))
@@ -204,6 +205,7 @@ def test_story_river_renderer_propagates_routes_and_preserves_fork_contract() ->
     continuations = _function(app, "appendStoryContinuations")
     targets = _function(app, "appendStoryTargets")
     detail = _function(app, "appendProgressiveStoryDetail")
+    painter = _function(river, "paintChoice")
 
     assert "node.dataset.storyRouteSelectionId = context.selectionId" in apply_context
     assert "node.dataset.storyRouteCode = context.code" in apply_context
@@ -239,6 +241,24 @@ def test_story_river_renderer_propagates_routes_and_preserves_fork_contract() ->
     assert "appendStoryTargets(armArticle, arm, { suppressRejoin:" in choice
     assert "suppressOutcome" in detail and "storyTextWithoutOutcome(storyDetailSummary(item), item)" in detail
     assert "suppressOutcome: Boolean(arm.rejoin_binding)" in choice
+    # A shared stacked rail is valid only when every arm reaches the same target.  Multiple
+    # targets must fall back to arm-specific streams so the painter preserves that distinction.
+    assert "const confluenceTargetCount = new Set(" in painter
+    assert "const useSharedRail = Boolean(fork.rail) && confluenceTargetCount <= 1" in painter
+    assert ": paintMerge(canvas, choice, merging, confluence, width);" in painter
+
+
+def test_story_workflow_chrome_restores_an_actionable_stable_reader_run() -> None:
+    app = _text("app.js")
+    status = _function(app, "storyWorkflowChromeForStatus")
+    mode = _function(app, "storyWorkflowChromeForMode")
+
+    assert "const actions = readerStatus ? (status.actions || {}) : status" in status
+    assert '"running", "starting", "cancelling", "queued", "building"' in status
+    assert "progress: actionableRun" in status
+    assert "cancel," in status and "resume," in status and "retry," in status
+    assert "state.storyWorkflow.response?.status" in mode
+    assert "storyWorkflowChromeForStatus(state.storyReader.status, true)" in mode
 
 
 def test_story_route_panel_markup_links_and_all_sync_paths_are_explicit() -> None:

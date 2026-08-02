@@ -396,9 +396,9 @@ function paintMerge(canvas, choice, merging, confluence, width) {
 }
 
 /**
- * A stacked fork already has a rail running past every arm, so the rail itself carries the
- * rejoin to the confluence. Drawing a return elbow per arm would comb the margin with
- * near-identical strokes and say nothing the rail does not already say.
+ * A stacked fork with one target already has a rail running past every arm, so the rail itself
+ * carries the rejoin to the confluence. When targets differ, `paintChoice` deliberately uses
+ * per-arm streams instead: one shared rail cannot say which stacked arms belong to which target.
  */
 function paintRailMerge(canvas, merging, confluence, rail, width, slot) {
   if (!merging.length) return 0;
@@ -489,10 +489,15 @@ function paintChoice(canvas, choice, enterY, width, slot) {
   // A fork can prove several different merges. Each confluence takes only the arms whose own
   // rejoin binding names it, and anything left over runs out as a tail.
   const merged = new Set();
-  for (const confluence of choice.querySelectorAll(":scope > .story-continuation.is-confluence")) {
+  const confluences = [...choice.querySelectorAll(":scope > .story-continuation.is-confluence")];
+  const confluenceTargetCount = new Set(
+    confluences.map((confluence) => confluence.dataset.storyConfluenceTargetSelectionId || null),
+  ).size;
+  const useSharedRail = Boolean(fork.rail) && confluenceTargetCount <= 1;
+  for (const confluence of confluences) {
     const merging = mergingArms(choice, armEls, confluence);
     for (const arm of merging) merged.add(arm);
-    const count = fork.rail
+    const count = useSharedRail
       ? paintRailMerge(canvas, merging, confluence, fork.rail, width, slot)
       : paintMerge(canvas, choice, merging, confluence, width);
     const box = canvas.rect(confluence);

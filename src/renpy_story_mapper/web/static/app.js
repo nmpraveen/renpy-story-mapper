@@ -52,9 +52,30 @@ function showPrimary(name) {
 }
 
 /** The stable reader owns prepare/generate; the progressive river has no run chrome. */
+function storyWorkflowChromeForStatus(status, readerStatus = false) {
+  if (!status) return { prepare: Boolean(api.storyWorkflowRoutes) };
+  const actions = readerStatus ? (status.actions || {}) : status;
+  const active = readerStatus && (
+    Boolean(status.active_build_generation)
+    || ["running", "starting", "cancelling", "queued", "building"].includes(status.state)
+  );
+  const cancel = Boolean(actions.can_cancel);
+  const resume = Boolean(actions.can_resume);
+  const retry = Boolean(actions.retry_approval_required);
+  const actionableRun = active || cancel || resume || retry;
+  return {
+    prepare: !actionableRun && Boolean(api.storyWorkflowRoutes),
+    progress: actionableRun,
+    cancel,
+    resume,
+    retry,
+  };
+}
+
 function storyWorkflowChromeForMode() {
   if (progressiveStoryActive()) return {};
-  return { prepare: Boolean(api.storyWorkflowRoutes) };
+  if (state.storyWorkflow.response?.status) return storyWorkflowChromeForStatus(state.storyWorkflow.response.status);
+  return storyWorkflowChromeForStatus(state.storyReader.status, true);
 }
 
 function setStoryWorkflowChrome({ prepare = false, progress = false, cancel = false, resume = false, retry = false } = {}) {
@@ -113,6 +134,7 @@ async function choose(kind) {
 async function openSelection(selection, notify = false) {
   try {
     state.storyWorkflow.pollToken += 1; state.storyWorkflow.response = null; state.storyWorkflow.busy = false;
+    state.storyReader.status = null;
     const opened = await api.open(selection.selection_id || selection.id);
     state.project = opened.project || { name: selection.display_name || "Story", organization: "Technical Structure" };
     if (state.project.name === "Opening") state.project.name = selection.display_name || "Story";
