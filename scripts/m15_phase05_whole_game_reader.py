@@ -22,6 +22,8 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--skeleton", type=Path, required=True)
     parser.add_argument("--corridors", type=Path, required=True)
     parser.add_argument("--summaries", type=Path, required=True)
+    parser.add_argument("--name-overrides", type=Path)
+    parser.add_argument("--story-names-only", action="store_true")
     parser.add_argument("--output-dir", type=Path, required=True)
     return parser.parse_args()
 
@@ -63,6 +65,25 @@ def _file_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _name_inventory_payload(items: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        "schema": "story-map-v2-name-inventory-v1",
+        "uncovered_count": len(items),
+        "items": items,
+    }
+
+
+def _first_ten_name_packet(items: list[dict[str, object]]) -> dict[str, object]:
+    canary = items[:10]
+    return {
+        "schema": "story-map-v2-name-canary-v1",
+        "uncovered_count": len(items),
+        "canary_count": len(canary),
+        "wording_only": True,
+        "items": canary,
+    }
+
+
 def _reader_counts(
     page: Mapping[str, object],
     graph: Mapping[str, object],
@@ -77,6 +98,7 @@ def _reader_counts(
     route_arms = 0
     nested_controls = 0
     maximum_depth = 0
+    label_events = 0
     outcomes = {"continues": 0, "rejoins": 0, "ends": 0, "unresolved": 0}
 
     def visit_choice(choice: Mapping[str, object], depth: int = 0) -> None:
@@ -107,16 +129,21 @@ def _reader_counts(
                 if not isinstance(raw_choice, dict):
                     raise ValueError("nested reader choice must be an object")
                 visit_choice(raw_choice, depth + 1)
+            route_flow = raw_arm.get("route_flow", [])
+            if not isinstance(route_flow, list):
+                raise ValueError("reader arm route flow must be an array")
+            for raw_item in route_flow:
+                if not isinstance(raw_item, dict):
+                    raise ValueError("reader route-flow item must be an object")
+                if raw_item.get("kind") == "event":
+                    raw_event = raw_item.get("event")
+                    if not isinstance(raw_event, dict):
+                        raise ValueError("reader route-flow event must be an object")
+                    visit_event(raw_event)
 
-    sections = page.get("sections")
-    if not isinstance(sections, list):
-        raise ValueError("reader page has no sections")
-    events: list[Mapping[str, object]] = []
-    for raw_section in sections:
-        if not isinstance(raw_section, dict) or not isinstance(raw_section.get("events"), list):
-            raise ValueError("reader section has no events")
-        events.extend(cast(list[Mapping[str, object]], raw_section["events"]))
-    for event in events:
+    def visit_event(event: Mapping[str, object]) -> None:
+        nonlocal label_events
+        label_events += 1
         raw_choices = event.get("choices")
         if not isinstance(raw_choices, list):
             raise ValueError("reader event has no choices")
@@ -124,6 +151,17 @@ def _reader_counts(
             if not isinstance(raw_choice, dict):
                 raise ValueError("reader choice must be an object")
             visit_choice(raw_choice)
+
+    sections = page.get("sections")
+    if not isinstance(sections, list):
+        raise ValueError("reader page has no sections")
+    root_events: list[Mapping[str, object]] = []
+    for raw_section in sections:
+        if not isinstance(raw_section, dict) or not isinstance(raw_section.get("events"), list):
+            raise ValueError("reader section has no events")
+        root_events.extend(cast(list[Mapping[str, object]], raw_section["events"]))
+    for event in root_events:
+        visit_event(event)
 
     raw_results = summaries.get("results")
     raw_excluded = summaries.get("reader_excluded")
@@ -192,7 +230,7 @@ def _reader_counts(
     if not isinstance(reachable_labels, int):
         raise ValueError("whole-game skeleton reachable label count is invalid")
     return {
-        "label_events": len(events),
+        "label_events": label_events,
         "reachable_labels": reachable_labels,
         "controls": len(controls_by_id),
         "menu_controls": structural_menus,
@@ -230,6 +268,9 @@ def main() -> int:
         args.corridors.resolve(),
         args.summaries.resolve(),
     ]
+    name_override_path = args.name_overrides.resolve() if args.name_overrides else None
+    if name_override_path is not None:
+        inputs.append(name_override_path)
     for path in inputs:
         if not path.is_file():
             raise FileNotFoundError(path)
@@ -249,6 +290,7 @@ def main() -> int:
     skeleton = _json(inputs[1])
     corridors = _json(inputs[2])
     summaries = _json(inputs[3])
+    name_overrides = _json(name_override_path) if name_override_path is not None else None
     bindings = corridors.get("authority_bindings")
     if isinstance(bindings, dict):
         expected = {
@@ -259,37 +301,51 @@ def main() -> int:
             if bindings.get(key) != digest:
                 raise ValueError(f"corridor authority binding mismatch for {key}")
 
+    name_inventory: list[dict[str, object]] = []
     page = build_whole_game_reader_page(
         graph,
         control_flow,
         skeleton,
         corridors,
         summaries,
+        name_overrides=name_overrides,
+        name_inventory=name_inventory,
     )
-    _write(page_path, page)
-    shutil.copy2(source_project, project_path)
-    with Project.open(project_path) as project:
-        project.write_payloads(
-            [
-                PayloadRecord(
-                    "story_map_v2",
-                    PHASE05_PROGRESSIVE_KEY,
-                    page,
-                )
-            ]
-        )
+    inventory_path = output_dir / "story-name-inventory.json"
+    canary_path = output_dir / "story-name-first-10.json"
+    _write(inventory_path, _name_inventory_payload(name_inventory))
+    _write(canary_path, _first_ten_name_packet(name_inventory))
+    if not args.story_names_only:
+        _write(page_path, page)
+        shutil.copy2(source_project, project_path)
+        with Project.open(project_path) as project:
+            project.write_payloads(
+                [
+                    PayloadRecord(
+                        "story_map_v2",
+                        PHASE05_PROGRESSIVE_KEY,
+                        page,
+                    )
+                ]
+            )
     source_hash_after = _file_hash(source_project)
     if source_hash_after != source_hash_before:
         raise RuntimeError("the read-only source project changed during reader assembly")
 
     report = {
         "source_project": str(source_project),
-        "project_copy": str(project_path),
-        "page": str(page_path),
+        "story_name_inventory": str(inventory_path),
+        "story_name_first_10": str(canary_path),
+        "uncovered_story_names": len(name_inventory),
+        "accepted_story_name_overrides": (
+            len(name_overrides.get("names", name_overrides)) if name_overrides else 0
+        ),
         "counts": _reader_counts(page, graph, control_flow, skeleton, corridors, summaries),
         "source_project_sha256": source_hash_after,
         "source_project_unchanged": source_hash_after == source_hash_before,
     }
+    if not args.story_names_only:
+        report.update({"project_copy": str(project_path), "page": str(page_path)})
     _write(output_dir / "reader-assembly-report.json", report)
     print(json.dumps(report, sort_keys=True))
     return 0

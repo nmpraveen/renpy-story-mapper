@@ -65,6 +65,7 @@ def test_wheel_source_inventory_contains_browser_assets_and_no_legacy_ui() -> No
         "app.js",
         "contract.js",
         "index.html",
+        "river.js",
         "story-map-v2-diff.js",
         "styles.css",
     }

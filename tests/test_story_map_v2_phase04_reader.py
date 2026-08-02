@@ -1354,7 +1354,15 @@ def test_old_cursor_is_stale_across_authority_change_but_tampering_is_invalid(
                 cursor=cursor,
             )
         assert stale.value.current_revision == 2
-        tampered = cursor[:-1] + ("A" if cursor[-1] != "A" else "B")
+        # Tamper the first signature character, not the last. The digest is 32 bytes, so
+        # the final base64 character carries only four significant bits and a substitution
+        # there can decode to the same signature; the HMAC then passes and the stale
+        # revision is reported instead of the tampering. The first character always
+        # changes the decoded bytes.
+        payload_part, signature_part = cursor.split(".", 1)
+        tampered = (
+            f"{payload_part}.{'A' if signature_part[0] != 'A' else 'B'}{signature_part[1:]}"
+        )
         with pytest.raises(InvalidStoryMapCursorError):
             revised.section_page(
                 map_revision=2,

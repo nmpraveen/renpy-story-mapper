@@ -2638,13 +2638,21 @@ class ProjectApi:
 
     def _recent_projects(self) -> list[JsonValue]:
         result: list[JsonValue] = []
-        for path in self._state_store.recent_projects():
+        for path, last_opened in self._state_store.recent_project_entries():
             selection = self._selections.add("project_open", path)
+            source_basename: str | None = None
+            with suppress(Exception), Project.open(path, migrate=False) as project:
+                metadata = project.metadata()
+                raw_source = metadata.get("source_path", metadata.get("source_root"))
+                if isinstance(raw_source, str):
+                    source_basename = Path(raw_source).name or None
             result.append(
                 {
                     "selection_id": selection.id,
                     "name": path.stem,
                     "source_type": "Project",
+                    "source_basename": source_basename,
+                    "last_opened": last_opened,
                     "organization": "Saved project",
                     "deterministic": True,
                 }

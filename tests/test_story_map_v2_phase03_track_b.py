@@ -368,6 +368,91 @@ def test_story_map_contract_accepts_nested_local_choices_and_rejects_duplicate_t
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required")
+def test_story_map_contract_accepts_arm_owned_events_and_stable_route_references() -> None:
+    module_uri = (STATIC / "contract.js").as_uri()
+    page = _story_page()
+    departure, shelter = page["sections"][0]["events"]
+    page["sections"][0]["events"] = [departure]
+    bridge, tunnel = departure["choices"][0]["arms"]
+    bridge["destination_target_selection_id"] = shelter["selection_id"]
+    tunnel["rejoin_target_selection_id"] = tunnel["rejoin_binding"]["selection_id"]
+    bridge["state_provenance"] = [
+        {
+            "variable": "trust",
+            "relationship_strength": "exact",
+            "target_selection_id": departure["selection_id"],
+            "target_title": departure["title"],
+            "source": {
+                "relative_path": "game/story.rpy",
+                "start_line": 3,
+                "end_line": 3,
+            },
+        }
+    ]
+    bridge["route_flow"] = [
+        {
+            "kind": "event",
+            "transfer_kind": "call",
+            "entry_kind": "unique",
+            "event": shelter,
+        }
+    ]
+    tunnel["route_flow"] = [
+        {
+            "kind": "reference",
+            "transfer_kind": "jump",
+            "entry_kind": "loop",
+            "target_selection_id": "event-departure",
+            "title": "Departure",
+        }
+    ]
+    script = f"""
+      import {{ assertStoryMapV2 }} from {json.dumps(module_uri)};
+      const valid = {json.dumps(page)};
+      const accepted = assertStoryMapV2(valid);
+      const missing = structuredClone(valid);
+      missing.sections[0].events[0].choices[0].arms[1].route_flow[0].target_selection_id = "missing-event";
+      let missingRejected = false;
+      try {{ assertStoryMapV2(missing); }} catch (_error) {{ missingRejected = true; }}
+      const duplicate = structuredClone(valid);
+      duplicate.sections[0].events.push(structuredClone(duplicate.sections[0].events[0].choices[0].arms[0].route_flow[0].event));
+      let duplicateRejected = false;
+      try {{ assertStoryMapV2(duplicate); }} catch (_error) {{ duplicateRejected = true; }}
+      const missingProvenance = structuredClone(valid);
+      missingProvenance.sections[0].events[0].choices[0].arms[0].state_provenance[0].target_selection_id = "missing-provenance";
+      let missingProvenanceRejected = false;
+      try {{ assertStoryMapV2(missingProvenance); }} catch (_error) {{ missingProvenanceRejected = true; }}
+      process.stdout.write(JSON.stringify({{
+        nested: accepted.sections[0].events[0].choices[0].arms[0].route_flow[0].event.selection_id,
+        reference: accepted.sections[0].events[0].choices[0].arms[1].route_flow[0].target_selection_id,
+        destination: accepted.sections[0].events[0].choices[0].arms[0].destination_target_selection_id,
+        rejoin: accepted.sections[0].events[0].choices[0].arms[1].rejoin_target_selection_id,
+        provenance: accepted.sections[0].events[0].choices[0].arms[0].state_provenance[0].target_selection_id,
+        missingRejected,
+        missingProvenanceRejected,
+        duplicateRejected,
+      }}));
+    """
+    completed = subprocess.run(
+        [shutil.which("node") or "node", "--input-type=module", "--eval", script],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        encoding="utf-8",
+    )
+    assert json.loads(completed.stdout) == {
+        "nested": "event-shelter",
+        "reference": "event-departure",
+        "destination": "event-shelter",
+        "rejoin": tunnel["rejoin_binding"]["selection_id"],
+        "provenance": "event-departure",
+        "missingRejected": True,
+        "missingProvenanceRejected": True,
+        "duplicateRejected": True,
+    }
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required")
 def test_story_map_contract_accepts_only_known_optional_semantic_roles() -> None:
     module_uri = (STATIC / "contract.js").as_uri()
     page = _story_page()
@@ -680,11 +765,28 @@ def test_phase05_progressive_page_precedes_reader_and_shows_human_targets() -> N
     assert 'element("div", "story-inline-detail")' in app
     assert 'element("details", "story-technical-disclosure")' in app
     assert '"Source / Evidence"' in app
+    assert 'element("div", "story-provenance")' in app
+    assert '"Set earlier by"' in app
+    assert '"Can be set earlier by"' in app
+    assert '"Unresolved earlier state"' in app
+    assert "navigateProgressiveStorySelection" in app
     assert ".story-targets" in css
+    assert ".story-provenance" in css
+    assert "data-story-navigation-highlight" in css
     assert ".story-browser.is-progressive-story .story-arms" in css
     assert ".story-browser.is-progressive-story .story-arm::before" in css
     assert ".story-inline-summary" in css
     assert ".story-reader-shell {" in css and "display: grid" in css
+    choice_renderer = app[app.index("function renderStoryChoice") : app.index("function renderStoryEvent")]
+    assert 'element("div", "story-route-detail-slot")' in choice_renderer
+    assert choice_renderer.index("article.append(arms)") < choice_renderer.index(
+        "article.append(detailSlot)"
+    ) < choice_renderer.index("article.append(descendants)")
+    assert ".story-descendant-route:not([open]) > .story-choice-sequence" in css
+    assert ".story-descendant-route:not([open]) > .story-continuation" in css
+    assert ".story-route-detail-slot > .story-inline-detail" in css
+    assert "--story-measure: 68ch" in css
+    assert "aria-selected" not in css
 
 
 def test_story_selection_path_detail_and_scroll_context_are_explicit() -> None:
@@ -701,7 +803,9 @@ def test_story_selection_path_detail_and_scroll_context_are_explicit() -> None:
         'document.documentElement.dataset.activeLevel = "detail_evidence"',
     ):
         assert marker in app
-    assert 'aria-selected="true"' in app or 'setAttribute("aria-selected", "true")' in app
+    assert "aria-selected" not in app
+    assert 'setAttribute("aria-current", "location")' in app
+    assert 'button[data-story-selection-id="${CSS.escape(selectionId)}"]' in app
     assert ".innerHTML" not in app
 
 
@@ -973,7 +1077,13 @@ class _SyntheticStoryHandler(http.server.BaseHTTPRequestHandler):
     os.environ.get("RSM_RUN_BROWSER_ACCEPTANCE") != "1",
     reason="set RSM_RUN_BROWSER_ACCEPTANCE=1 for the provider-free real-browser smoke",
 )
-def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline() -> None:
+@pytest.mark.parametrize(
+    ("profile", "width", "height"),
+    (("desktop", 1920, 1080), ("narrow-desktop", 1280, 800)),
+)
+def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline(
+    profile: str, width: int, height: int
+) -> None:
     page = _story_page()
     page["status"] = "synthesized"
     page["analysis_notes"] = [
@@ -1013,12 +1123,12 @@ def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     origin = f"http://127.0.0.1:{server.server_port}/"
-    with tempfile.TemporaryDirectory(prefix="rsm-m15-p5-progressive-reader-") as temporary:
+    with tempfile.TemporaryDirectory(prefix=f"rsm-m15-p5-progressive-reader-{profile}-") as temporary:
         process, session = driver._session(driver._browser(), 100, Path(temporary))
         try:
             session.command(
                 "Emulation.setDeviceMetricsOverride",
-                {"width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": False},
+                {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": False},
             )
             session.command("Page.navigate", {"url": origin})
             session.wait(
@@ -1028,26 +1138,33 @@ def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline
             session.wait(
                 "document.querySelector('#storyBrowser').classList.contains('is-progressive-story') && document.querySelectorAll('.story-arm').length === 6"
             )
+            session.evaluate("document.querySelector('.story-descendant-route').open=false")
             initial = session.evaluate(
                 """(() => {
-                  const arms = [...document.querySelector('.story-choice:not(.nested) > .story-arms').children];
+                  const choice = document.querySelector('.story-choice:not(.nested)');
+                  const armsHost = choice.querySelector(':scope > .story-arms');
+                  const arms = [...armsHost.children];
                   const rects = arms.map(node => node.getBoundingClientRect());
                   const selected = document.querySelector('.story-arm-select[data-story-selection-id="arm-bridge"]');
                   const owner = selected.closest('.story-arm');
-                  const inline = owner.querySelector(':scope > .story-inline-detail');
+                  const slot = choice.querySelector(':scope > .story-route-detail-slot');
+                  const inline = slot.querySelector('[data-owner-selection-id="arm-bridge"]');
                   const technical = inline.querySelector('.story-technical-disclosure');
+                  const route = choice.querySelector(':scope > .story-descendants > .story-descendant-route');
+                  const sequence = route.querySelector(':scope > .story-choice-sequence');
                   return {
                     outline:selected.querySelector('span:not(.story-arm-kind)').textContent,
                     expanded:selected.getAttribute('aria-expanded'),
                     inlineHidden:inline.hidden,
+                    slotHidden:slot.hidden,
                     technicalOpen:technical.open,
                     technicalVisible:technical.checkVisibility(),
                     pathHidden:document.querySelector('#storyPathPanel').hidden,
                     columns:rects.length === 2 && Math.abs(rects[0].top - rects[1].top) <= 1 && rects[1].left > rects[0].left,
-                    destinations:[...owner.querySelectorAll('.story-target')].map(node => node.textContent),
+                    destinations:[...owner.querySelectorAll('.story-target-text')].map(node => node.textContent),
                     nestedOwner:document.querySelector('.story-choice.nested')?.closest('.story-descendant-route')?.dataset.ownerSelectionId,
                     sequenceLength:document.querySelector('.story-choice-sequence')?.dataset.sequenceLength,
-                    sequenceVertical:(() => { const nodes=[...document.querySelectorAll('.story-choice-sequence > .story-choice')]; const boxes=nodes.map(node => node.getBoundingClientRect()); return nodes.length === 2 && boxes[1].top >= boxes[0].bottom - 1; })(),
+                    closedSequence:{visible:sequence.checkVisibility(),height:sequence.getBoundingClientRect().height},
                     descendantFullWidth:document.querySelector('.story-descendant-route').getBoundingClientRect().width >= document.querySelector('.story-choice:not(.nested)').getBoundingClientRect().width - 2,
                     choiceKind:document.querySelector('.story-choice:not(.nested)').dataset.choiceKind,
                     outcomeKind:owner.dataset.outcomeKind,
@@ -1055,8 +1172,9 @@ def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline
                     neutralFallback:document.querySelector('.story-choice.nested').dataset.choiceKind === 'neutral',
                     legend:[...document.querySelectorAll('.story-tree-key-item')].map(node => node.textContent),
                     endingRole:document.querySelector('[data-story-selection-id="arm-nested-b"] .story-arm-kind').textContent,
-                    endingTarget:document.querySelector('[data-story-selection-id="arm-nested-b"] .story-target').textContent,
+                    endingTarget:document.querySelector('[data-story-selection-id="arm-nested-b"] .story-target-text').textContent,
                     continuationKind:document.querySelector('.story-continuation')?.dataset.outcomeKind,
+                    ordinaryAriaSelected:document.querySelectorAll('button[aria-selected]').length,
                     overflow:document.documentElement.scrollWidth - document.documentElement.clientWidth,
                   };
                 })()"""
@@ -1065,39 +1183,63 @@ def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline
                 "outline": "Wanda refuses Terrance's proposal.",
                 "expanded": "false",
                 "inlineHidden": True,
+                "slotHidden": True,
                 "technicalOpen": False,
                 "technicalVisible": False,
                 "pathHidden": True,
                 "columns": True,
                 "destinations": [
-                    "Goes to Storage-room continuation",
                     "Rejoins at Lois continuation",
                 ],
                 "nestedOwner": "arm-tunnel",
                 "sequenceLength": "2",
-                "sequenceVertical": True,
+                "closedSequence": {"visible": False, "height": 0},
                 "descendantFullWidth": True,
                 "choiceKind": "decision",
                 "outcomeKind": "rejoin",
-                "armRole": "Rejoin route",
+                "armRole": "Player picks",
                 "neutralFallback": True,
-                "legend": ["Decision", "Condition", "Continues", "Rejoin", "End"],
-                "endingRole": "End",
+                "legend": ["Player decides", "Game checks", "Continues", "Paths rejoin", "Ending"],
+                "endingRole": "Player picks",
                 "endingTarget": "Ends at Winter route ends",
                 "continuationKind": "rejoin",
+                "ordinaryAriaSelected": 0,
                 "overflow": 0,
             }
+
+            session.evaluate("document.querySelector('.story-descendant-owner').focus()")
+            enter_key = {
+                "windowsVirtualKeyCode": 13,
+                "nativeVirtualKeyCode": 13,
+                "key": "Enter",
+                "code": "Enter",
+            }
+            session.command("Input.dispatchKeyEvent", {"type": "rawKeyDown", **enter_key})
+            session.command("Input.dispatchKeyEvent", {"type": "keyUp", **enter_key})
+            session.wait("document.querySelector('.story-descendant-route').open")
+            opened_route = session.evaluate(
+                """(() => {
+                  const route=document.querySelector('.story-descendant-route');
+                  const sequence=route.querySelector(':scope > .story-choice-sequence');
+                  const nodes=[...sequence.querySelectorAll(':scope > .story-choice')];
+                  const boxes=nodes.map(node=>node.getBoundingClientRect());
+                  return {visible:sequence.checkVisibility(),vertical:nodes.length===2 && boxes[1].top>=boxes[0].bottom-1,focused:document.activeElement?.classList.contains('story-descendant-owner')};
+                })()"""
+            )
+            assert opened_route == {"visible": True, "vertical": True, "focused": True}
 
             session.evaluate(
                 'document.querySelector(\'.story-arm-select[data-story-selection-id="arm-bridge"]\').click()'
             )
             expanded = session.evaluate(
                 """(() => {
+                  const choice = document.querySelector('.story-choice:not(.nested)');
+                  const arms = choice.querySelector(':scope > .story-arms');
+                  const slot = choice.querySelector(':scope > .story-route-detail-slot');
                   const selected = document.querySelector('.story-arm-select[data-story-selection-id="arm-bridge"]');
-                  const owner = selected.closest('.story-arm');
-                  const inline = owner.querySelector(':scope > .story-inline-detail');
+                  const inline = slot.querySelector('[data-owner-selection-id="arm-bridge"]');
                   const technical = inline.querySelector('.story-technical-disclosure');
-                  const inlineRect = inline.getBoundingClientRect(); const controlRect = selected.getBoundingClientRect();
+                  const inlineRect = inline.getBoundingClientRect(); const armsRect = arms.getBoundingClientRect(); const slotRect = slot.getBoundingClientRect(); const proseRect = inline.querySelector('.story-prose').getBoundingClientRect();
                   return {
                     detail:inline.querySelector('.story-inline-summary').textContent,
                     expanded:selected.getAttribute('aria-expanded'),
@@ -1105,7 +1247,10 @@ def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline
                     technicalOpen:technical.open,
                     reachabilityVisible:inline.querySelector('.story-reachability').checkVisibility(),
                     pathHidden:document.querySelector('#storyPathPanel').hidden,
-                    fullWidth:inlineRect.width >= controlRect.width - 2,
+                    belowSiblingRow:slotRect.top >= Math.max(...[...arms.children].map(node=>node.getBoundingClientRect().bottom)) - 1,
+                    fullRouteWidth:inlineRect.width >= armsRect.width - 2,
+                    proseReadable:proseRect.width <= inlineRect.width && proseRect.width < 800,
+                    current:selected.getAttribute('aria-current'),
                   };
                 })()"""
             )
@@ -1121,16 +1266,52 @@ def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline
                 "technicalOpen": False,
                 "reachabilityVisible": False,
                 "pathHidden": True,
-                "fullWidth": True,
+                "belowSiblingRow": True,
+                "fullRouteWidth": True,
+                "proseReadable": True,
+                "current": "location",
             }
 
+            before_switch = session.evaluate(
+                "({scrollTop:document.querySelector('#storyBrowser').scrollTop,top:document.querySelector('.story-arm-select[data-story-selection-id=\"arm-tunnel\"]').getBoundingClientRect().top})"
+            )
+            session.evaluate("document.querySelector('.story-arm-select[data-story-selection-id=\"arm-tunnel\"]').click()")
+            switched = session.evaluate(
+                """(() => {
+                  const first=document.querySelector('.story-arm-select[data-story-selection-id="arm-bridge"]');
+                  const second=document.querySelector('.story-arm-select[data-story-selection-id="arm-tunnel"]');
+                  const slot=second.closest('.story-choice').querySelector(':scope > .story-route-detail-slot');
+                  return {first:first.getAttribute('aria-expanded'),second:second.getAttribute('aria-expanded'),owner:slot.querySelector('.story-inline-detail:not([hidden])')?.dataset.ownerSelectionId,scrollTop:document.querySelector('#storyBrowser').scrollTop,top:second.getBoundingClientRect().top};
+                })()"""
+            )
+            assert switched["first"] == "false"
+            assert switched["second"] == "true"
+            assert switched["owner"] == "arm-tunnel"
+            assert abs(switched["scrollTop"] - before_switch["scrollTop"]) <= 2
+            assert abs(switched["top"] - before_switch["top"]) <= 2
+            session.evaluate("document.querySelector('.story-arm-select[data-story-selection-id=\"arm-tunnel\"]').click()")
+            closed = session.evaluate(
+                "({expanded:document.querySelector('.story-arm-select[data-story-selection-id=\"arm-tunnel\"]').getAttribute('aria-expanded'),slotHidden:document.querySelector('.story-choice:not(.nested) > .story-route-detail-slot').hidden})"
+            )
+            assert closed == {"expanded": "false", "slotHidden": True}
+
+            session.evaluate("document.querySelector('.story-arm-select[data-story-selection-id=\"arm-nested-a\"]').click()")
+            nested_detail = session.evaluate(
+                """(() => {
+                  const control=document.querySelector('.story-arm-select[data-story-selection-id="arm-nested-a"]');
+                  const choice=control.closest('.story-choice'); const arms=choice.querySelector(':scope > .story-arms'); const slot=choice.querySelector(':scope > .story-route-detail-slot');
+                  return {expanded:control.getAttribute('aria-expanded'),owner:slot.querySelector('.story-inline-detail:not([hidden])')?.dataset.ownerSelectionId,below:slot.getBoundingClientRect().top>=arms.getBoundingClientRect().bottom-1,width:slot.getBoundingClientRect().width>=arms.getBoundingClientRect().width-2};
+                })()"""
+            )
+            assert nested_detail == {"expanded": "true", "owner": "arm-nested-a", "below": True, "width": True}
+
+            session.evaluate("document.querySelector('.story-arm-select[data-story-selection-id=\"arm-bridge\"]').click()")
             session.evaluate(
-                "document.querySelector('.story-arm-select[data-story-selection-id=\"arm-bridge\"]')"
-                ".closest('.story-arm').querySelector('.story-technical-disclosure').open=true"
+                "document.querySelector('.story-choice:not(.nested) > .story-route-detail-slot [data-owner-selection-id=\"arm-bridge\"] .story-technical-disclosure').open=true"
             )
             technical = session.evaluate(
                 """(() => {
-                  const detail = document.querySelector('.story-arm-select[data-story-selection-id="arm-bridge"]').closest('.story-arm').querySelector('.story-technical-disclosure');
+                  const detail = document.querySelector('.story-choice:not(.nested) > .story-route-detail-slot [data-owner-selection-id="arm-bridge"] .story-technical-disclosure');
                   return {reachability:detail.querySelector('.story-reachability').textContent.trim(),source:detail.querySelector('.story-detail-button').textContent,visible:detail.querySelector('.story-detail-button').checkVisibility()};
                 })()"""
             )
@@ -1139,6 +1320,116 @@ def test_phase05_progressive_reader_is_vertical_compact_and_expands_story_inline
                 "source": "Source / Evidence",
                 "visible": True,
             }
+            driver._browser_diagnostics(session)
+        finally:
+            session.close()
+            process.terminate()
+            process.wait(timeout=10)
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+
+@pytest.mark.hardware_sensitive
+@pytest.mark.skipif(
+    os.environ.get("RSM_RUN_BROWSER_ACCEPTANCE") != "1",
+    reason="set RSM_RUN_BROWSER_ACCEPTANCE=1 for the provider-free real-browser smoke",
+)
+def test_phase05_progressive_reader_recurses_into_arm_owned_route_events() -> None:
+    page = _story_page()
+    page["status"] = "synthesized"
+    page["analysis_notes"] = [
+        "Phase 05 progressive story walk projected from parser-owned control flow."
+    ]
+    departure, shelter = page["sections"][0]["events"]
+    page["sections"][0]["events"] = [departure]
+    owner = departure["choices"][1]["arms"][1]
+    owner["route_flow"] = [
+        {
+            "kind": "event",
+            "transfer_kind": "call",
+            "entry_kind": "unique",
+            "event": shelter,
+        },
+        {
+            "kind": "reference",
+            "transfer_kind": "jump",
+            "entry_kind": "loop",
+            "target_selection_id": "event-departure",
+            "title": "Departure",
+        },
+    ]
+
+    driver = _browser_driver()
+    _SyntheticStoryHandler.story_page = page
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _SyntheticStoryHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    origin = f"http://127.0.0.1:{server.server_port}/"
+    with tempfile.TemporaryDirectory(prefix="rsm-m15-p5-route-flow-reader-") as temporary:
+        process, session = driver._session(driver._browser(), 100, Path(temporary))
+        try:
+            session.command(
+                "Emulation.setDeviceMetricsOverride",
+                {"width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": False},
+            )
+            session.command("Page.navigate", {"url": origin})
+            session.wait(
+                "document.readyState === 'complete' && !!document.querySelector('.recent-card')"
+            )
+            session.evaluate("document.querySelector('.recent-card').click()")
+            session.wait(
+                "document.querySelector('#storyBrowser').classList.contains('is-progressive-story') "
+                "&& !!document.querySelector('[data-story-selection-id=\"event-shelter\"]')"
+            )
+            initial = session.evaluate(
+                "({events:[...document.querySelectorAll('.story-event')].map(node=>node.dataset.storySelectionId),"
+                "numbers:[...document.querySelectorAll('.story-event-number')].map(node=>node.textContent.trim()),"
+                "owner:document.querySelector('[data-story-selection-id=\"event-shelter\"]').closest('.story-descendant-route')?.dataset.ownerSelectionId,"
+                "indexed:[...document.querySelectorAll('#storySectionIndex .story-chapter-link')].some(node=>node.textContent.includes('Shelter from the storm')),"
+                "referenceCount:document.querySelectorAll('.story-route-reference-target').length,"
+                "overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth})"
+            )
+            assert initial == {
+                "events": ["event-departure", "event-shelter"],
+                "numbers": ["01", "02"],
+                "owner": "arm-camp",
+                "indexed": True,
+                "referenceCount": 1,
+                "overflow": 0,
+            }
+
+            session.evaluate(
+                "document.querySelector('#storySearchInput').value='Shelter from the storm';"
+                "document.querySelector('#storySearchInput').dispatchEvent(new Event('input',{bubbles:true}))"
+            )
+            session.wait(
+                "document.querySelector('#storySearchStatus').textContent === '1 of 2 events match'"
+            )
+            searched = session.evaluate(
+                "({nestedVisible:!document.querySelector('[data-story-selection-id=\"event-shelter\"]').closest('.story-event').hidden,"
+                "parentVisible:!document.querySelector('[data-story-selection-id=\"event-departure\"]').closest('.story-event').hidden,"
+                "ancestorsOpen:document.querySelector('[data-story-selection-id=\"event-shelter\"]').closest('details')?.open})"
+            )
+            assert searched == {
+                "nestedVisible": True,
+                "parentVisible": True,
+                "ancestorsOpen": True,
+            }
+            session.evaluate("document.querySelector('#storySearchClear').click()")
+
+            session.evaluate(
+                "document.querySelector('[data-story-selection-id=\"event-shelter\"]').closest('details').open=false;"
+                "[...document.querySelectorAll('#storySectionIndex .story-chapter-link')].find(node=>node.textContent.includes('Shelter from the storm')).click()"
+            )
+            session.wait(
+                "document.querySelector('[data-story-selection-id=\"event-shelter\"]').closest('details').open && document.activeElement?.dataset?.storySelectionId === 'event-shelter'"
+            )
+            indexed_focus = session.evaluate("({tag:document.activeElement?.tagName,id:document.activeElement?.dataset?.storySelectionId})")
+            assert indexed_focus == {"tag": "BUTTON", "id": "event-shelter"}
+            session.evaluate("document.querySelector('.story-route-reference-target').click()")
+            reference_focus = session.evaluate("({tag:document.activeElement?.tagName,id:document.activeElement?.dataset?.storySelectionId})")
+            assert reference_focus == {"tag": "BUTTON", "id": "event-departure"}
             driver._browser_diagnostics(session)
         finally:
             session.close()
@@ -1197,7 +1488,7 @@ def _browser_measurement(session: Any) -> dict[str, object]:
             nestedOwner: document.querySelector('.story-choice.nested')?.closest('.story-descendant-route')?.dataset.ownerSelectionId,
             nestedArms: document.querySelectorAll('.story-choice.nested .story-arm').length,
             continuations: document.querySelectorAll('.story-continuation').length,
-            continuationTargets: document.querySelectorAll('[data-story-selection-id="story-map-v2-continuation:c2cdc2d22eefd73445bb724831489c2d55b7b3b450e55408c4369396980f487a"][aria-selected]').length,
+            continuationTargets: document.querySelectorAll('button[data-story-selection-id="story-map-v2-continuation:c2cdc2d22eefd73445bb724831489c2d55b7b3b450e55408c4369396980f487a"]').length,
             continuationInsideArm: document.querySelectorAll('.story-arm > .story-continuation').length,
             reachability: [...document.querySelectorAll('.story-reachability')].map(node => node.textContent.trim()),
             warningDetails: document.querySelectorAll('details.story-warnings').length,
@@ -1341,13 +1632,13 @@ def test_story_detail_stale_responses_do_not_replace_current_context(
                     },
                 )
                 stale = session.evaluate(
-                    "({title:document.querySelector('#detailTitle').textContent, summary:document.querySelector('#detailSummary').textContent, toast:document.querySelector('#toast').textContent, toastHidden:document.querySelector('#toast').hidden, selection:document.querySelector('.story-arm-select[data-story-selection-id=\"arm-nested-a\"]').getAttribute('aria-selected'), activeLevel:document.documentElement.dataset.activeLevel})"
+                    "({title:document.querySelector('#detailTitle').textContent, summary:document.querySelector('#detailSummary').textContent, toast:document.querySelector('#toast').textContent, toastHidden:document.querySelector('#toast').hidden, selection:document.querySelector('.story-arm-select[data-story-selection-id=\"arm-nested-a\"]').getAttribute('aria-current'), activeLevel:document.documentElement.dataset.activeLevel})"
                 )
                 assert stale["title"] == current["title"]
                 assert stale["summary"] == current["summary"]
                 assert stale["toast"] == current["toast"]
                 assert stale["toastHidden"] == current["toastHidden"]
-                assert stale["selection"] == "true"
+                assert stale["selection"] == "location"
                 assert stale["activeLevel"] == "detail_evidence"
                 session.evaluate("document.querySelector('#backToRouteMap').click()")
                 session.wait(
@@ -1550,11 +1841,11 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
                 "document.activeElement?.dataset?.storySelectionId === 'arm-nested-a' && !document.querySelector('#storyBrowser').hidden"
             )
             direct_restored = session.evaluate(
-                "({scrollTop:document.querySelector('#storyBrowser').scrollTop, top:document.querySelector('.story-choice.nested .story-arm-select').getBoundingClientRect().top, selected:document.querySelector('.story-choice.nested .story-arm-select').getAttribute('aria-selected')})"
+                "({scrollTop:document.querySelector('#storyBrowser').scrollTop, top:document.querySelector('.story-choice.nested .story-arm-select').getBoundingClientRect().top, selected:document.querySelector('.story-choice.nested .story-arm-select').getAttribute('aria-current')})"
             )
             assert abs(direct_restored["scrollTop"] - direct_before["scrollTop"]) <= 2
             assert abs(direct_restored["top"] - direct_before["top"]) <= 2
-            assert direct_restored["selected"] == "true"
+            assert direct_restored["selected"] == "location"
 
             session.evaluate(
                 "document.querySelector('.story-choice.nested .story-arm-select').scrollIntoView({block:'center'})"
@@ -1566,7 +1857,7 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
                 "document.querySelector('.story-choice.nested .story-arm-select').click()"
             )
             session.wait(
-                "!document.querySelector('#storyPathPanel').hidden && document.querySelectorAll('#storyPathSteps .story-path-step').length === 4 && document.querySelector('.story-choice.nested .story-arm-select').getAttribute('aria-selected') === 'true'"
+                "!document.querySelector('#storyPathPanel').hidden && document.querySelectorAll('#storyPathSteps .story-path-step').length === 4 && document.querySelector('.story-choice.nested .story-arm-select').getAttribute('aria-current') === 'location'"
             )
             witness = session.evaluate(
                 "({scenes:document.querySelector('#storyPathScenes').textContent, choices:document.querySelector('#storyPathChoices').textContent, requirements:document.querySelector('#storyPathRequirements').textContent, effects:document.querySelector('#storyPathEffects').textContent, steps:document.querySelector('#storyPathSteps').textContent})"
@@ -1702,15 +1993,15 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
                   const controls = [...document.querySelectorAll('.story-continuation-select')];
                   const rect = controls[1].getBoundingClientRect();
                   return {
-                    firstSelected: controls[0].getAttribute('aria-selected'),
-                    secondSelected: controls[1].getAttribute('aria-selected'),
+                    firstSelected: controls[0].getAttribute('aria-current'),
+                    secondSelected: controls[1].getAttribute('aria-current'),
                     scrollTop: document.querySelector('#storyBrowser').scrollTop,
                     top: rect.top,
                   };
                 })()"""
             )
-            assert second_continuation_restored["firstSelected"] == "false"
-            assert second_continuation_restored["secondSelected"] == "true"
+            assert second_continuation_restored["firstSelected"] is None
+            assert second_continuation_restored["secondSelected"] == "location"
             assert (
                 abs(
                     second_continuation_restored["scrollTop"]
@@ -1746,13 +2037,13 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
                 _SyntheticStoryHandler.path_release = release
                 _SyntheticStoryHandler.path_finished = finished
                 session.evaluate(
-                    "document.querySelector('[data-story-selection-id=\"arm-nested-a\"][aria-selected]').scrollIntoView({block:'center'})"
+                    "document.querySelector('button[data-story-selection-id=\"arm-nested-a\"]').scrollIntoView({block:'center'})"
                 )
                 delayed_before = session.evaluate(
-                    "({scrollTop:document.querySelector('#storyBrowser').scrollTop, windowY:window.scrollY, top:document.querySelector('[data-story-selection-id=\"arm-nested-a\"][aria-selected]').getBoundingClientRect().top})"
+                    "({scrollTop:document.querySelector('#storyBrowser').scrollTop, windowY:window.scrollY, top:document.querySelector('button[data-story-selection-id=\"arm-nested-a\"]').getBoundingClientRect().top})"
                 )
                 session.evaluate(
-                    "document.querySelector('[data-story-selection-id=\"arm-nested-a\"][aria-selected]').click()"
+                    "document.querySelector('button[data-story-selection-id=\"arm-nested-a\"]').click()"
                 )
                 session.wait(
                     "!document.querySelector('#storyPathPanel').hidden && document.querySelector('#storyDetailAction').disabled"
@@ -1762,7 +2053,7 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
                     "document.querySelector('#storyPathPanel').hidden && document.activeElement?.dataset?.storySelectionId === 'arm-nested-a'"
                 )
                 closed = session.evaluate(
-                    "({scrollTop:document.querySelector('#storyBrowser').scrollTop, windowY:window.scrollY, top:document.querySelector('[data-story-selection-id=\"arm-nested-a\"][aria-selected]').getBoundingClientRect().top, summary:document.querySelector('#storyPathSummary').textContent})"
+                    "({scrollTop:document.querySelector('#storyBrowser').scrollTop, windowY:window.scrollY, top:document.querySelector('button[data-story-selection-id=\"arm-nested-a\"]').getBoundingClientRect().top, summary:document.querySelector('#storyPathSummary').textContent})"
                 )
                 assert abs(closed["scrollTop"] - delayed_before["scrollTop"]) <= 2
                 assert abs(closed["windowY"] - delayed_before["windowY"]) <= 2
@@ -1778,7 +2069,7 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
                     },
                 )
                 stale = session.evaluate(
-                    "({hidden:document.querySelector('#storyPathPanel').hidden, focused:document.activeElement?.dataset?.storySelectionId, scrollTop:document.querySelector('#storyBrowser').scrollTop, windowY:window.scrollY, top:document.querySelector('[data-story-selection-id=\"arm-nested-a\"][aria-selected]').getBoundingClientRect().top, summary:document.querySelector('#storyPathSummary').textContent})"
+                    "({hidden:document.querySelector('#storyPathPanel').hidden, focused:document.activeElement?.dataset?.storySelectionId, scrollTop:document.querySelector('#storyBrowser').scrollTop, windowY:window.scrollY, top:document.querySelector('button[data-story-selection-id=\"arm-nested-a\"]').getBoundingClientRect().top, summary:document.querySelector('#storyPathSummary').textContent})"
                 )
                 assert stale["hidden"] is True
                 assert stale["focused"] == "arm-nested-a"
@@ -1790,7 +2081,7 @@ def test_story_map_v2_real_browser_geometry_and_deep_return(
             _SyntheticStoryHandler.delayed_path_selection = None
             _SyntheticStoryHandler.delayed_path_reject = False
             session.evaluate(
-                "document.querySelector('[data-story-selection-id=\"arm-bridge\"][aria-selected]').click()"
+                "document.querySelector('button[data-story-selection-id=\"arm-bridge\"]').click()"
             )
             session.wait(
                 "!document.querySelector('#storyPathPanel').hidden && !document.querySelector('#storyDetailAction').disabled && document.querySelectorAll('#storyPathSteps .story-path-step').length === 4"

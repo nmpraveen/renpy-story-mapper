@@ -19,8 +19,16 @@
 | Parallelize remaining summaries | Complete | Four user-visible Sol/High tasks produced 587/587 summaries with zero deferrals; combined result is 597/597 fidelity PASS |
 | Publish and inspect full desktop timeline | Complete | 594 corridor summaries attached exactly once; zero vague structure fallbacks or borrowed branch summaries; 1920px browser proof preserves 111 events, 260 controls, 571 arms, scrolling, semantic colors, and zero horizontal overflow |
 | Simplify the browser around the scrolling reader | Complete | Obsolete map and workflow surfaces removed; story index, local search, wider forks, collapsible deep branches, and readable prose verified at 1920px |
-| Compose cross-label routes into one progressive tree | Pending | Downstream label events remain beneath the arm that reaches them; sibling routes no longer appear as consecutive chronology |
-| Humanize route gates, rejoins, and state back-links | Pending | Default reader contains story language and links to earlier choices; raw Python remains in Technical detail |
-| User acceptance of the whole-game timeline | Pending | The user can follow the complete story and its routes by scrolling without interpreting code labels |
+| Freeze the cross-label route contract on the fitting-room proof | Complete | The real `Keep arguing with her` call owns the called event, `Push her out` bypasses it, the returned continuation remains canonical, loops/unresolved reuse stable references, and the 1920x1080 proof has no overflow |
+| Compose cross-label routes into one progressive tree | Complete | The real fitting-room route is owned correctly; the regenerated whole-game canary preserves 111 events, 594 corridors, 260 controls, and 571 arms with canonical shared continuations and reference-only reuse |
+| Replace machine-facing route language | Complete | The deterministic resolver plus 79 accepted stable-ID names leave zero uncovered names and zero machine-language/fallback hits on the final default surface; raw Python remains secondary detail |
+| Emit state provenance and story navigation links | Complete | All 345 emitted navigation targets resolve; `branch_9` and accepted Terrance facts link to compatible earlier assignments, with unsafe cases explicit and no future/incompatible fixture links |
+| Fix nested-route disclosure and full-width arm detail | Complete | Closed direct descendants measure zero height; one shared route-wide detail slot works at nested levels with readable measure and zero 1920x1080/1280x800 overflow |
+| Remove completed-story chrome and reader polish defects | Complete | Dead completed-story controls are hidden, recent cards use basename/time without migration, and ordinary story buttons use valid ARIA state |
+| Regenerate and inspect the corrected whole-game reader | Complete | The disposable final project preserves 111 events, 594 corridors, 260 controls, and 571 arms; search and links work with zero console errors, machine-text hits, or 1920px overflow |
+| User acceptance of the Phase 05 functional baseline | Complete | User accepted the corrected reader and moved route-flow navigation into the Phase 06 Story River milestone |
 
 Use only `Pending`, `In progress`, `Blocked`, or `Complete`.
+
+Detailed sequencing, ownership rules, gates, file seams, and focused validation live in
+[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).

@@ -1,6 +1,6 @@
 # M15.1 Phase 05 - Progressive state-aware story timeline
 
-Status: whole-game checkpoint being published; user outcome remains open
+Status: accepted functional baseline; superseded by Phase 06 Story River presentation
 
 ## User outcome
 
@@ -14,6 +14,10 @@ Starting from the game's entry label, Python progressively builds the real execu
 AI summarizes those Python-owned corridors; and the existing desktop reader shows a coherent
 whole-game timeline with correct branch membership, nesting, state back-links, destinations, and
 rejoins.
+
+The detailed implementation sequence is
+[`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md). It is the active roadmap for the five remaining
+reader corrections; this goal remains the concise product contract.
 
 ## First proof
 
@@ -92,6 +96,16 @@ family-tree relationships.
 8. The first 10 AI summaries are useful before the remainder is parallelized.
 9. The final desktop timeline preserves Python-owned branches, conditions, state provenance,
    destinations, rejoins, loops, and endings.
+10. Cross-label events remain beneath the exact route that reaches them; shared continuations render
+    once and loops use references rather than duplicated recursive story.
+11. Default story headings, route captions, destinations, and rejoins use story language; raw Python
+    remains in secondary detail.
+12. State-dependent routes link to compatible earlier choices or assignments, or explicitly say that
+    provenance is unresolved.
+13. Closed descendant routes hide their content, and selected-arm detail uses the route width without
+    horizontal overflow.
+14. Completed stories do not show dead generation chrome, ordinary buttons do not misuse
+    `aria-selected`, and duplicate recent projects are distinguishable.
 
 ## Exclusions
 
@@ -113,5 +127,13 @@ secondary detail. The 1920px browser inspection found no page or story-scroller 
 content-sized sibling routes, concrete expandable prose, and distinct semantic colors. A focused
 coordinator correction replaced all structure-only fallback copy with proven next-state facts and
 turned 29 labels without shared corridor prose into neutral control-derived gates; no parent event
-borrows a child route summary. Phase 05 remains active only for user acceptance of the assembled
-whole-game reader.
+borrows a child route summary. Phase 05 remains active for the five reader corrections below and
+user acceptance of the assembled whole-game reader.
+
+The five 2026-07-30 reader corrections are now implemented. Cross-label events remain beneath their
+owning arms; 79 accepted stable-ID story names leave no machine-facing or fallback names; state,
+destination, and rejoin links navigate to stable targets; closed descendants and route-wide detail
+behave correctly; and completed-story chrome, ARIA, and recent-project presentation are corrected.
+The final disposable review project preserves all structural counts and passes the focused 1920px
+browser checks. On 2026-07-31 the user accepted this as the functional baseline and moved the remaining
+story-flow navigation work into M15.2 Phase 06.

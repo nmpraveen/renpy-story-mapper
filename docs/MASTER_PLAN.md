@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper master plan
 
-Updated: 2026-07-28
+Updated: 2026-07-31
 
 ## Product goal
 
@@ -97,18 +97,54 @@ evidence: it misplaced choices, dropped branch arms, flattened nesting, mislabel
 destinations. Its 103 AI summaries and 105 chunks may be diagnostic context, but they are not story
 event authority.
 
-The active correction is M15.1 Phase 05: replace chunk-owned presentation with the progressive
-execution/state story walker described above.
+M15.1 Phase 05 is the accepted functional baseline: it replaced chunk-owned presentation with the
+progressive execution/state story walker described above. M15.2 Phase 06 now replaces only the
+family-tree composition with a Story River reader.
 
-## Delivery sequence
+## Current delivery roadmap
 
-1. Build a deterministic progressive walk for the Terrance section.
-2. Render its exact branch tree, state effects, destinations, and rejoin into the scrolling reader.
-3. Add AI titles, summaries, and consequences after the structure is correct.
-4. Let the user inspect that real section.
-5. Once accepted, walk the full game.
-6. Validate the first 10 bulk summaries, then parallelize the rest.
-7. Show the complete desktop timeline and fix only concrete comprehension problems.
+The Terrance proof, full-game deterministic walk, 597-corridor summary pass, and first whole-game
+desktop checkpoint are complete. The active Phase 05 correction now proceeds in this order:
+
+1. Compose cross-label events beneath the exact branch that reaches them, proving the contract on the
+   real fitting-room route before regenerating the whole game.
+2. Replace machine-derived condition, arm, destination, and rejoin wording with human story language,
+   while retaining raw Python as secondary evidence.
+3. Link later state gates, destinations, and rejoins to their earlier or downstream story points.
+4. Fix collapsed descendant behavior and let selected-arm prose use the full route width.
+5. Hide dead completed-story workflow chrome and correct ARIA/recent-project presentation defects.
+6. Regenerate a disposable whole-game review project and obtain user acceptance of the rendered
+   desktop timeline.
+
+The detailed implementation contract, gates, and focused checks are in
+[`docs/milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md).
+
+All five Phase 05 correction areas are implemented as of 2026-07-31. The final disposable review project
+preserves the Python-owned counts, contains no machine-facing story names, and has working search,
+state backlinks, destination/rejoin navigation, route-wide detail, completed-story chrome, and valid
+ARIA at 1920x1080. The user accepted it as the factual and language baseline.
+
+The active M15.2 Phase 06 roadmap is:
+
+1. Derive stable frontend-only route contexts and local route colors from existing arm facts.
+2. Render a vertically unbounded main river with local tributaries, full-width owned route sections,
+   explicit confluences, and no pan or zoom.
+3. Synchronize an automatic selected-route panel with scrolling and existing story navigation.
+4. Prove the presentation on the real fitting-room route, one immediate rejoin, and one nested choice
+   at 1920px and 1280px before applying it to the whole game.
+
+The first implementation of steps 1-4 was rejected visually on 2026-07-31 because it remained a
+colored family tree rather than matching the selected Story River mock. The focused redesign now
+targets a thick dark main river, broad colored tributaries, compact station cards, an unmistakable
+merge, and selection-opened deep routes. Whole-game work still waits for acceptance of that proof.
+The replacement implementation is integrated and statically checked. Focused browser proof at
+1920px and 1280px now demonstrates the fitting-room owned route, nested routes, confluence links,
+state backlinks, panel synchronization, and zero horizontal page overflow. User acceptance remains
+the gate before whole-game application.
+
+The active contract is
+[`docs/milestones/M15_PHASE_06/GOAL.md`](milestones/M15_PHASE_06/GOAL.md), with detailed sequencing in
+[`docs/milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md).
 
 Run focused tests during implementation. Broad CI, Release, packaging, PR work, and general polish
 wait until the user accepts the story or explicitly asks to ship it.

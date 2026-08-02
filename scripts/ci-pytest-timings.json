@@ -115,6 +115,7 @@
     "tests/test_story_map_v2_phase04_story_plan.py": 0.7,
     "tests/test_story_map_v2_phase04_workflow.py": 0.187,
     "tests/test_story_map_v2_phase05_progressive_api.py": 0.907,
+    "tests/test_story_map_v2_phase06_story_river.py": 0.152,
     "tests/test_story_map_v2_preview.py": 0.01,
     "tests/test_story_map_v2_product_workflow.py": 8.247,
     "tests/test_story_map_v2_progressive_story.py": 0.875,

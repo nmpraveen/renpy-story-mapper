@@ -67,11 +67,11 @@
               </div>
               <div class="story-hero-meta">
                 <span id="storyMapStatus" class="status-badge">Chronological map</span>
-                <button id="storyPrepareAction" class="accent-button" type="button" disabled>Generate</button>
+                <button id="storyPrepareAction" class="accent-button" type="button" hidden disabled>Generate</button>
               </div>
             </header>
 
-            <section id="storyRunBar" class="story-runbar" aria-labelledby="storyRunState">
+            <section id="storyRunBar" class="story-runbar" hidden aria-labelledby="storyRunState">
               <div class="story-run-summary">
                 <strong id="storyRunState">Ready</strong>
                 <span id="storyRunProgress">Structural map available</span>
@@ -125,6 +125,33 @@
                   <div id="storyAnalysisNotesList"></div>
                 </details>
               </article>
+
+              <aside id="storyRoutePanel" class="story-route-panel" hidden aria-labelledby="storyRouteTitle">
+                <p class="eyebrow story-route-panel-kicker">Selected route</p>
+                <section class="story-route-current" aria-label="Current path">
+                  <p class="story-route-panel-label">Current path</p>
+                  <header class="story-route-panel-head">
+                    <span class="story-route-swatch" aria-hidden="true"></span>
+                    <div><p id="storyRouteCode" class="eyebrow">Main story</p><h2 id="storyRouteTitle">Shared story</h2></div>
+                  </header>
+                </section>
+                <section class="story-route-synopsis">
+                  <h3>Outcome synopsis</h3>
+                  <p id="storyRouteSynopsis">The routes are together on the shared chronology.</p>
+                </section>
+                <dl class="story-route-facts">
+                  <div class="story-route-fact"><dt>Started at</dt><dd id="storyRouteOrigin">Shared chronology</dd></div>
+                  <div class="story-route-fact"><dt>Route type</dt><dd id="storyRouteOwner">Story</dd></div>
+                </dl>
+                <section class="story-route-return">
+                  <h3 id="storyRouteStatusLabel">Shared story</h3>
+                  <div id="storyRouteStatus">Routes are together</div>
+                </section>
+                <section id="storyRouteProvenanceGroup" class="story-route-provenance" hidden>
+                  <h3>Earlier state</h3>
+                  <div id="storyRouteProvenance"></div>
+                </section>
+              </aside>
 
               <aside id="storyPathPanel" class="story-path-panel" hidden aria-labelledby="storyPathTitle">
                 <div class="story-path-heading">

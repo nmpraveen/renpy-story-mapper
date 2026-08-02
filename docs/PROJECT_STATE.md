@@ -1,17 +1,51 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-07-29
+Updated: 2026-08-01
 
 ## Active work
 
-- Active milestone: M15.1 Phase 05 progressive story walker.
-- Contract: [`docs/milestones/M15_PHASE_05/GOAL.md`](milestones/M15_PHASE_05/GOAL.md).
-- Task ledger: [`docs/milestones/M15_PHASE_05/TASKS.md`](milestones/M15_PHASE_05/TASKS.md).
-- Branch: `codex/m15-phase05-whole-game-skeleton`.
-- Status: whole-game reader and simplified UI checkpoint are being published; the clean-timeline goal remains open.
+- Active milestone: M15.2 Phase 06 Story River reader.
+- Contract: [`docs/milestones/M15_PHASE_06/GOAL.md`](milestones/M15_PHASE_06/GOAL.md).
+- Task ledger: [`docs/milestones/M15_PHASE_06/TASKS.md`](milestones/M15_PHASE_06/TASKS.md).
+- Implementation roadmap: [`docs/milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md).
+- Active checkout: `codex/m15-phase06-story-river`, created from the completed Phase 05 reader at
+  `46763c4` on 2026-07-31.
+- Status: Phase 05 is the accepted factual and language baseline. The Story River flow is now
+  painted by `web/static/river.js` instead of drawn with CSS borders and `clip-path` polygons. The
+  user accepted that presentation on 2026-08-01, so the visual gate is closed; whole-game work is
+  unblocked but still needs its own go-ahead.
 - Native Codex goal: none.
 
 ## Current product decision
+
+Present the established Python-owned story as a vertically unbounded Story River. Shared chronology
+uses a neutral main stream; each fork receives local route colors and stable visible codes; owned
+events remain on their route until a proven rejoin or terminal; and an automatic panel explains the
+route currently selected or passing through the reading position. This is an HTML scrolling reader,
+not a pan-and-zoom canvas.
+
+The first Phase 06 build retained the correct fitting-room route ownership and navigation, but the
+user rejected its appearance on 2026-07-31: it was still the Phase 05 family tree with route colors,
+not the selected Story River mock. The active correction makes a thick dark shared river, broad
+colored tributaries, compact event and route cards, a strong merge capsule, and selection-opened deep
+routes the dominant visual structure. The rejected screenshots under
+`output/m15-phase06-story-river-proof-20260731` are comparison evidence only.
+
+That first correction was itself rejected on 2026-08-01: it drew its flow with rectangles, thick
+borders, and `clip-path` polygons, so the tributaries read as stiff straight bars rather than water.
+Flow is now painted. `web/static/river.js` measures each event's laid-out boxes and fills one SVG
+layer per event with the trunk, its mouth flare, curved tributaries, the confluence merge, tapered
+tails for routes that end, and the stream into an owned route. Long carries take an edge lane so a
+rejoin never crosses another route's opened story. CSS still owns every card, colour, and type
+decision; only geometry moved. There is still no canvas, pan, zoom, or global node coordinate.
+
+The focused proof under `output/m15-phase06-story-river-proof-20260801` confirms the fitting-room
+Route B owns its cross-label event, nested routes B.1/B.2 retain their stream identity, rejoin and
+state-backlink navigation synchronize the panel, a seven-arm fork stacks onto a rail, both themes
+read, and neither required desktop width has horizontal page overflow. The user reviewed that proof
+and accepted the presentation on 2026-08-01.
+
+The Phase 05 implementation beneath that presentation remains authoritative:
 
 Build the story progressively from actual Ren'Py execution flow and state:
 
@@ -74,10 +108,36 @@ and organization surfaces from the default browser. The remaining reader has a s
 client-side event search, wider forks, collapsible deep branches, concise outcome lines, and readable
 expanded prose. It does not change Python story facts.
 
-Current product gaps are now explicit: downstream labels are still appended as top-level events
-instead of remaining beneath the branch that reaches them; machine-derived condition and rejoin
-names remain visible; and state provenance is raw text rather than a back-link to the earlier choice.
-These are the next correction, after the current checkpoint PR.
+The 2026-07-31 Gate 1 implementation adds the smallest arm-owned cross-label route flow. The real
+fitting-room proof places the called argument event only beneath `Keep arguing with her`; `Push her
+out` bypasses it; the returned shared continuation remains canonical; loop or ambiguous reuse becomes
+a stable reference rather than duplicated recursion. Recursive browser search, index navigation, and
+count traversal include nested events. The focused 1920x1080 proof has no horizontal overflow, and an
+in-memory invariant audit remains at 111 events, 594 corridors, 260 controls, and 571 arms. The full
+reader has now been regenerated as a first-10 naming canary with the same totals and no overflow.
+
+The deterministic story-name resolver uses accepted stable-ID wording, exact corridor titles, owning
+event titles, or readable narrative before falling back explicitly. It never derives prose by
+splitting identifiers. The initial real inventory contained 87 uncovered names; the coordinator's
+10 accepted canary overrides reduced that to 74 because several named structural targets also resolve
+dependent rows. The rendered canary shows the accepted condition question, event, destination, and
+rejoin language while raw Python remains in secondary detail. Three user-visible Sol/High tasks
+reviewed the remaining 74 items in 25/25/24 batches. Their 69 safe names plus the accepted first 10
+resolve the entire final inventory: zero user-visible names remain uncovered. The accepted stable-ID
+artifact is [`STORY_NAME_OVERRIDES.json`](milestones/M15_PHASE_05/STORY_NAME_OVERRIDES.json).
+
+Completed progressive stories now hide dead Generate/readiness chrome, while actionable workflow
+controls remain available. Recent project cards show source basename and precise last-opened time
+without returning an absolute path; merely listing recent projects cannot migrate them.
+
+Closed descendant routes now hide their content, selected-arm detail uses one route-wide slot capped
+near 68 characters, and ordinary story buttons no longer use `aria-selected`. Later state gates now
+carry path-compatible links to earlier assignments or explicit unresolved provenance. Destination
+and rejoin rows navigate to stable story targets. The 1920x1080 final review has zero user-visible
+underscored identifiers, raw expressions, rejected route headings, mechanical shared names, bare
+`Otherwise`, or unnamed destination fallbacks; search, focus/highlight navigation, and Clear work
+without console errors. Page and story overflow are both zero. Evidence and the disposable project
+are under `output/m15-phase05-reader-corrections-20260731/final-review`.
 
 ## User-selected operating rules
 

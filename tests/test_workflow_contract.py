@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,10 +37,20 @@ def test_fresh_context_dispatch_and_current_lifecycle_are_explicit() -> None:
     assert "Never substitute internal subagents" in agents
     for stale in ("Medium reasoning", "fast mode disabled", "QUICK, CRUDE"):
         assert stale not in agents
+    # A fresh context must be able to read the current lifecycle off PROJECT_STATE.md.
+    # Pinning the literal milestone made this a snapshot that went stale at every bump and
+    # still passed while the contract link rotted, so require the declaration to be present
+    # and self-consistent instead: exactly one active milestone, a contract that names the
+    # same phase and exists on disk, a checkout on that phase, and a stated status.
     assert state.count("- Active milestone:") == 1
-    assert "Active milestone: M15.1 Phase 05" in state
-    assert "the clean-timeline goal remains open" in state
-    assert "docs/milestones/M15_PHASE_05/GOAL.md" in state
+    milestone = re.search(r"- Active milestone: M\d+(?:\.\d+)? Phase (\d+)\b", state)
+    assert milestone, "PROJECT_STATE.md must name the active milestone as 'M<n> Phase <nn>'"
+    phase = milestone.group(1)
+    contract = re.search(r"- Contract: \[`(docs/milestones/[^`]+/GOAL\.md)`\]", state)
+    assert contract, "PROJECT_STATE.md must link the active milestone contract"
+    assert f"PHASE_{phase}" in contract.group(1)
+    assert (ROOT / contract.group(1)).is_file()
+    assert re.search(rf"- Active checkout: `[^`]*phase{phase}[^`]*`", state)
+    assert re.search(r"^- Status: \S", state, re.MULTILINE)
     assert "Native Codex goal: none" in state
-    assert "codex/m15-phase05-whole-game-skeleton" in state
     assert "default_prompt" in interface

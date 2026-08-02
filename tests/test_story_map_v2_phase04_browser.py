@@ -327,8 +327,11 @@ def test_reader_v2_static_contract_and_transport_are_bounded() -> None:
     assert "story-map-v2-workflow-http-v1" not in "\n".join((contract, api, app))
     assert "story_map_v2_workflow" in app
     assert 'id="storyPrepareAction"' in html and "disabled" in html[html.index('id="storyPrepareAction"') : html.index('id="storyPrepareAction"') + 160]
+    assert 'id="storyRunBar"' in html and "hidden" in html[html.index('id="storyRunBar"') : html.index('id="storyRunBar"') + 120]
     assert 'id="storyRunDetails"' in html and 'id="storyRunRows"' in html
     assert "renderStoryWorkflowDetails" in app
+    assert "setStoryWorkflowChrome" in app
+    assert "project.source_basename" in app and 'timeStyle: "medium"' in app
     assert "/workflow/approve" not in "\n".join((contract, api, app, html))
 
 
@@ -487,7 +490,7 @@ class _ReaderHandler(http.server.BaseHTTPRequestHandler):
             self._json(
                 {
                     "api_version": "v1",
-                    "recent_projects": [{"selection_id": "reader-project", "name": "Reader fixture", "source_type": "Project", "organization": "Story Map V2"}],
+                    "recent_projects": [{"selection_id": "reader-project", "name": "Reader fixture", "source_type": "Project", "source_basename": "story.rpy", "last_opened": "2026-07-31T14:05:06.000Z", "organization": "Story Map V2"}],
                     "settings": {"theme": "light", "include_technical": True, "include_unresolved": True},
                     "contracts": {},
                     "routes": {
@@ -680,6 +683,8 @@ def test_reader_v2_late_section_path_and_detail_responses_cannot_steal_state() -
         try:
             session.command("Page.navigate", {"url": origin})
             session.wait("document.readyState === 'complete' && !!document.querySelector('.recent-card')")
+            recent_text = session.evaluate("document.querySelector('.recent-card').innerText")
+            assert "story.rpy" in recent_text and "2026" in recent_text
             session.evaluate("document.querySelector('.recent-card').click()")
             session.wait("document.querySelector('#storySections h2')?.textContent === 'Prologue'")
 
@@ -926,7 +931,7 @@ def test_workflow_v2_completed_progress_details_load_after_refresh() -> None:
             session.command("Page.navigate", {"url": origin})
             session.wait("document.readyState === 'complete' && !!document.querySelector('.recent-card')")
             session.evaluate("document.querySelector('.recent-card').click()")
-            session.wait("!document.querySelector('#storyRunDetails').hidden && document.querySelector('#storyRunProgress').textContent.includes('jobs')")
+            session.wait("document.querySelector('#storyRunBar').hidden && !document.querySelector('#storyRunDetails').hidden && document.querySelector('#storyRunProgress').textContent.includes('jobs')")
             session.evaluate("document.querySelector('#storyRunDetails summary').click()")
             session.wait("document.querySelectorAll('#storyRunRows tr').length === 1")
             text = session.evaluate("document.querySelector('#storyRunRows').innerText")
@@ -1206,7 +1211,7 @@ def test_reader_v2_real_browser_lazy_reader_and_restoration(
             session.evaluate("document.activeElement.click()")
             session.wait("!document.querySelector('#storyPathPanel').hidden && document.querySelector('#storyPathSteps').children.length === 2")
             assert "Path" in session.evaluate("document.querySelector('#storyPathTitle').textContent") or session.evaluate("document.querySelector('#storyPathTitle').textContent") == "Take Route A"
-            entry_scroll = session.evaluate("const browser=document.querySelector('#storyBrowser'); browser.style.height='120px'; browser.style.overflow='auto'; browser.scrollTop=80; document.querySelector('[data-story-selection-id=\"arm:a\"][aria-selected=\"true\"]').focus(); browser.scrollTop")
+            entry_scroll = session.evaluate("const browser=document.querySelector('#storyBrowser'); browser.style.height='120px'; browser.style.overflow='auto'; browser.scrollTop=80; document.querySelector('[data-story-selection-id=\"arm:a\"][data-story-current=\"true\"][aria-current=\"location\"]').focus(); browser.scrollTop")
             session.evaluate("document.querySelector('#storyDetailAction').click()")
             session.wait("!document.querySelector('#detailView').hidden && document.querySelector('#evidenceList').textContent.includes('game/story.rpy')")
             session.evaluate("document.querySelector('#backToRouteMap').click()")
@@ -1215,11 +1220,11 @@ def test_reader_v2_real_browser_lazy_reader_and_restoration(
 
             saved_before = session.evaluate("document.querySelector('#storyBrowser').dataset.viewStateSaved || ''")
             content_requests_before = len(_ReaderHandler.requests)
-            session.evaluate("document.querySelector('.story-branch-page [data-reader-item-id]').dataset.preserveMarker='hydrated'; document.querySelector('[data-story-selection-id=\"arm:a\"][aria-selected=\"true\"]').focus()")
+            session.evaluate("document.querySelector('.story-branch-page [data-reader-item-id]').dataset.preserveMarker='hydrated'; document.querySelector('[data-story-selection-id=\"arm:a\"][data-story-current=\"true\"][aria-current=\"location\"]').focus()")
             session.evaluate("document.querySelector('#storyHideNew').click()")
             session.wait("document.querySelector('#storyBrowser').classList.contains('hide-new')")
             session.wait(f"document.querySelector('#storyBrowser').dataset.viewStateSaved?.startsWith('7:') && document.querySelector('#storyBrowser').dataset.viewStateSaved !== {json.dumps(saved_before)}")
-            preserved = session.evaluate("({marker:document.querySelector('.story-branch-page [data-reader-item-id]')?.dataset.preserveMarker || null,selected:document.querySelector('[data-story-selection-id=\"arm:a\"][aria-selected=\"true\"]')?.dataset.storySelectionId || null,focused:document.activeElement?.dataset?.storySelectionId || null,scroll:document.querySelector('#storyBrowser').scrollTop})")
+            preserved = session.evaluate("({marker:document.querySelector('.story-branch-page [data-reader-item-id]')?.dataset.preserveMarker || null,selected:document.querySelector('[data-story-selection-id=\"arm:a\"][data-story-current=\"true\"][aria-current=\"location\"]')?.dataset.storySelectionId || null,focused:document.activeElement?.dataset?.storySelectionId || null,scroll:document.querySelector('#storyBrowser').scrollTop})")
             assert preserved == {"marker": "hydrated", "selected": "arm:a", "focused": "arm:a", "scroll": entry_scroll}
             new_requests = _ReaderHandler.requests[content_requests_before:]
             assert [request[0] for request in new_requests] == [_ReaderHandler.fixture["routes"]["save_view_state"]]
@@ -1243,7 +1248,7 @@ def test_reader_v2_real_browser_lazy_reader_and_restoration(
             assert reopen["visible"] and reopen["checked"], {"browser": reopen, "view_state": _ReaderHandler.view_state, "requests": _ReaderHandler.requests[-12:]}
             assert reopen["active"] == "event:page-two"
             assert not [request for request in _ReaderHandler.requests if "/workflow/" in request[0]]
-            restored = session.evaluate("({selected:document.querySelector('[data-story-selection-id=\"event:page-two\"][aria-selected=\"true\"]')?.dataset.storySelectionId || null,live:Number(document.querySelector('#storyBrowser').dataset.liveStoryItems),overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth,remote:[...performance.getEntriesByType('resource')].map(x=>x.name).filter(x=>!x.startsWith(location.origin))})")
+            restored = session.evaluate("({selected:document.querySelector('[data-story-selection-id=\"event:page-two\"][data-story-current=\"true\"][aria-current=\"location\"]')?.dataset.storySelectionId || null,live:Number(document.querySelector('#storyBrowser').dataset.liveStoryItems),overflow:document.documentElement.scrollWidth-document.documentElement.clientWidth,remote:[...performance.getEntriesByType('resource')].map(x=>x.name).filter(x=>!x.startsWith(location.origin))})")
             assert restored["selected"] == "event:page-two"
             assert restored["live"] <= 600
             assert restored["overflow"] == 0
