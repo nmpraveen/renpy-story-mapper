@@ -453,6 +453,56 @@ def test_adapter_preserves_nested_outer_to_inner_lineage() -> None:
     )
 
 
+def test_adapter_repeating_checklist_uses_declared_parent_chain_only() -> None:
+    graph = _authority(
+        '''label start:
+    jump hub
+
+label hub:
+    menu:
+        "First":
+            jump first
+        "Second":
+            jump second
+        "Done":
+            return
+
+label first:
+    menu:
+        "Loop first":
+            "First loop."
+            jump hub
+        "End first":
+            "First ending."
+            return
+
+label second:
+    menu:
+        "Loop second":
+            "Second loop."
+            jump hub
+        "End second":
+            "Second ending."
+            return
+'''
+    )
+
+    scope = adapt_story_scope(graph)
+    first = next(choice for choice in scope.choices if choice.line == 14)
+    second = next(choice for choice in scope.choices if choice.line == 23)
+    first_ending = next(span for span in scope.spans if "First ending" in span.raw_text)
+
+    assert len(first.parent_lineage) == len(second.parent_lineage) == 1
+    assert first.parent_lineage[0].choice_key == second.parent_lineage[0].choice_key
+    assert first.parent_lineage[0].arm_order != second.parent_lineage[0].arm_order
+    assert second.key not in {step.choice_key for step in first_ending.arm_lineage}
+    assert first_ending.arm_lineage[-1] == ArmLineageStep(first.key, 2)
+    assert all(
+        len({step.choice_key for step in span.arm_lineage}) == len(span.arm_lineage)
+        for span in scope.spans
+    )
+
+
 def test_adapter_does_not_copy_nested_arm_effects_to_parent_arm() -> None:
     graph = _authority(
         '''label start:

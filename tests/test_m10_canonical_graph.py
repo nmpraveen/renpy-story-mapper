@@ -149,6 +149,27 @@ def test_canonical_graph_composes_existing_authority_and_is_permutation_stable()
     assert second.authority_hash == first.authority_hash
 
 
+def test_malformed_m06_region_hierarchy_fails_before_recursive_guard_expansion() -> None:
+    module = parse_script(
+        "canonical_constructs.rpy",
+        FIXTURE.read_text(encoding="utf-8").splitlines(keepends=True),
+    )
+    graph = build_graph([module])
+    semantic = build_semantic_story(graph)
+    state = extract_state([module])
+    control = analyze_control_flow(graph, semantic, state.requirements, state.effects).to_dict()
+    regions = {item["id"]: item for item in control["regions"]}
+    first_id, second_id = sorted(regions)[:2]
+    regions[first_id]["parent_region_id"] = second_id
+    regions[second_id]["parent_region_id"] = first_id
+    route = project_route_map(control, semantic, state.requirements, state.effects)
+    with pytest.raises(ValueError, match="M06 region hierarchy contains a cycle"):
+        build_canonical_graph(
+            graph, semantic, control, route, state,
+            source_generation=source_generation(((module.path, "a" * 64),)),
+        )
+
+
 def test_resolved_m06_call_nodes_and_edges_are_reachable_with_proof() -> None:
     module = parse_script(
         "call_return.rpy",

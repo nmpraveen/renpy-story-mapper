@@ -1,156 +1,174 @@
 # Ren'Py Story Mapper master plan
 
-Updated: 2026-07-31
+Updated: 2026-08-03
 
 ## Product goal
 
-Build a desktop tool that accepts a Ren'Py game folder or script and produces a clean, readable,
-full-width scrolling story timeline. The user should understand the story simply by scrolling,
-including its choices, conditions, routes, important state changes, rejoins, and endings.
+Build a quick desktop tool that accepts a Ren'Py game folder or readable script and produces a
+clean, trustworthy, full-width scrolling story timeline. A reader should understand the linear
+story, choices, conditions, nested routes, important state changes, destinations, rejoins, loops,
+endings, and uncertainty without reading raw code.
 
-This is a quick personal story checker, not a production platform, game editor, universal Python
-interpreter, mobile application, or public hosted service.
+This is a personal script/game-to-story checker. It is not a production workflow platform, hosted
+service, universal Python interpreter, game editor, mobile app, or replacement Ren'Py runtime.
 
-## Story-building model
+## Current decision
 
-The product builds the story progressively in execution order:
+The selected direction is hybrid:
 
-```text
-entry label
-  -> linear story corridor
-  -> menu or condition
-     -> branch corridors carrying their conditions and state
-     -> later rejoin, route continuation, loop, or ending
-```
+1. deterministic Python builds and freezes factual execution/state structure;
+2. execution-derived corridors define story units;
+3. AI titles and summarizes only those frozen corridors;
+4. a simple scrolling reader presents the combined result; and
+5. independent structure and browser audits verify the real artifact.
 
-When a later condition reads state established earlier, the map keeps both relationships:
+The existing Story River remains the last accepted integrated application baseline on Ms. Denvers.
+It is not the current proof strategy for a new game. The Resort v0.2.2 hybrid Story Atlas is the
+reference architecture proof, but it used a game already studied during diagnosis and does not
+prove third-game generalization.
 
-- the visible branch starts at the later condition; and
-- a dependency link points back to the earlier choice or assignment that enabled it.
+See [the complete history](PROJECT_HISTORY.md), [current state](PROJECT_STATE.md), and
+[hybrid architecture](HYBRID_APPROACH.md).
 
-Source-file boundaries, AI context windows, token limits, and arbitrary event counts are transport or
-storage details. They never define story events.
-
-## Python and AI responsibilities
+## Story authority
 
 Python owns:
 
-- execution order from labels, jumps, calls, returns, and fallthrough;
-- menus, arms, nested choice lineage, and conditions;
-- direct assignments, increments, important state, and state provenance;
-- branch destinations, demonstrated rejoins, loops, terminals, unresolved behavior, and source lines;
-- exact membership of every story corridor and choice.
+- entry and execution order from labels, fallthrough, jumps, calls, returns, and known targets;
+- menus, conditions, every arm, nested ownership, and conditional visibility;
+- effects, requirements, state provenance, and path compatibility;
+- exact corridor membership and source spans;
+- destinations, rejoins, loops, local terminals, release terminals, and unresolved behavior;
+- stable IDs, scope/reachability, and evidence.
 
 AI may:
 
-- title and summarize linear corridors;
-- explain characters, motives, developments, and branch consequences;
-- editorially group adjacent Python-built corridors for reading; and
-- check an assembled result as `PASS`, `PARTIAL`, `LOW`, or `FAIL`.
+- title and summarize frozen corridors;
+- explain character, motive, development, and route consequences;
+- provide uncertainty notes; and
+- editorially group adjacent corridors without moving or changing them.
 
-AI may not invent or relocate mechanics. Cloud AI is the default. Use a local LLM only when the user
-explicitly requests local processing. Game and script content may be sent to cloud AI.
+AI may not invent or relocate mechanics. Unsupported dynamic behavior remains unresolved.
 
-For bulk cloud summaries, the coordinator processes and inspects the first 10 items. After that
-canary is useful, the remaining work is divided approximately evenly across three or four
-user-visible `gpt-5.6-sol` High Codex tasks unless the user selects different settings. In this
-project, "Codex task" or "Codex thread" always means an app-created task visible in the sidebar, not
-an internal subagent.
+## Story-building model
+
+```text
+entry label
+  -> readable linear corridor
+  -> menu or condition
+     -> exact branch-owned corridors
+     -> nested choice or later state gate
+     -> proven rejoin, persistent continuation, loop, ending, or unresolved target
+```
+
+When a later condition reads state established earlier, preserve both relationships:
+
+- the visible split occurs where the condition is evaluated; and
+- a dependency link points to the earlier choice or assignment that can establish it.
+
+Source files, AI requests, token limits, model context windows, and arbitrary group counts are
+transport details. They never define story events.
 
 ## Input and execution policy
 
-- Original game inputs are read-only.
-- Trusted games may be executed when useful.
-- Prefer a disposable copy and headless Ren'Py execution so the game does not open visibly.
-- Generated or recovered files stay outside the original game directory.
-- There is no privacy boundary between local and cloud story processing for this project.
+- Original supplied game inputs are read-only.
+- Trusted games may be executed when useful, preferably through a disposable headless copy.
+- Generated and recovered files stay outside the original game directory.
+- Game scripts and story content may be sent to cloud AI.
+- Cloud AI is the default unless the user requests local processing.
+- Supplied archives, extracted source trees, generated outputs, and model transcripts stay out of
+  Git.
 
-## Desktop interface
+## Presentation boundary
 
-The supported interface is a full-width desktop scrolling timeline on the user's current screen.
+The supported product outcome is a full-width desktop scrolling timeline:
 
-Required presentation:
+- shared chronology reads top to bottom;
+- choices and conditions fork locally;
+- descendants remain beneath the exact route that owns them;
+- immediate flavor routes can rejoin compactly;
+- persistent routes remain separate until a proven rejoin or terminal;
+- important state causes and later requirements are linked;
+- story names are human-readable while raw Python remains secondary evidence;
+- unresolved behavior is visible but not dominant; and
+- long scrolling remains readable with no horizontal page overflow.
 
-- linear story reads top to bottom;
-- choices expand locally into clearly nested branches;
-- flavor choices that immediately rejoin remain compact;
-- persistent routes remain visibly separate until they rejoin or end;
-- later state gates show readable back-links such as `Requires: trusted Trevor earlier`;
-- destinations and rejoins use human story names, not canonical node IDs;
-- important state changes are visible without overwhelming the story; and
-- source detail remains available as secondary evidence.
+Do not make pan, zoom, fit, semantic zoom, mobile layouts, a giant world graph, or a production
+dashboard part of the current plan.
 
-Not supported or required:
+## What the repository has already proved
 
-- pan or zoom;
-- fit-to-screen or semantic zoom;
-- special 100% or 200% modes;
-- mobile layouts or mobile optimization;
-- a giant world graph; or
-- arbitrary limits such as 12-30 groups.
+- Safe read-only RPA/source ingestion and inert static parsing.
+- Durable graph/state/evidence projects and incremental refresh.
+- Canonical control, guard, state, rejoin, loop, and terminal facts.
+- Human scene, route, and source-evidence projections.
+- Optional editorial AI that cannot change deterministic authority.
+- A complete accepted family-tree reader and painted Story River on Ms. Denvers.
+- A source-grounded direct-analysis benchmark on Resort.
+- A generic fix for Resort's cyclic region-parent failure.
+- A complete hybrid Resort Atlas with 1,103 exact-once corridors and passing independent structure
+  and Chrome audits.
 
-## Current foundation and correction
+## What remains unproved
 
-The existing parser, recovered Ren'Py source, control-flow facts, state facts, browser reader, and
-source evidence are reusable. The previously published 34-section outline is rejected as product
-evidence: it misplaced choices, dropped branch arms, flattened nesting, mislabeled endings, and hid
-destinations. Its 103 AI summaries and 105 chunks may be diagnostic context, but they are not story
-event authority.
+- The existing integrated Story River app has not completed end to end on Resort.
+- The old durable Story Map publication path still needs a broad Episode 3 nested-lineage canary.
+- The hybrid architecture has not run on a genuinely unseen third game.
+- The best reusable presentation after that proof is undecided.
+- Static analysis cannot resolve every screen, timer, replay, persistent/platform, or opaque-Python
+  mechanic.
 
-M15.1 Phase 05 is the accepted functional baseline: it replaced chunk-owned presentation with the
-progressive execution/state story walker described above. M15.2 Phase 06 now replaces only the
-family-tree composition with a Story River reader.
-
-## Current delivery roadmap
-
-The Terrance proof, full-game deterministic walk, 597-corridor summary pass, and first whole-game
-desktop checkpoint are complete. The active Phase 05 correction now proceeds in this order:
-
-1. Compose cross-label events beneath the exact branch that reaches them, proving the contract on the
-   real fitting-room route before regenerating the whole game.
-2. Replace machine-derived condition, arm, destination, and rejoin wording with human story language,
-   while retaining raw Python as secondary evidence.
-3. Link later state gates, destinations, and rejoins to their earlier or downstream story points.
-4. Fix collapsed descendant behavior and let selected-arm prose use the full route width.
-5. Hide dead completed-story workflow chrome and correct ARIA/recent-project presentation defects.
-6. Regenerate a disposable whole-game review project and obtain user acceptance of the rendered
-   desktop timeline.
-
-The detailed implementation contract, gates, and focused checks are in
-[`docs/milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_05/IMPLEMENTATION_PLAN.md).
-
-All five Phase 05 correction areas are implemented as of 2026-07-31. The final disposable review project
-preserves the Python-owned counts, contains no machine-facing story names, and has working search,
-state backlinks, destination/rejoin navigation, route-wide detail, completed-story chrome, and valid
-ARIA at 1920x1080. The user accepted it as the factual and language baseline.
-
-The active M15.2 Phase 06 roadmap is:
-
-1. Derive stable frontend-only route contexts and local route colors from existing arm facts.
-2. Render a vertically unbounded main river with local tributaries, full-width owned route sections,
-   explicit confluences, and no pan or zoom.
-3. Synchronize an automatic selected-route panel with scrolling and existing story navigation.
-4. Prove the presentation on the real fitting-room route, one immediate rejoin, and one nested choice
-   at 1920px and 1280px before applying it to the whole game.
-
-The first implementation of steps 1-4 was rejected visually on 2026-07-31 because it remained a
-colored family tree rather than matching the selected Story River mock. The focused redesign now
-targets a thick dark main river, broad colored tributaries, compact station cards, an unmistakable
-merge, and selection-opened deep routes. Whole-game work still waits for acceptance of that proof.
-The replacement implementation is integrated and statically checked. Focused browser proof at
-1920px and 1280px now demonstrates the fitting-room owned route, nested routes, confluence links,
-state backlinks, panel synchronization, and zero horizontal page overflow. User acceptance remains
-the gate before whole-game application.
+## Current roadmap
 
 The active contract is
-[`docs/milestones/M15_PHASE_06/GOAL.md`](milestones/M15_PHASE_06/GOAL.md), with detailed sequencing in
-[`docs/milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md).
+[M16 Hybrid story mapping and third-game proof](milestones/M16_HYBRID_STORY_ATLAS/GOAL.md).
 
-Run focused tests during implementation. Broad CI, Release, packaging, PR work, and general polish
-wait until the user accepts the story or explicitly asks to ship it.
+### Gate 1 - Third-game deterministic section
+
+Run the unchanged extractor on a third unseen game. Prove one representative real section with
+correct branch membership, nesting, conditions, state provenance, destinations, rejoins, loops or
+terminals, and source evidence. Preserve any generic failure before repairing it.
+
+### Gate 2 - Frozen corridors and editorial canary
+
+Build execution-derived packets. Prove exact statement accounting, then inspect the first ten plus
+difficult structural corridors. Correct packet shape or prompt before any bulk work.
+
+### Gate 3 - Rendered prototype
+
+Render one real section in Chrome. Check nested interaction, evidence, state/destination/rejoin
+links, search/filter behavior, readability, console, long scrolling, and overflow. Stop if the
+presentation is not useful.
+
+### Gate 4 - Full audited result
+
+Parallelize only editorial summaries. Integrate by stable ID with exact-once checks. Run independent
+source/structure and rendered-browser audits. Record time to first useful story, full audited result,
+manual interventions, model settings, and unresolved coverage.
+
+### Gate 5 - Product selection
+
+Only after the third-game proof, choose the smallest reusable surface:
+
+- a static Story Atlas;
+- a text-first dossier with deterministic evidence; or
+- an adapted Story River using the same frozen hybrid packets.
+
+Then implement only the seams demonstrated necessary by the proof.
+
+## Delivery discipline
+
+- Prove one real section before whole-game work.
+- Run focused checks while changing parser/story/UI seams.
+- Keep a failed baseline immutable and give repaired runs new identities.
+- Do not repeat a failed bulk-summary pattern.
+- Distinguish deterministic completion, AI completion, publication, and rendered acceptance.
+- Use pull requests for GitHub updates.
+- Do not let sunk cost or attractive screenshots substitute for cross-game correctness.
 
 ## Completion
 
-The product is successful when the user can give it a game or script and scroll through a coherent
-whole-story timeline where branches, route requirements, state causes, outcomes, rejoins, and endings
-are understandable without reading raw code.
+The project succeeds when a new Ren'Py game can be turned into a coherent, source-grounded,
+auditable scrolling story in reasonable time without a game-specific product rewrite. Branches,
+state causes, routes, rejoins, endings, and uncertainty must be understandable to the user and
+mechanically traceable to Python-owned evidence.

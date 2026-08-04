@@ -1,173 +1,155 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-08-01
+Updated: 2026-08-03
 
 ## Active work
 
-- Active milestone: M15.2 Phase 06 Story River reader.
-- Contract: [`docs/milestones/M15_PHASE_06/GOAL.md`](milestones/M15_PHASE_06/GOAL.md).
-- Task ledger: [`docs/milestones/M15_PHASE_06/TASKS.md`](milestones/M15_PHASE_06/TASKS.md).
-- Implementation roadmap: [`docs/milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md`](milestones/M15_PHASE_06/IMPLEMENTATION_PLAN.md).
-- Active checkout: `codex/m15-phase06-story-river`, created from the completed Phase 05 reader at
-  `46763c4` on 2026-07-31.
-- Status: Phase 05 is the accepted factual and language baseline. The Story River flow is now
-  painted by `web/static/river.js` instead of drawn with CSS borders and `clip-path` polygons. The
-  user accepted that presentation on 2026-08-01, so the visual gate is closed; whole-game work is
-  unblocked but still needs its own go-ahead.
+- Active milestone: M16 Hybrid story mapping and third-game proof.
+- Contract: [`docs/milestones/M16_HYBRID_STORY_ATLAS/GOAL.md`](milestones/M16_HYBRID_STORY_ATLAS/GOAL.md).
+- Task ledger: [`docs/milestones/M16_HYBRID_STORY_ATLAS/TASKS.md`](milestones/M16_HYBRID_STORY_ATLAS/TASKS.md).
+- Architecture: [`docs/HYBRID_APPROACH.md`](HYBRID_APPROACH.md).
+- Historical narrative: [`docs/PROJECT_HISTORY.md`](PROJECT_HISTORY.md).
 - Native Codex goal: none.
+
+## Status summary
+
+The last accepted integrated app baseline is the painted Story River merged through PR #36 at
+commit `1c2f246`. It remains valid evidence for the Ms. Denvers development game.
+
+The current direction changed after the Resort of Temptation v0.2.2 benchmark:
+
+- the unchanged app failed in `canonical_graph` before AI or River publication;
+- direct source analysis produced a useful sourced dossier quickly but was not independently
+  exhaustive;
+- a generic hierarchy correction made the deterministic pipeline complete and acyclic;
+- the old all-at-once Story Map publication route still failed the required canary/model/lineage
+  acceptance boundary; and
+- a separate hybrid run successfully froze deterministic facts and corridors, added editorial AI,
+  built a static Story Atlas, and passed independent structural and Chrome audits.
+
+The hybrid is now the selected architecture. It has not yet replaced the integrated app and has not
+yet passed a third unseen game.
 
 ## Current product decision
 
-Present the established Python-owned story as a vertically unbounded Story River. Shared chronology
-uses a neutral main stream; each fork receives local route colors and stable visible codes; owned
-events remain on their route until a proven rejoin or terminal; and an automatic panel explains the
-route currently selected or passing through the reading position. This is an HTML scrolling reader,
-not a pan-and-zoom canvas.
+For a new game, prove story value in this order:
 
-The first Phase 06 build retained the correct fitting-room route ownership and navigation, but the
-user rejected its appearance on 2026-07-31: it was still the Phase 05 family tree with route colors,
-not the selected Story River mock. The active correction makes a thick dark shared river, broad
-colored tributaries, compact event and route cards, a strong merge capsule, and selection-opened deep
-routes the dominant visual structure. The rejected screenshots under
-`output/m15-phase06-story-river-proof-20260731` are comparison evidence only.
+1. deterministic source/control/state extraction;
+2. one source-checked real section;
+3. execution-derived corridor freeze;
+4. first-ten plus difficult-structure editorial canary;
+5. one real rendered prototype;
+6. full editorial parallelization only after the first gates pass;
+7. exact-once integration; and
+8. independent structure and Chrome audits.
 
-That first correction was itself rejected on 2026-08-01: it drew its flow with rectangles, thick
-borders, and `clip-path` polygons, so the tributaries read as stiff straight bars rather than water.
-Flow is now painted. `web/static/river.js` measures each event's laid-out boxes and fills one SVG
-layer per event with the trunk, its mouth flare, curved tributaries, the confluence merge, tapered
-tails for routes that end, and the stream into an owned route. Long carries take an edge lane so a
-rejoin never crosses another route's opened story. CSS still owns every card, colour, and type
-decision; only geometry moved. There is still no canvas, pan, zoom, or global node coordinate.
+Do not make River polish or the old durable AI workflow the first test of whether the game can be
+understood.
 
-The focused proof under `output/m15-phase06-story-river-proof-20260801` confirms the fitting-room
-Route B owns its cross-label event, nested routes B.1/B.2 retain their stream identity, rejoin and
-state-backlink navigation synchronize the panel, a seven-arm fork stacks onto a rail, both themes
-read, and neither required desktop width has horizontal page overflow. The user reviewed that proof
-and accepted the presentation on 2026-08-01.
+## Resort benchmark result
 
-The Phase 05 implementation beneath that presentation remains authoritative:
+### Unchanged current app
 
-Build the story progressively from actual Ren'Py execution flow and state:
+- Reached 523 labels, 47,543 nodes, 47,971 edges, 619 arms, 565 state effects, 203 gates, 18 loops,
+  and 95 terminal nodes.
+- Failed at `canonical_graph` with `builtins.RecursionError`.
+- `canonical_availability=none`.
+- Published story events/arcs/claims: 0/0/0.
+- Provider requests: 0.
+- Readable Story River: none.
+- Source-sampled grade: 0 PASS, 0 PARTIAL, 10 FAIL.
+- Time to conclusive failure: approximately 10 minutes 16 seconds.
 
-- collapse linear statements into readable corridors;
-- split at menus and conditions;
-- preserve nested choices;
-- track assignments and link later gates back to the decisions that established them;
-- follow jumps and calls to human-readable destinations;
-- detect demonstrated rejoins and endings; and
-- let AI summarize only after Python has built this structure.
+### Direct clean-slate analysis
 
-The first proof is the Terrance route. The user accepted its family-tree reader on 2026-07-28.
-The whole-game structure projection now accounts for all 149 parser labels: 134 are statically
-reachable from `start`, 15 are unreachable, and all 6 reachable unresolved mechanics remain
-explicit. Parser extraction and story coverage both grade PASS; resolution remains partial.
-The first 10 cloud-AI corridor summaries also passed factual review. The corrected graph-backed
-packetizer finds 604 Python-owned story-bearing chains and emits 597 narrative packets after seven
-non-story-only chains are excluded. It accounts for all 12,191 reachable narrative statements
-exactly once: 12,183 are included and 8 are explicitly excluded (the settings hint, adult setup
-prompt/refusal, four save reminders, and the credits patron thank-you). All 1,823 reachable
-control/effect facts remain available, including 205 direct state effects and 6 unresolved
-mechanics. Packets include every incoming M06 rejoin origin and the next Python control point with
-its arms; future AI beats remain presentation children of their original corridor.
+- First useful sourced explanation: approximately 11 minutes 15 seconds.
+- Full dossier plus independent structure/state audits: approximately 36 minutes 12 seconds.
+- Source-sampled grade: 8 PASS, 2 PARTIAL, 0 FAIL.
+- Required one-off extraction/audit scripts and a post-freeze named-menu semantics correction.
 
-The four user-visible Sol/High bulk tasks completed the remaining 587 summaries with zero deferrals.
-Together with the accepted first 10, all 597 corridors grade PASS for factual fidelity. Packet shape
-grades are 488 PASS, 80 PARTIAL, 26 LOW, and 3 FAIL. The three FAIL items are two old-save warnings
-and one developer error, so they remain in coverage accounting but are excluded from the default
-reader. A nine-corridor cross-game sample review passed. The 26 LOW items are mostly exact but
-context-poor fragments and must be stitched into their owning branch or continuation rather than
-rendered as standalone event cards.
+The benchmark recommendation was hybrid: retain deterministic evidence but stop treating canonical
+Story River assembly and UI polish as the primary proof of value.
 
-The current correction keeps the existing 66-node, 75-edge structural walk authoritative while
-replacing the stacked outline with a polished family-tree reader. Direct sibling routes fork
-horizontally from their parent; deeper controls regain the full reading width beneath the exact
-route that owns them. Python classifies the 22 projected arms as 12 continuations, 9 proven rejoins,
-1 true ending, and 0 unresolved. The reader uses blue decisions, amber conditions, green continuing
-paths, purple rejoins, and red only for the true unavailable ending. Concrete story detail still
-opens inline, while variables, reachability, source lines, and evidence remain secondary.
+## Generic region-hierarchy correction
 
-The whole-game reader assembly now attaches all 594 reader-visible corridor summaries exactly once
-under 111 Python-owned label events and their owning route flow. The full authority remains 324
-controls and 700 menu/condition arms. The default story tree shows 260 controls and 571 arms; 64
-startup, developer, and hint controls remain preserved in expandable technical detail instead of
-interrupting the story. A real 1920x1080 browser inspection measured zero horizontal overflow for
-both the page and the scrolling story surface. Three sibling arms measured 544, 528, and
-375 pixels, concrete event and arm detail expanded in place, and decision, condition, continuation,
-rejoin, ending, and unresolved colors remained distinct. The review copy and evidence are under
-`output/m15-phase05-whole-game-reader-20260729` in the main Renpy checkout.
+The canonical failure was caused by repeated/checklist menus. Broad reachability made shared
+continuation hubs appear owned by several arms, producing cyclic parent chains.
 
-The coordinator correction removes the repeated structure-only fallback from all 202 affected arms.
-Those arms now describe only their proven destination, next control, rejoin, ending, unresolved point,
-or state change. The 29 labels without shared corridor prose render as neutral Python-control gates
-with no borrowed child-route summary. The regenerated page and 1920px browser contain zero instances
-of the rejected fallback or the former `Open the owning route below` helper, with structural and
-outcome counts unchanged.
+The current correction:
 
-The 2026-07-30 UI rebuild removes the obsolete map, zoom, inspection, route-solver, narrative-job,
-and organization surfaces from the default browser. The remaining reader has a story index,
-client-side event search, wider forks, collapsible deep branches, concise outcome lines, and readable
-expanded prose. It does not change Python story facts.
+- accepts a parent only when the child split belongs to exactly one parent arm;
+- deterministically clears a cycle's outer root;
+- leaves ambiguous shared regions unparented;
+- rejects malformed hierarchy before recursive M10/M11 traversal; and
+- derives source-projection lineage from declared parents and raw unique arm ownership.
 
-The 2026-07-31 Gate 1 implementation adds the smallest arm-owned cross-label route flow. The real
-fitting-room proof places the called argument event only beneath `Keep arguing with her`; `Push her
-out` bypasses it; the returned shared continuation remains canonical; loop or ambiguous reuse becomes
-a stable reference rather than duplicated recursion. Recursive browser search, index navigation, and
-count traversal include nested events. The focused 1920x1080 proof has no horizontal overflow, and an
-in-memory invariant audit remains at 111 events, 594 corridors, 260 controls, and 571 arms. The full
-reader has now been regenerated as a first-10 naming canary with the same totals and no overflow.
+Focused tests and lint pass. A fresh Resort deterministic project completed with current M06/M10/
+M11 results. This is a generic deterministic fix, not proof that the old Story Map publication path
+is complete.
 
-The deterministic story-name resolver uses accepted stable-ID wording, exact corridor titles, owning
-event titles, or readable narrative before falling back explicitly. It never derives prose by
-splitting identifiers. The initial real inventory contained 87 uncovered names; the coordinator's
-10 accepted canary overrides reduced that to 74 because several named structural targets also resolve
-dependent rows. The rendered canary shows the accepted condition question, event, destination, and
-rejoin language while raw Python remains in secondary detail. Three user-visible Sol/High tasks
-reviewed the remaining 74 items in 25/25/24 batches. Their 69 safe names plus the accepted first 10
-resolve the entire final inventory: zero user-visible names remain uncovered. The accepted stable-ID
-artifact is [`STORY_NAME_OVERRIDES.json`](milestones/M15_PHASE_05/STORY_NAME_OVERRIDES.json).
+## Old publication-path boundary
 
-Completed progressive stories now hide dead Generate/readiness chrome, while actionable workflow
-controls remain available. Recent project cards show source basename and precise last-opened time
-without returning an absolute path; merely listing recent projects cannot migrate them.
+A final zero-submit Resort attempt successfully prepared 166 pending jobs and made zero provider
+calls. It stopped before AI because:
 
-Closed descendant routes now hide their content, selected-arm detail uses one route-wide slot capped
-near 68 characters, and ordinary story buttons no longer use `aria-selected`. Later state gates now
-carry path-compatible links to earlier assignments or explicit unresolved provenance. Destination
-and rejoin rows navigate to stable story targets. The 1920x1080 final review has zero user-visible
-underscored identifiers, raw expressions, rejected route headings, mechanical shared names, bare
-`Otherwise`, or unnamed destination fallbacks; search, focus/highlight navigation, and Clear work
-without console errors. Page and story overflow are both zero. Evidence and the disposable project
-are under `output/m15-phase05-reader-corrections-20260731/final-review`.
+- the supported workflow had no exact-first-ten execution selector;
+- its available provider bindings did not match the requested Luna/Max policy; and
+- a broad Episode 3 sample found 15 direct nested arm-entry spans with incomplete local lineage in
+  the legacy source-adapter publication path.
 
-## User-selected operating rules
+No database slicing, cache injection, or cancel-after-ten workaround was used. Before describing the
+legacy path as fixed, rerun that Episode 3 lineage sample and the supported canary/publication flow.
 
-- Full-width desktop scrolling timeline only.
-- No pan, zoom, fit, 100%/200% variants, or mobile optimization.
-- Trusted game execution is allowed; prefer a disposable headless run.
-- Original inputs remain read-only.
-- Game and script content may be sent to cloud AI.
-- Cloud AI is the default; use a local LLM only when explicitly requested.
-- Independent work is split into user-visible `gpt-5.6-sol` High Codex tasks in the sidebar unless
-  the user says otherwise. Internal subagents do not satisfy a request for Codex tasks/threads.
-- Bulk cloud summaries use a first-10 canary, then approximately equal parallel work across three or
-  four user-visible Sol/High tasks.
+## Hybrid Resort proof
 
-## Rejected result
+The successful hybrid run froze:
 
-Generation `71a92c9d...e6987` and its 34-section outline are not accepted. Audit findings include
-misassigned choices, missing arms, flattened nesting, false endings, opaque destinations, and clipped
-summaries. Old counts such as 103/103 successful mapper calls prove transport completion only, not a
-correct story timeline.
+- 35 verified source files;
+- 523 labels, 47,543 nodes, and 47,971 edges;
+- 1,103 story corridors containing 23,825 unique narrative statements exactly once;
+- 101 choices, 177 conditions, and 620 exported arms;
+- 565 effects, 203 requirements, 222 rejoins, 18 loops, and 95 structural terminals; and
+- 557 explicit unresolved records.
 
-The 103 saved summaries, 105 transport chunks, earlier 24/34 groups, old local-only policies, and
-historical Phase 04/Stage H/E rules are not active acceptance requirements.
+The coordinator inspected a first-ten plus eight-item structural canary and a real Chrome prototype
+before bulk work. Four parallel editorial batches completed the remaining 1,085 corridors after
+focused repairs to generic prose. Exact-once integration passed. Independent structure audit passed.
+Independent Chrome audit passed after three Atlas-only corrections for stale technical content,
+navigation to filtered targets, and a stale empty-state message.
+
+Timing:
+
+- first useful story summary: approximately 47 minutes 40 seconds;
+- first usable complete Atlas: approximately 1 hour 59 minutes 40 seconds;
+- final audited freeze: approximately 2 hours 46 minutes 34 seconds.
+
+This is complete and trustworthy for source-establishable Resort v0.2.2 structure. It is not an
+unseen third-game proof and is not committed as a generated product artifact.
+
+## Current operating rules
+
+- Original game inputs remain read-only.
+- Supplied game archives and extracted script trees stay out of Git.
+- Python owns factual structure; AI owns editorial explanation only.
+- Cloud AI is default unless the user requests local processing.
+- Prove one real section before whole-game work.
+- Inspect a first-ten canary before parallel editorial work.
+- A failure in deterministic extraction, publication, or rendering remains a failure at that gate.
+- Full-width desktop scrolling reader only; no pan/zoom/mobile scope.
+- Dynamic behavior that source cannot establish stays explicitly unresolved.
+
+## Next action
+
+Run the M16 hybrid contract on a genuinely unseen third game. Do not choose the permanent reader UI
+or invest in more River polish until that proof shows whether the fact package, corridor boundaries,
+canary, and audited full result generalize without a game-specific rewrite.
 
 ## Authority
 
-1. The user's latest explicit instructions.
-2. `AGENTS.md` and `docs/MASTER_PLAN.md`.
-3. The active Phase 05 contract.
-4. This live project pointer.
+1. The user's latest explicit instruction.
+2. Repository `AGENTS.md` and [`MASTER_PLAN.md`](MASTER_PLAN.md).
+3. The active [M16 goal](milestones/M16_HYBRID_STORY_ATLAS/GOAL.md).
+4. This project-state pointer.
 
-Historical milestone documents are evidence only. They do not control current UI, provider,
-privacy, model, testing, or orchestration decisions.
+Older milestone files are historical evidence. They do not control the active UI, provider, model,
+testing, or orchestration decision unless the current authority explicitly adopts them.

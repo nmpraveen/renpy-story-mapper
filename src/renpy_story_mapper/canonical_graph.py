@@ -831,10 +831,13 @@ def _resolved_guard_states(
         _text(item, "id"): str(item.get("label", "")) for item in control_nodes
     }
     arms = _records(control_flow.get("arms"), "control_flow.arms")
-    regions = {
-        _text(item, "id"): item
-        for item in _records(control_flow.get("regions"), "control_flow.regions")
-    }
+    regions: dict[str, dict[str, object]] = {}
+    for region_record in _records(control_flow.get("regions"), "control_flow.regions"):
+        region_id = _text(region_record, "id")
+        if region_id in regions:
+            raise ValueError(f"M06 region hierarchy repeats region {region_id}")
+        regions[region_id] = region_record
+    _validate_region_hierarchy(regions)
     children: dict[str, list[str]] = defaultdict(list)
     for region_id, region in regions.items():
         parent = region.get("parent_region_id")
@@ -1285,6 +1288,34 @@ def _region_membership(control_flow: Mapping[str, object]) -> dict[str, tuple[st
         for node_id in members:
             result[node_id].append(region_id)
     return {key: tuple(sorted(value)) for key, value in result.items()}
+
+
+def _validate_region_hierarchy(regions: Mapping[str, Mapping[str, object]]) -> None:
+    """Reject malformed persisted parent links before recursive guard expansion."""
+
+    parent_by_region: dict[str, str | None] = {}
+    for region_id in sorted(regions):
+        parent = regions[region_id].get("parent_region_id")
+        if parent is not None and not isinstance(parent, str):
+            raise ValueError(f"M06 region {region_id} has an invalid parent_region_id")
+        if isinstance(parent, str) and parent not in regions:
+            raise ValueError(f"M06 region {region_id} references unknown parent {parent}")
+        parent_by_region[region_id] = parent
+
+    for start in sorted(parent_by_region):
+        path: list[str] = []
+        positions: dict[str, int] = {}
+        current: str | None = start
+        while current is not None:
+            position = positions.get(current)
+            if position is not None:
+                cycle = (*path[position:], current)
+                raise ValueError(
+                    "M06 region hierarchy contains a cycle: " + " -> ".join(cycle)
+                )
+            positions[current] = len(path)
+            path.append(current)
+            current = parent_by_region[current]
 
 
 def _route_node(route_map: RouteMap, graph_node_id: str) -> RouteNode | None:

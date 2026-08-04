@@ -1568,21 +1568,44 @@ def _classify_region(
 def _region_parents(
     regions: Sequence[ControlRegion], arms: Sequence[ControlArm]
 ) -> list[ControlRegion]:
-    result: list[ControlRegion] = []
-    boundary_parents: dict[str, set[str]] = defaultdict(set)
+    boundary_parents: dict[str, dict[str, set[str]]] = defaultdict(dict)
     for arm in arms:
         for node in arm.node_ids:
-            boundary_parents[node].add(arm.region_id)
+            boundary_parents.setdefault(node, {}).setdefault(arm.region_id, set()).add(arm.id)
     region_by_id = {region.id: region for region in regions}
+    parent_by_id: dict[str, str | None] = {}
     for region in regions:
         parents = [
             region_by_id[parent_id]
-            for parent_id in boundary_parents[region.split_node_id]
+            for parent_id, parent_arm_ids in boundary_parents.get(region.split_node_id, {}).items()
             if parent_id != region.id
+            and parent_id in region_by_id
+            and len(parent_arm_ids) == 1
         ]
         parent = min(parents, key=lambda item: (len(item.node_ids), item.id), default=None)
-        result.append(replace(region, parent_region_id=parent.id if parent is not None else None))
-    return result
+        parent_by_id[region.id] = parent.id if parent is not None else None
+
+    cycles: set[frozenset[str]] = set()
+    for start_id in sorted(parent_by_id):
+        path: list[str] = []
+        positions: dict[str, int] = {}
+        current: str | None = start_id
+        while current is not None and current in parent_by_id:
+            if current in positions:
+                cycles.add(frozenset(path[positions[current] :]))
+                break
+            positions[current] = len(path)
+            path.append(current)
+            current = parent_by_id[current]
+
+    for cycle in sorted(cycles, key=lambda item: tuple(sorted(item))):
+        root_id = max(
+            cycle,
+            key=lambda region_id: (len(region_by_id[region_id].node_ids), region_id),
+        )
+        parent_by_id[root_id] = None
+
+    return [replace(region, parent_region_id=parent_by_id[region.id]) for region in regions]
 
 
 def _ownership(
