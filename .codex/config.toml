@@ -1,0 +1,4 @@
+service_tier = "fast"
+
+[features]
+fast_mode = true
