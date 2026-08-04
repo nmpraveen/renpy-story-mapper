@@ -190,7 +190,7 @@ def _storyboard(args: argparse.Namespace) -> int:
     print(f"Validation: {result.validation_report.status}")
     for name in result.artifacts:
         print(f"{name}: {result.artifacts[name]}")
-    return 0
+    return 0 if result.validation_report.publishable else 2
 
 
 def _project_create(args: argparse.Namespace) -> int:

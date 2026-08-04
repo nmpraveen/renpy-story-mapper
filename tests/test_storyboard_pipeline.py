@@ -293,6 +293,48 @@ def test_cli_supports_json_replay_inputs_and_bounded_label(tmp_path: Path, capsy
     assert set(item.name for item in output.iterdir()) == set(ARTIFACT_FILENAMES)
 
 
+def test_cli_returns_two_for_rejected_validation_and_keeps_artifacts(
+    tmp_path: Path, capsys: Any
+) -> None:
+    game, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _legacy_replays(evidence)
+    scenes = analysis["scenes"]
+    assert isinstance(scenes, list)
+    scene = scenes[0]
+    assert isinstance(scene, dict)
+    member_evidence_ids = scene["member_evidence_ids"]
+    assert isinstance(member_evidence_ids, list)
+    member_evidence_ids.append("fake-evidence-id")
+
+    replay = tmp_path / "rejected-replay"
+    replay.mkdir()
+    (replay / "profile.json").write_text(json.dumps(profile), encoding="utf-8")
+    (replay / "analysis.json").write_text(json.dumps(analysis), encoding="utf-8")
+    output = tmp_path / "rejected-artifacts"
+
+    code = main(
+        [
+            "storyboard",
+            str(game),
+            "--output",
+            str(output),
+            "--source-path",
+            "canary.rpy",
+            "--canary-label",
+            "unfamiliar_entry",
+            "--profile-json",
+            str(replay / "profile.json"),
+            "--analysis-json",
+            str(replay / "analysis.json"),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 2
+    assert "Validation: rejected" in captured.out
+    assert set(item.name for item in output.iterdir()) == set(ARTIFACT_FILENAMES)
+
+
 def test_pipeline_makes_one_profile_and_one_analysis_provider_call(tmp_path: Path) -> None:
     game, _evidence = _source_and_evidence(tmp_path)
 
