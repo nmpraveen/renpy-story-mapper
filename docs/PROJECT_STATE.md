@@ -5,8 +5,8 @@ Updated: 2026-08-04
 ## Active work
 
 - Active product direction: AI-first Ren'Py-game-to-readable-web-storyboard pipeline.
-- Active phase: Phase 01 canary; no product implementation or generated canary output is claimed
-  yet.
+- Active phase: Phase 01 canary review. The isolated implementation and a deterministically
+  publishable real-game canary exist; later phases are paused pending visual acceptance.
 - Active goal and task ledger: [`docs/storyboard-v2/GOAL.md`](storyboard-v2/GOAL.md).
 - Phase instructions: [`_storyboard_plan/02_PHASE_01_CANARY_PROMPT.md`](../_storyboard_plan/02_PHASE_01_CANARY_PROMPT.md).
 - Repository rules: [`AGENTS.md`](../AGENTS.md).
@@ -30,10 +30,22 @@ dynamic behavior remains explicitly unresolved.
 
 ## Phase 01 status
 
-The phase has not started beyond this authority reset. The next implementation work is limited to
-one connected section of a real game and must produce the five canary files named in the active goal.
-Before any full-game work, the coordinator must inspect the first useful rendered section and the
-focused validation results.
+The isolated `src/renpy_story_mapper/storyboard/` path now implements deterministic evidence
+extraction, schema-constrained profile and story-analysis seams, exact-once coverage validation,
+artifact-byte provenance checks, and static HTML rendering. The accepted real-game canary covers
+`_6_2_WG_clean` lines 218-381 from `v0.07_6-1_clean.rpyc`.
+
+The five accepted artifacts are outside Git at
+`C:\Users\prave\Documents\RenPy Story Mapper Trials\Storyboard-V2-Phase01-20260804-accepted`.
+Validation is publishable with 159/159 accountable records covered, no exclusions, no unaccounted
+records, and no duplicate memberships. The two menu arms contain 17 and 33 branch-owned records.
+The evidence, profile, and analysis files are linked by verified SHA-256 hashes of the exact emitted
+UTF-8 JSON bytes. The original `scripts.rpa` remained unchanged.
+
+Focused storyboard verification passes: 30 tests, Ruff, and strict mypy. Broad legacy tests were
+intentionally not run. Chrome connected, but its browser security policy rejected direct
+`file://` navigation to the generated page. Phase 01 therefore remains awaiting the user's visual
+inspection of `index.html`; no later phase may start before that acceptance.
 
 The required proof is:
 
@@ -61,7 +73,7 @@ They explain why this reset protects deterministic evidence and audits, but they
 instructions to restrict AI to editorial titles and summaries or to require the old hybrid reader.
 
 No third-game generalization, full-game completion, or final reader choice is claimed from that prior
-work or from this documentation-only commit.
+work or from this Phase 01 canary.
 
 ## Authority
 
