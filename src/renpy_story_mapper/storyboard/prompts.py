@@ -24,12 +24,16 @@ def build_game_profile_request(
         "task": (
             "Infer the conventions needed to explain this Ren'Py source. Identify characters, "
             "variables, custom constructs, scene conventions, entry points, and ending or "
-            "replay patterns. Every inferred record must cite one or more exact evidence IDs."
+            "replay patterns. Include the game/story title when the evidence establishes it. "
+            "Every inferred record must cite one or more exact evidence IDs."
         ),
         "authority": (
             "Evidence IDs and source text are authoritative. You may interpret unfamiliar "
             "syntax, but do not present an uncertain dynamic behavior as a fact. Preserve a "
-            "confidence level and an unresolved explanation for each inference."
+            "confidence level and separate status/uncertainty text for each inference. Embedded "
+            "Python and runtime-computed behavior are unresolved by default. Custom or unknown "
+            "constructs may be interpreted when the cited evidence supports the interpretation and "
+            "the response supplies a rationale."
         ),
         "security": (
             "Use only the structured evidence in this request; do not use tools, files, web, "
@@ -56,13 +60,18 @@ def build_story_analysis_request(
         "task": (
             "Explain the selected connected story section as a readable storyboard. Preserve "
             "exact-line membership by evidence ID, choices, conditions, branch consequences, "
-            "destinations, rejoins, loops, terminals, and unresolved dynamic behavior."
+            "destinations, semantic destination scene IDs, explicit source/target evidence, "
+            "rejoins, loops, terminals, and unresolved dynamic behavior. Include exact-once leaf "
+            "ownership for shared scene bodies, each menu/conditional arm, shared continuations, "
+            "and explicit exclusion/unresolved buckets. Preserve the declared scene order."
         ),
         "authority": (
             "Use the game profile for interpretation, but keep every structural or semantic "
             "claim bound to exact evidence IDs. Do not invent or relocate source lines, choice "
-            "arms, conditions, effects, destinations, rejoins, loops, or endings. If parser and "
-            "interpretation disagree, record the disagreement explicitly."
+            "arms, conditions, effects, destinations, rejoins, loops, or endings. If parser "
+            "and interpretation disagree, record the disagreement explicitly. Use status "
+            "separately from uncertainty text; line lists may be empty when a scene or arm has "
+            "no direct lines."
         ),
         "security": (
             "Use only the structured profile and evidence in this request; do not use tools, "

@@ -5,8 +5,8 @@ Updated: 2026-08-04
 ## Active work
 
 - Active product direction: AI-first Ren'Py-game-to-readable-web-storyboard pipeline.
-- Active phase: Phase 01 canary review. The implementation has completed code review and release
-  hardening; later phases remain paused pending visual acceptance.
+- Active phase: Phase 01.1 contract/evidence hardening. Focused implementation checks pass; the
+  real canary rerun and visual acceptance remain pending, and later phases remain paused.
 - Active goal and task ledger: [`docs/storyboard-v2/GOAL.md`](storyboard-v2/GOAL.md).
 - Phase instructions: [`_storyboard_plan/02_PHASE_01_CANARY_PROMPT.md`](../_storyboard_plan/02_PHASE_01_CANARY_PROMPT.md).
 - Repository rules: [`AGENTS.md`](../AGENTS.md).
@@ -30,29 +30,29 @@ dynamic behavior remains explicitly unresolved.
 
 ## Phase 01 status
 
-The isolated `src/renpy_story_mapper/storyboard/` path now implements deterministic evidence
-extraction, schema-constrained profile and story-analysis seams, exact-once coverage validation,
-artifact-byte provenance checks, and static HTML rendering. The accepted real-game canary covers
-`_6_2_WG_clean` lines 218-381 from `v0.07_6-1_clean.rpyc`.
+The isolated `src/renpy_story_mapper/storyboard/` path now implements a parser-independent
+source-line ledger with parser annotations, one canonical evidence/profile/analysis contract,
+exact-once semantic ownership and per-scene/per-arm coverage, status-aware uncertainty validation,
+semantic scene destinations with source/target evidence, structural parent closure, public-path
+redaction, and normal-reader-first HTML rendering. The prior real-game canary covers
+`_6_2_WG_clean` lines 218-381 from `v0.07_6-1_clean.rpyc`, but its generated artifacts predate
+these Phase 01.1 corrections and were not regenerated in this task.
 
-The five accepted artifacts are outside Git at
+The five prior accepted artifacts are outside Git at
 `C:\Users\prave\Documents\RenPy Story Mapper Trials\Storyboard-V2-Phase01-20260804-accepted`.
-Validation is publishable with 159/159 accountable records covered, no exclusions, no unaccounted
-records, and no duplicate memberships. The two menu arms contain 17 and 33 branch-owned records.
+That baseline validation was publishable with 159/159 accountable records covered, no exclusions,
+no unaccounted records, and no duplicate memberships. The two menu arms contained 17 and 33
+branch-owned records.
 The evidence, profile, and analysis files are linked by verified SHA-256 hashes of the exact emitted
 UTF-8 JSON bytes. The original `scripts.rpa` remained unchanged.
 
-Code review hardened provider-output schema enforcement, complete source-scope echoes, semantic
-scene/choice/transition references, dynamic-evidence uncertainty, stable path-based IDs, fresh
-transactional artifact publication, read-only file-input boundaries, validation-error rendering,
-package exports, and CI shard registration. Focused storyboard verification passes: 40 tests, Ruff,
-strict mypy across 143 source files, the CI sharding contract, and wheel/sdist packaging with both
-schemas present. A full legacy regression run reached 1,852 passed and 15 expected skips; its only
-two failures were stale workflow-authority assertions, and the corrected workflow contract plus all
-focused storyboard tests now pass together (42 tests).
+The Phase 01.1 focused verification passes: 48 storyboard seam tests, Ruff, and strict mypy across
+the storyboard package. It includes parser-failure ledger recovery, branch ownership, dynamic
+status semantics, schema acceptance, scene ordering, nested span closure, path redaction, and the
+known-game/fixed-count scan. No real cloud canary acceptance run or screenshot was performed here.
 
-Chrome connected, but its browser security policy rejected direct `file://` navigation to the
-generated page. Phase 01 therefore remains awaiting the user's visual inspection of `index.html`;
+The prior Chrome attempt was blocked by direct `file://` navigation policy. Phase 01.1 therefore
+remains awaiting the separate real-canary rerun and visual inspection of its generated `index.html`;
 no later phase may start before that acceptance.
 
 The required proof is:

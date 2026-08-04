@@ -16,56 +16,31 @@
   ],
   "properties": {
     "schema": {"const": "storyboard-game-profile-v1"},
+    "title": {"$ref": "#/$defs/text"},
+    "game_title": {"$ref": "#/$defs/text"},
+    "story_title": {"$ref": "#/$defs/text"},
+    "status": {"$ref": "#/$defs/status"},
+    "uncertainty": {"type": ["string", "null"]},
     "source": {"$ref": "#/$defs/source"},
-    "entry_points": {
-      "type": "array",
-      "items": {"$ref": "#/$defs/entry_point"}
-    },
-    "characters": {
-      "type": "array",
-      "items": {"$ref": "#/$defs/character"}
-    },
-    "variables": {
-      "type": "array",
-      "items": {"$ref": "#/$defs/variable"}
-    },
-    "custom_constructs": {
-      "type": "array",
-      "items": {"$ref": "#/$defs/custom_construct"}
-    },
-    "conventions": {
-      "type": "array",
-      "items": {"$ref": "#/$defs/convention"}
-    },
-    "ending_patterns": {
-      "type": "array",
-      "items": {"$ref": "#/$defs/ending_pattern"}
-    },
-    "unresolved": {
-      "type": "array",
-      "items": {"$ref": "#/$defs/unresolved"}
-    }
+    "entry_points": {"type": "array", "items": {"$ref": "#/$defs/entry_point"}},
+    "characters": {"type": "array", "items": {"$ref": "#/$defs/character"}},
+    "variables": {"type": "array", "items": {"$ref": "#/$defs/variable"}},
+    "custom_constructs": {"type": "array", "items": {"$ref": "#/$defs/custom_construct"}},
+    "conventions": {"type": "array", "items": {"$ref": "#/$defs/convention"}},
+    "ending_patterns": {"type": "array", "items": {"$ref": "#/$defs/ending_pattern"}},
+    "unresolved": {"type": "array", "items": {"$ref": "#/$defs/unresolved"}}
   },
   "$defs": {
-    "text": {
-      "type": "string",
-      "minLength": 1
-    },
+    "text": {"type": "string", "minLength": 1},
     "evidence_ids": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
       "items": {"$ref": "#/$defs/text"}
     },
-    "inference": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["evidence_ids", "confidence", "unresolved"],
-      "properties": {
-        "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "unresolved": {"type": "string"}
-      }
+    "status": {
+      "type": "string",
+      "enum": ["resolved", "uncertain", "unresolved", "excluded"]
     },
     "source": {
       "type": "object",
@@ -76,19 +51,35 @@
         "scope_evidence_ids": {"$ref": "#/$defs/evidence_ids"}
       }
     },
+    "inference_fields": {
+      "type": "object",
+      "properties": {
+        "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
+        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+        "unresolved": {"type": "string"},
+        "status": {"$ref": "#/$defs/status"},
+        "uncertainty": {"type": ["string", "null"]},
+        "rationale": {"type": ["string", "null"]},
+        "interpretation_rationale": {"type": ["string", "null"]}
+      }
+    },
     "entry_point": {
       "allOf": [
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["id", "label", "role", "evidence_ids", "confidence", "unresolved"],
+          "required": ["id", "label", "role", "evidence_ids", "confidence"],
           "properties": {
             "id": {"$ref": "#/$defs/text"},
             "label": {"$ref": "#/$defs/text"},
             "role": {"$ref": "#/$defs/text"},
             "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
             "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-            "unresolved": {"type": "string"}
+            "unresolved": {"type": "string"},
+            "status": {"$ref": "#/$defs/status"},
+            "uncertainty": {"type": ["string", "null"]},
+            "rationale": {"type": ["string", "null"]},
+            "interpretation_rationale": {"type": ["string", "null"]}
           }
         }
       ]
@@ -96,70 +87,42 @@
     "character": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "id",
-        "names",
-        "description",
-        "evidence_ids",
-        "confidence",
-        "unresolved"
-      ],
+      "required": ["id", "names", "description", "evidence_ids", "confidence"],
       "properties": {
         "id": {"$ref": "#/$defs/text"},
-        "names": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {"$ref": "#/$defs/text"}
-        },
+        "names": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/text"}},
         "description": {"$ref": "#/$defs/text"},
         "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
         "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "unresolved": {"type": "string"}
+        "unresolved": {"type": "string"},
+        "status": {"$ref": "#/$defs/status"},
+        "uncertainty": {"type": ["string", "null"]},
+        "rationale": {"type": ["string", "null"]},
+        "interpretation_rationale": {"type": ["string", "null"]}
       }
     },
     "variable": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "id",
-        "names",
-        "meaning",
-        "roles",
-        "evidence_ids",
-        "confidence",
-        "unresolved"
-      ],
+      "required": ["id", "names", "meaning", "roles", "evidence_ids", "confidence"],
       "properties": {
         "id": {"$ref": "#/$defs/text"},
-        "names": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {"$ref": "#/$defs/text"}
-        },
+        "names": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/text"}},
         "meaning": {"$ref": "#/$defs/text"},
-        "roles": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/text"}
-        },
+        "roles": {"type": "array", "items": {"$ref": "#/$defs/text"}},
         "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
         "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "unresolved": {"type": "string"}
+        "unresolved": {"type": "string"},
+        "status": {"$ref": "#/$defs/status"},
+        "uncertainty": {"type": ["string", "null"]},
+        "rationale": {"type": ["string", "null"]},
+        "interpretation_rationale": {"type": ["string", "null"]}
       }
     },
     "custom_construct": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "id",
-        "syntax",
-        "meaning",
-        "behavior",
-        "evidence_ids",
-        "confidence",
-        "unresolved"
-      ],
+      "required": ["id", "syntax", "meaning", "behavior", "evidence_ids", "confidence"],
       "properties": {
         "id": {"$ref": "#/$defs/text"},
         "syntax": {"$ref": "#/$defs/text"},
@@ -167,46 +130,62 @@
         "behavior": {"$ref": "#/$defs/text"},
         "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
         "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "unresolved": {"type": "string"}
+        "unresolved": {"type": "string"},
+        "status": {"$ref": "#/$defs/status"},
+        "uncertainty": {"type": ["string", "null"]},
+        "rationale": {"type": ["string", "null"]},
+        "interpretation_rationale": {"type": ["string", "null"]}
       }
     },
     "convention": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "kind", "description", "evidence_ids", "confidence", "unresolved"],
+      "required": ["id", "kind", "description", "evidence_ids", "confidence"],
       "properties": {
         "id": {"$ref": "#/$defs/text"},
         "kind": {"$ref": "#/$defs/text"},
         "description": {"$ref": "#/$defs/text"},
         "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
         "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "unresolved": {"type": "string"}
+        "unresolved": {"type": "string"},
+        "status": {"$ref": "#/$defs/status"},
+        "uncertainty": {"type": ["string", "null"]},
+        "rationale": {"type": ["string", "null"]},
+        "interpretation_rationale": {"type": ["string", "null"]}
       }
     },
     "ending_pattern": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "kind", "description", "evidence_ids", "confidence", "unresolved"],
+      "required": ["id", "kind", "description", "evidence_ids", "confidence"],
       "properties": {
         "id": {"$ref": "#/$defs/text"},
         "kind": {"$ref": "#/$defs/text"},
         "description": {"$ref": "#/$defs/text"},
         "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
         "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "unresolved": {"type": "string"}
+        "unresolved": {"type": "string"},
+        "status": {"$ref": "#/$defs/status"},
+        "uncertainty": {"type": ["string", "null"]},
+        "rationale": {"type": ["string", "null"]},
+        "interpretation_rationale": {"type": ["string", "null"]}
       }
     },
     "unresolved": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "topic", "description", "evidence_ids", "confidence", "unresolved"],
+      "required": ["id", "topic", "description", "confidence"],
       "properties": {
         "id": {"$ref": "#/$defs/text"},
         "topic": {"$ref": "#/$defs/text"},
         "description": {"$ref": "#/$defs/text"},
         "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
         "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "unresolved": {"type": "string"}
+        "unresolved": {"type": "string"},
+        "status": {"$ref": "#/$defs/status"},
+        "uncertainty": {"type": ["string", "null"]},
+        "rationale": {"type": ["string", "null"]},
+        "interpretation_rationale": {"type": ["string", "null"]}
       }
     }
   }

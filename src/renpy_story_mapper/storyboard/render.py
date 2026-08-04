@@ -78,7 +78,7 @@ def render_storyboard_html(
     evidence_records = _build_evidence_index(evidence)
     state = _RenderState(evidence_records, [], set())
     title = _story_title(profile, analysis)
-    scenes = _records(analysis, ("scenes", "sections"))
+    scenes = _ordered_scenes(_records(analysis, ("scenes", "sections")))
     summary = _first_text(analysis, "summary", "overview", "description")
 
     content: list[str] = [
@@ -93,13 +93,19 @@ def render_storyboard_html(
     profile_notes = _notes_from(
         profile, ("unresolved", "unresolved_items", "uncertainty"), "Profile"
     )
+    profile_status = _first_text(profile, "status")
+    if profile_status and profile_status not in {"resolved", "none"}:
+        content.append(
+            f'<div class="uncertainty"><span class="detail-label">Profile status:</span>'
+            f"{_escape(profile_status)}</div>"
+        )
     if profile_notes:
         content.append(_render_notes("Profile uncertainty", profile_notes, state))
 
     if scenes:
         content.append('<section class="scenes" aria-label="Scenes">')
         for scene_index, scene in enumerate(scenes):
-            content.append(_render_scene(scene, scene_index, state))
+            content.append(_render_scene(scene, scene_index, state, analysis))
         content.append("</section>")
     else:
         content.append('<p class="uncertainty">No AI scenes were supplied.</p>')
@@ -119,11 +125,37 @@ def render_storyboard_html(
             content.append(_render_menu(menu, menu_index, state))
         content.append("</section>")
 
+    top_level_continuations = [
+        continuation
+        for continuation in _records(analysis, ("continuations",))
+        if not _first_text(continuation, "scene_id")
+    ]
+    if top_level_continuations:
+        content.append('<section class="continuations" aria-label="Shared continuations">')
+        content.append("<h2>Shared continuations</h2>")
+        for continuation_index, continuation in enumerate(
+            _ordered_records(top_level_continuations, state.evidence)
+        ):
+            content.append(_render_continuation(continuation, continuation_index, state))
+        content.append("</section>")
+
     analysis_notes = _notes_from(
         analysis,
-        ("unresolved", "unresolved_items", "uncertainty", "uncertainties"),
+        (
+            "unresolved",
+            "unresolved_items",
+            "uncertainty",
+            "uncertainties",
+            "exclusions",
+        ),
         "Analysis",
     )
+    analysis_status = _first_text(analysis, "status")
+    if analysis_status and analysis_status not in {"resolved", "none"}:
+        content.append(
+            f'<div class="uncertainty"><span class="detail-label">Analysis status:</span>'
+            f"{_escape(analysis_status)}</div>"
+        )
     if analysis_notes:
         content.append(_render_notes("Unresolved behavior", analysis_notes, state))
 
@@ -222,6 +254,10 @@ h3 {{ font-size: 1.05rem; }}
 .evidence-ref {{ display: block; margin-top: .35rem; }}
 .evidence-text {{ color: #4b5563; display: block; margin-top: .25rem; white-space: pre-wrap; }}
 .terminal {{ color: #6b2c4c; font-weight: 700; }}
+details.technical-evidence {{ color: #5b6470; font-size: .82rem; margin-top: .3rem; }}
+details.technical-evidence > summary {{ cursor: pointer; font-weight: 600; }}
+details.scene-evidence {{ margin-top: 1rem; }}
+details.scene-evidence > summary {{ color: #5b6470; cursor: pointer; font-weight: 700; }}
 </style>
 </head>
 <body>
@@ -257,7 +293,7 @@ def _build_evidence_index(data: Mapping[str, object]) -> dict[str, _Evidence]:
             continue
         source_text = _first_text(raw, "source_text", "exact_text", "sourceText", "text")
         location = _location_mapping(raw)
-        path = _first_text(location, "path", "relative_path", "source_path", "file")
+        path = _public_path(_first_text(location, "path", "relative_path", "source_path", "file"))
         start_line = _line_value(location, ("start_line", "line"))
         end_line = _line_value(location, ("end_line",))
         start = location.get("start")
@@ -297,7 +333,12 @@ def _location_mapping(record: Mapping[str, object]) -> Mapping[str, object]:
     return record
 
 
-def _render_scene(scene: Mapping[str, object], scene_index: int, state: _RenderState) -> str:
+def _render_scene(
+    scene: Mapping[str, object],
+    scene_index: int,
+    state: _RenderState,
+    analysis: Mapping[str, object],
+) -> str:
     title = _first_text(scene, "title", "name", "label") or f"Scene {scene_index + 1}"
     summary = _first_text(scene, "summary", "description", "overview")
     confidence = _first_text(scene, "confidence", "certainty")
@@ -305,6 +346,9 @@ def _render_scene(scene: Mapping[str, object], scene_index: int, state: _RenderS
         scene,
         (
             "line_evidence_ids",
+            "leaf_evidence_ids",
+            "body_evidence_ids",
+            "member_evidence_ids",
             "exact_line_evidence_ids",
             "source_evidence_ids",
         ),
@@ -316,6 +360,12 @@ def _render_scene(scene: Mapping[str, object], scene_index: int, state: _RenderS
     parts[-1] += "</h2>"
     if summary:
         parts.append(f'<p class="summary">{_escape(summary)}</p>')
+    status = _first_text(scene, "status")
+    if status and status not in {"resolved", "none"}:
+        parts.append(
+            f'<div class="uncertainty"><span class="detail-label">Status:</span>'
+            f"{_escape(status)}</div>"
+        )
     if lines:
         parts.append(_render_exact_lines("Exact lines", lines, state))
     else:
@@ -331,16 +381,33 @@ def _render_scene(scene: Mapping[str, object], scene_index: int, state: _RenderS
             parts.append(_render_branch(branch, branch_index, state))
         parts.append("</section>")
 
-    menus = _records(scene, ("menus", "menu_points", "choice_points"))
+    menus = list(_records(scene, ("menus", "menu_points", "choice_points")))
+    scene_id = _first_text(scene, "id")
+    if scene_id:
+        menus.extend(_canonical_scene_choices(analysis, scene_id))
     if menus:
         parts.append('<section class="menus" aria-label="Choices">')
         for menu_index, menu in enumerate(_ordered_records(menus, state.evidence)):
             parts.append(_render_menu(menu, menu_index, state))
         parts.append("</section>")
 
+    continuations = [
+        continuation
+        for continuation in _records(analysis, ("continuations",))
+        if scene_id and _first_text(continuation, "scene_id") == scene_id
+    ]
+    if continuations:
+        parts.append('<section class="continuations" aria-label="Shared continuations">')
+        parts.append("<h3>Shared continuations</h3>")
+        for continuation_index, continuation in enumerate(
+            _ordered_records(continuations, state.evidence)
+        ):
+            parts.append(_render_continuation(continuation, continuation_index, state))
+        parts.append("</section>")
+
     scene_notes = _notes_from(
         scene,
-        ("unresolved", "unresolved_items", "uncertainty", "disagreements", "conflicts"),
+        ("uncertainty", "unresolved", "unresolved_items", "disagreements", "conflicts"),
         "Scene",
     )
     if scene_notes:
@@ -409,7 +476,22 @@ def _render_arm(arm: Mapping[str, object], arm_index: int, state: _RenderState) 
     identifiers = _evidence_ids(arm, ("evidence_id", "source_evidence_id", "evidence_ids"))
     for identifier in _ordered_identifiers(identifiers, state.evidence):
         parts.append(_render_evidence_ref(identifier, state, show_text=True))
+    line_identifiers = _evidence_ids(
+        arm,
+        (
+            "line_evidence_ids",
+            "leaf_evidence_ids",
+            "body_evidence_ids",
+            "member_evidence_ids",
+        ),
+    )
+    if line_identifiers:
+        parts.append(_render_exact_lines("Branch lines", line_identifiers, state))
     uncertainty = _first_text(arm, "uncertainty", "unresolved", "reason")
+    status = _first_text(arm, "status")
+    if status and status not in {"resolved", "none"}:
+        parts.append('<div class="uncertainty"><span class="detail-label">Status:</span>')
+        parts.append(f"{_escape(status)}</div>")
     if uncertainty:
         parts.append(f'<div class="uncertainty">{_escape(uncertainty)}</div>')
     parts.append("</li>")
@@ -427,13 +509,62 @@ def _render_branch(branch: Mapping[str, object], branch_index: int, state: _Rend
     return "\n".join(parts)
 
 
+def _render_continuation(
+    continuation: Mapping[str, object], continuation_index: int, state: _RenderState
+) -> str:
+    title = (
+        _first_text(continuation, "title", "name", "label")
+        or f"Continuation {continuation_index + 1}"
+    )
+    parts = [f'<article class="branch"><h3 class="branch-title">{_escape(title)}</h3>']
+    summary = _first_text(continuation, "summary", "description", "overview")
+    if summary:
+        parts.append(f'<p class="summary">{_escape(summary)}</p>')
+    identifiers = _evidence_ids(
+        continuation,
+        (
+            "line_evidence_ids",
+            "leaf_evidence_ids",
+            "body_evidence_ids",
+            "member_evidence_ids",
+        ),
+    )
+    if identifiers:
+        parts.append(_render_exact_lines("Continuation lines", identifiers, state))
+    status = _first_text(continuation, "status")
+    uncertainty = _first_text(continuation, "uncertainty", "unresolved")
+    if status and status not in {"resolved", "none"}:
+        parts.append(
+            f'<div class="uncertainty"><span class="detail-label">Status:</span>'
+            f"{_escape(status)}</div>"
+        )
+    if uncertainty:
+        parts.append(f'<div class="uncertainty">{_escape(uncertainty)}</div>')
+    parts.append("</article>")
+    return "\n".join(parts)
+
+
 def _render_relationships(record: Mapping[str, object]) -> list[str]:
     result: list[str] = []
     fields = (
         ("Condition", ("condition", "conditions")),
         ("Consequence", ("consequence", "consequences", "effect", "effects", "outcome")),
-        ("Destination", ("destination", "destinations", "target", "targets", "leads_to")),
-        ("Rejoin", ("rejoin", "rejoins", "join", "rejoin_target")),
+        (
+            "Destination",
+            (
+                "destination",
+                "destination_scene_id",
+                "destination_id",
+                "destinations",
+                "target",
+                "targets",
+                "leads_to",
+            ),
+        ),
+        (
+            "Rejoin",
+            ("rejoin", "rejoin_scene_id", "rejoin_id", "rejoins", "join", "rejoin_target"),
+        ),
     )
     for label, keys in fields:
         value = _first_value(record, *keys)
@@ -460,9 +591,10 @@ def _render_relationships(record: Mapping[str, object]) -> list[str]:
 
 def _render_source_label(evidence: _Evidence) -> str:
     return (
+        '<details class="technical-evidence"><summary>Source evidence</summary>'
         f'<span class="source-line"><span class="source-id">Evidence '
         f"{_escape(evidence.identifier)}</span> &middot; "
-        f'<span class="source-location">{_escape(evidence.location)}</span></span>'
+        f'<span class="source-location">{_escape(evidence.location)}</span></span></details>'
     )
 
 
@@ -488,8 +620,8 @@ def _render_evidence_citations(
         for identifier in _ordered_identifiers(identifiers, state.evidence)
     )
     return (
-        f'<section class="scene-evidence" aria-label="{_escape(title)}">'
-        f"<h3>{_escape(title)}</h3>{refs}</section>"
+        f'<details class="scene-evidence technical-evidence" aria-label="{_escape(title)}">'
+        f"<summary>{_escape(title)}</summary>{refs}</details>"
     )
 
 
@@ -514,7 +646,17 @@ def _render_notes(
         evidence_html = "".join(
             _render_evidence_ref(identifier, state, show_text=False)
             for identifier in _ordered_identifiers(
-                _evidence_ids(note, ("evidence_ids", "source_evidence_ids")), state.evidence
+                _evidence_ids(
+                    note,
+                    (
+                        "evidence_id",
+                        "evidence_ids",
+                        "line_evidence_ids",
+                        "leaf_evidence_ids",
+                        "source_evidence_ids",
+                    ),
+                ),
+                state.evidence,
             )
         )
         source_html = _render_note_source(note)
@@ -531,7 +673,7 @@ def _render_note_source(note: Mapping[str, object]) -> str:
     if not isinstance(source, Mapping):
         return ""
     location = _location_mapping(note)
-    path = _first_text(location, "path", "relative_path", "source_path", "file")
+    path = _public_path(_first_text(location, "path", "relative_path", "source_path", "file"))
     if path is None:
         return ""
     start_line = _line_value(location, ("start_line", "line"))
@@ -539,7 +681,11 @@ def _render_note_source(note: Mapping[str, object]) -> str:
     if isinstance(start, Mapping):
         start_line = start_line or _line_value(start, ("line", "start_line"))
     label = path if start_line is None else f"{path}:{start_line}"
-    return f'<span class="source-line"><span class="source-location">{_escape(label)}</span></span>'
+    return (
+        '<details class="technical-evidence"><summary>Source evidence</summary>'
+        f'<span class="source-line"><span class="source-location">{_escape(label)}</span></span>'
+        "</details>"
+    )
 
 
 def _notes_from(
@@ -616,6 +762,41 @@ def _records(
         if isinstance(item, Mapping):
             result.append(item)
     return tuple(result)
+
+
+def _ordered_scenes(scenes: Sequence[Mapping[str, object]]) -> tuple[Mapping[str, object], ...]:
+    return tuple(
+        scene
+        for _ordinal, scene in sorted(
+            enumerate(scenes),
+            key=lambda item: (
+                0 if isinstance(item[1].get("order"), int) else 1,
+                item[1].get("order") if isinstance(item[1].get("order"), int) else item[0],
+                item[0],
+            ),
+        )
+    )
+
+
+def _canonical_scene_choices(
+    analysis: Mapping[str, object], scene_id: str
+) -> list[Mapping[str, object]]:
+    result: list[Mapping[str, object]] = []
+    for raw_choice in _records(analysis, ("choices",)):
+        if _first_text(raw_choice, "scene_id") != scene_id:
+            continue
+        result.append(
+            {
+                "id": _first_text(raw_choice, "id"),
+                "title": _first_text(raw_choice, "caption", "title") or "Choice",
+                "condition": _first_value(raw_choice, "condition"),
+                "evidence_ids": _evidence_ids(
+                    raw_choice, ("menu_evidence_id", "source_evidence_id", "evidence_ids")
+                ),
+                "arms": list(_records(raw_choice, ("arms",))),
+            }
+        )
+    return result
 
 
 def _raw_collection(mapping: Mapping[str, object], keys: Sequence[str]) -> tuple[object, ...]:
@@ -725,6 +906,16 @@ def _first_value(mapping: Mapping[str, object], *keys: str) -> object | None:
 def _first_text(mapping: Mapping[str, object], *keys: str) -> str:
     value = _first_value(mapping, *keys)
     return _text(value)
+
+
+def _public_path(value: str) -> str:
+    normalized = value.replace("\\", "/").strip()
+    parts = [part for part in normalized.split("/") if part not in {"", ".", ".."}]
+    if not parts:
+        return "source"
+    if normalized.startswith("/") or (len(normalized) >= 3 and normalized[1:3] == ":/"):
+        return f"source/{parts[-1]}"
+    return "/".join(parts)
 
 
 def _text(value: object) -> str:

@@ -1,11 +1,9 @@
 """Thin Phase 01 orchestration for the AI-first storyboard canary.
 
-The pipeline deliberately owns only composition.  Source recovery and syntax inventory stay in
-``storyboard.evidence``, semantic interpretation stays behind ``storyboard.ai_client``, and the
-deterministic audit and HTML renderer remain independently testable.  The two small compatibility
-projections in this module bridge the strict AI response shape (top-level choices) to the older
-mapping shape accepted by the already-present validator and renderer without changing either
-component or changing the AI artifact written to disk.
+The pipeline composes one canonical evidence/profile/analysis contract. Source recovery and syntax
+inventory stay in ``storyboard.evidence``, semantic interpretation stays behind
+``storyboard.ai_client``, and the validator and renderer consume the same mappings that are sent to
+or replayed from the AI boundary.
 """
 
 from __future__ import annotations
@@ -19,7 +17,6 @@ from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
 
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 
@@ -31,7 +28,7 @@ from renpy_story_mapper.storyboard.ai_client import (
     StoryboardJsonClient,
 )
 from renpy_story_mapper.storyboard.evidence import build_evidence_index
-from renpy_story_mapper.storyboard.model import EvidenceIndex, EvidenceKind
+from renpy_story_mapper.storyboard.model import EvidenceIndex
 from renpy_story_mapper.storyboard.prompts import (
     build_game_profile_request,
     build_story_analysis_request,
@@ -147,14 +144,14 @@ def run_storyboard_pipeline(
     if before != after:
         raise StoryboardPipelineError("supported game input changed during evidence extraction")
 
-    raw_evidence = _copy_json_mapping(evidence_object.to_dict())
+    evidence = evidence_index_to_mapping(evidence_object)
+    raw_evidence = _copy_json_mapping(evidence)
     if not evidence_object.records:
         diagnostics = raw_evidence.get("diagnostics", [])
         raise StoryboardPipelineError(
             "canary evidence is empty; choose a valid source, label, or line span "
             f"(diagnostics: {_describe_diagnostics(diagnostics)})"
         )
-    evidence = evidence_index_to_mapping(evidence_object)
     evidence_hash = _sha256_artifact_json(raw_evidence)
     if (
         selected_label is None
@@ -169,8 +166,10 @@ def run_storyboard_pipeline(
 
     canary_ids = tuple(
         record_id
-        for record_id in cast(Sequence[object], evidence["accountable_evidence_ids"])
-        if isinstance(record_id, str)
+        for raw_record in _sequence(evidence.get("records"))
+        if isinstance(raw_record, Mapping)
+        for record_id in (_text(raw_record.get("id")),)
+        if record_id is not None
     )
     provider: StoryboardJsonClient | None = ai_client
     if provider is None and (
@@ -235,16 +234,13 @@ def run_storyboard_pipeline(
     )
     analysis_hash = _sha256_artifact_json(analysis)
 
-    validation_profile = _validation_profile(profile, evidence)
-    validation_analysis = _validation_analysis(analysis, evidence)
     # Keep this call before rendering.  A rejected report is still rendered so the static page
     # exposes the exact deterministic findings instead of disappearing behind a failed command.
-    validation_report = validate_phase01(evidence, validation_profile, validation_analysis)
+    validation_report = validate_phase01(evidence, profile, analysis)
     report_mapping = validation_report.to_dict()
     provenance = _artifact_provenance(evidence_hash, profile_hash, analysis_hash)
     report_mapping["provenance"] = provenance
-    render_analysis = _presentation_analysis(analysis, evidence)
-    html = render_storyboard_html(evidence, profile, render_analysis, report_mapping)
+    html = render_storyboard_html(evidence, profile, analysis, report_mapping)
     html_provenance = dict(provenance)
     html_provenance["validation_report_hash"] = _sha256_artifact_json(report_mapping)
     html = _add_html_provenance(html, html_provenance)
@@ -297,108 +293,9 @@ def run_phase01_pipeline(
 
 
 def evidence_index_to_mapping(index: EvidenceIndex) -> dict[str, object]:
-    """Serialize an :class:`EvidenceIndex` into the canonical Phase 01 JSON mapping.
+    """Return the one canonical JSON contract used by every storyboard phase."""
 
-    The original dataclass representation remains intact, including its exact ``text`` field and
-    nested provenance.  The additional aliases make the seam explicit for the validator, renderer,
-    and AI prompt: menu arm ownership is represented by ``menus[*].arm_ids`` and record facts are
-    available under ``facts`` rather than being accidentally hidden in ``metadata``.
-    """
-
-    raw = _copy_json_mapping(index.to_dict())
-    raw_records = _sequence(raw.get("records"))
-    records: list[dict[str, object]] = []
-    for raw_record in raw_records:
-        if not isinstance(raw_record, Mapping):
-            continue
-        record = dict(raw_record)
-        metadata = _copy_json_mapping(record.get("metadata", {}))
-        record_id = _text(record.get("id"))
-        if record_id is None:
-            continue
-        source_text = record.get("text")
-        record["source_text"] = source_text
-        record["metadata"] = metadata
-        record["facts"] = dict(metadata)
-        record["accountable"] = True
-        records.append(record)
-
-    records_by_id = {
-        record_id: record
-        for record in records
-        if (record_id := _text(record.get("id"))) is not None
-    }
-    menus: list[dict[str, object]] = []
-    for record in records:
-        if _text(record.get("kind")) != EvidenceKind.MENU.value:
-            continue
-        menu_id = _text(record.get("id"))
-        if menu_id is None:
-            continue
-        arm_ids = [
-            arm_id
-            for arm_id, arm in records_by_id.items()
-            if _text(arm.get("kind")) == EvidenceKind.CHOICE_ARM.value
-            and _text(_facts(arm).get("parent_id")) == menu_id
-        ]
-        arm_ids.sort(key=lambda item: _record_order(records_by_id[item]))
-        menu_value: dict[str, object] = {
-            "id": menu_id,
-            "arm_ids": arm_ids,
-            "caption_ids": [
-                caption_id
-                for caption_id, caption in records_by_id.items()
-                if _text(caption.get("kind")) == EvidenceKind.MENU_CAPTION.value
-                and _text(_facts(caption).get("parent_id")) == menu_id
-            ],
-        }
-        menus.append(menu_value)
-
-        menu_facts = dict(_facts(record))
-        menu_facts["arm_ids"] = list(arm_ids)
-        record["facts"] = menu_facts
-        record["metadata"] = dict(menu_facts)
-
-    menus.sort(key=lambda item: _record_order(records_by_id[_text(item["id"]) or ""]))
-    accountable_ids = [
-        _text(record.get("id")) for record in records if _text(record.get("id")) is not None
-    ]
-    accountable_ids = [cast(str, item) for item in accountable_ids]
-
-    canonical = dict(raw)
-    canonical.update(
-        {
-            "schema_version": "storyboard-evidence-v1",
-            "records": records,
-            "menus": menus,
-            "accountable_evidence_ids": accountable_ids,
-            "labels": [
-                record_id
-                for record_id, record in records_by_id.items()
-                if _text(record.get("kind")) == EvidenceKind.LABEL.value
-            ],
-            "choice_arms": [
-                record_id
-                for record_id, record in records_by_id.items()
-                if _text(record.get("kind")) == EvidenceKind.CHOICE_ARM.value
-            ],
-            "conditions": [
-                record_id
-                for record_id, record in records_by_id.items()
-                if _text(record.get("kind")) == EvidenceKind.CONDITION.value
-            ],
-            "assignments": [
-                record_id
-                for record_id, record in records_by_id.items()
-                if _text(record.get("kind")) == EvidenceKind.ASSIGNMENT.value
-            ],
-            "diagnostics": list(_sequence(raw.get("diagnostics"))),
-        }
-    )
-    revision_payload = dict(canonical)
-    revision_payload.pop("revision", None)
-    canonical["revision"] = "idx-" + _sha256_json(revision_payload)
-    return canonical
+    return _copy_json_mapping(index.to_dict())
 
 
 def _load_or_request_profile(
@@ -614,437 +511,36 @@ def _read_replay(
     return value
 
 
-def _validation_profile(
-    profile: Mapping[str, object], evidence: Mapping[str, object]
-) -> dict[str, object]:
-    value = _copy_json_mapping(profile)
-    value.setdefault("source_revision", _text(evidence.get("revision")) or "")
-    _normalize_claim_metadata(value)
-    value["disagreements"] = _compat_disagreements(value.get("disagreements"))
-    return value
+def _sequence(value: object) -> tuple[object, ...]:
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return tuple(value)
+    return ()
 
 
-def _validation_analysis(
-    analysis: Mapping[str, object], evidence: Mapping[str, object]
-) -> dict[str, object]:
-    value = _presentation_analysis(analysis, evidence)
-    _flatten_validation_choices(value, evidence)
-    value.setdefault("source_revision", _text(evidence.get("revision")) or "")
-    _normalize_claim_metadata(value)
-    value["disagreements"] = _compat_disagreements(value.get("disagreements"))
-
-    exclusions = _sequence(value.get("exclusions"))
-    excluded_ids = _ids(value.get("excluded_evidence_ids"))
-    if not exclusions and excluded_ids:
-        value["exclusions"] = [
-            {
-                "evidence_id": evidence_id,
-                "reason": "AI analysis excluded this source record",
-                "unresolved": True,
-                "uncertainty": "The exclusion needs human review before the source can be omitted.",
-                "evidence_ids": [evidence_id],
-                "confidence": "low",
-            }
-            for evidence_id in excluded_ids
-        ]
-
-    scenes = value.get("scenes")
-    if isinstance(scenes, Sequence) and not isinstance(scenes, (str, bytes, bytearray)):
-        for raw_scene in scenes:
-            if not isinstance(raw_scene, dict):
-                continue
-            if "member_evidence_ids" not in raw_scene:
-                member_ids: list[str] = []
-                member_ids.extend(_ids(raw_scene.get("evidence_ids")))
-                member_ids.extend(_ids(raw_scene.get("line_evidence_ids")))
-                for raw_choice in _sequence(raw_scene.get("choices")):
-                    if not isinstance(raw_choice, Mapping):
-                        continue
-                    member_ids.extend(_ids(raw_choice.get("evidence_ids")))
-                    member_ids.extend(_ids(raw_choice.get("menu_evidence_id")))
-                    member_ids.extend(_ids(raw_choice.get("arm_evidence_id")))
-                    for raw_arm in _sequence(raw_choice.get("arms")):
-                        if isinstance(raw_arm, Mapping):
-                            member_ids.extend(_ids(raw_arm.get("evidence_ids")))
-                raw_scene["member_evidence_ids"] = _unique(member_ids)
-            # A strict-schema scene may have a semantic evidence list but no old-style lines.
-            # Keep unknown IDs in the compatibility view so deterministic validation reports them.
-    return value
+def _copy_json_mapping(value: object) -> dict[str, object]:
+    copied = _copy_json(value)
+    if not isinstance(copied, dict):
+        raise StoryboardPipelineError("storyboard JSON value must be an object")
+    return copied
 
 
-def _flatten_validation_choices(
-    value: dict[str, object], evidence: Mapping[str, object]
-) -> None:
-    """Present each strict-schema arm as one choice row to the existing validator."""
-
-    scenes = value.get("scenes")
-    if not isinstance(scenes, list):
-        return
-    for raw_scene in scenes:
-        if not isinstance(raw_scene, dict):
-            continue
-        flattened: list[dict[str, object]] = []
-        for raw_choice in _sequence(raw_scene.get("choices")):
-            if not isinstance(raw_choice, Mapping):
-                continue
-            if "arm_evidence_id" in raw_choice:
-                flattened.append(_copy_json_mapping(raw_choice))
-                continue
-            menu_id = _text(raw_choice.get("menu_evidence_id", raw_choice.get("menu_id")))
-            choice_ids = _ids(raw_choice.get("evidence_ids"))
-            arms = _sequence(raw_choice.get("arms"))
-            if not arms:
-                flattened.append(_copy_json_mapping(raw_choice))
-                continue
-            for raw_arm in arms:
-                if not isinstance(raw_arm, Mapping):
-                    continue
-                arm_ids = _ids(raw_arm.get("evidence_ids"))
-                arm_id = _text(raw_arm.get("arm_evidence_id")) or _first_kind(
-                    arm_ids, _record_lookup(evidence), EvidenceKind.CHOICE_ARM.value
-                )
-                flat: dict[str, object] = {
-                    "menu_evidence_id": menu_id,
-                    "arm_evidence_id": arm_id,
-                    "evidence_ids": _unique([*choice_ids, *arm_ids]),
-                }
-                for key in (
-                    "consequence",
-                    "destination",
-                    "confidence",
-                    "unresolved",
-                    "uncertainty",
-                ):
-                    if key in raw_arm:
-                        flat[key] = _copy_json(raw_arm[key])
-                flattened.append(flat)
-        raw_scene["choices"] = flattened
-
-
-def _presentation_analysis(
-    analysis: Mapping[str, object], evidence: Mapping[str, object]
-) -> dict[str, object]:
-    value = _copy_json_mapping(analysis)
-    records = _record_lookup(evidence)
-    raw_scenes = value.get("scenes")
-    if not isinstance(raw_scenes, list):
-        return value
-
-    raw_choices = value.get("choices")
-    strict_choices = [
-        item
-        for item in _sequence(raw_choices)
-        if isinstance(item, Mapping) and "menu_evidence_id" not in item
-    ]
-    choices_by_scene: dict[str, list[dict[str, object]]] = {}
-    menus_by_scene: dict[str, list[dict[str, object]]] = {}
-    unmatched_menus: list[dict[str, object]] = []
-    for raw_choice in strict_choices:
-        choice = _compat_choice(raw_choice, records)
-        scene_id = _text(raw_choice.get("scene_id")) or ""
-        choices_by_scene.setdefault(scene_id, []).append(choice)
-        menu_id = _text(choice.get("menu_evidence_id"))
-        menu: dict[str, object] = {
-            "id": _text(raw_choice.get("id")) or f"menu-{len(unmatched_menus)}",
-            "title": _text(raw_choice.get("caption")) or "Choice",
-            "evidence_id": menu_id,
-            "evidence_ids": _ids(raw_choice.get("evidence_ids")),
-            "arms": list(_sequence(choice.get("arms"))),
-        }
-        if menu_id is None:
-            unmatched_menus.append(menu)
-        else:
-            menus_by_scene.setdefault(scene_id, []).append(menu)
-
-    for raw_scene in raw_scenes:
-        if not isinstance(raw_scene, dict):
-            continue
-        scene_id = _text(raw_scene.get("id")) or ""
-        if strict_choices and "choices" not in raw_scene:
-            raw_scene["choices"] = choices_by_scene.get(scene_id, [])
-        if strict_choices and "menus" not in raw_scene:
-            raw_scene["menus"] = menus_by_scene.get(scene_id, [])
-        if "menus" not in raw_scene:
-            raw_scene["menus"] = _legacy_scene_menus(raw_scene, records)
-        if "branches" not in raw_scene:
-            raw_scene["branches"] = _scene_transition_branches(raw_scene, value)
-    if unmatched_menus:
-        value["menus"] = list(_sequence(value.get("menus"))) + unmatched_menus
-    return value
-
-
-def _scene_transition_branches(
-    scene: Mapping[str, object], analysis: Mapping[str, object]
-) -> list[dict[str, object]]:
-    scene_id = _text(scene.get("id"))
-    if scene_id is None:
-        return []
-    result: list[dict[str, object]] = []
-    for raw_transition in _sequence(analysis.get("transitions")):
-        if not isinstance(raw_transition, Mapping):
-            continue
-        if _text(raw_transition.get("from_id")) != scene_id:
-            continue
-        target = _text(raw_transition.get("to_id"))
-        result.append(
-            {
-                "title": _text(raw_transition.get("kind")) or "Transition",
-                "destination": target or "unresolved destination",
-                "evidence_ids": _ids(raw_transition.get("evidence_ids")),
-                "confidence": _text(raw_transition.get("confidence")) or "low",
-                "unresolved": raw_transition.get("unresolved", False),
-            }
-        )
-    return result
-
-
-def _legacy_scene_menus(
-    scene: Mapping[str, object], records: Mapping[str, Mapping[str, object]]
-) -> list[dict[str, object]]:
-    grouped: dict[str, dict[str, object]] = {}
-    for raw_choice in _sequence(scene.get("choices")):
-        if not isinstance(raw_choice, Mapping):
-            continue
-        menu_id = _text(raw_choice.get("menu_evidence_id", raw_choice.get("menu_id")))
-        arm_id = _text(raw_choice.get("arm_evidence_id", raw_choice.get("arm_id")))
-        if menu_id is None:
-            continue
-        menu = grouped.setdefault(
-            menu_id,
-            {
-                "id": menu_id,
-                "title": "Choice",
-                "evidence_id": menu_id,
-                "evidence_ids": [menu_id],
-                "arms": [],
-            },
-        )
-        facts = _facts(records.get(arm_id)) if arm_id is not None else {}
-        choice_evidence_ids = [arm_id] if arm_id is not None else []
-        choice_evidence_ids.extend(_ids(raw_choice.get("evidence_ids")))
-        arm: dict[str, object] = {
-            "id": arm_id,
-            "caption": _text(raw_choice.get("caption"))
-            or _text(facts.get("caption"))
-            or "Choice arm",
-            "condition": raw_choice.get("condition", facts.get("condition")),
-            "consequence": _copy_json(raw_choice.get("consequence")),
-            "destination": _copy_json(raw_choice.get("destination")),
-            "rejoin": _copy_json(raw_choice.get("rejoin")),
-            "terminal": _copy_json(raw_choice.get("terminal")),
-            "evidence_ids": _unique([menu_id, *choice_evidence_ids]),
-        }
-        arms = menu["arms"]
-        if isinstance(arms, list):
-            arms.append(arm)
-    return list(grouped.values())
-
-
-def _compat_choice(
-    raw_choice: Mapping[str, object], records: Mapping[str, Mapping[str, object]]
-) -> dict[str, object]:
-    if "menu_evidence_id" in raw_choice or "menu_id" in raw_choice:
-        return _copy_json_mapping(raw_choice)
-
-    choice_ids = _ids(raw_choice.get("evidence_ids"))
-    arms: list[dict[str, object]] = []
-    menu_id = _first_kind(choice_ids, records, EvidenceKind.MENU.value)
-    for raw_arm in _sequence(raw_choice.get("arms")):
-        if not isinstance(raw_arm, Mapping):
-            continue
-        arm_ids = _ids(raw_arm.get("evidence_ids"))
-        arm_id = _first_kind(arm_ids, records, EvidenceKind.CHOICE_ARM.value)
-        arm_id = arm_id or _text(raw_arm.get("id"))
-        if arm_id is not None and arm_id in records:
-            parent_id = _text(_facts(records[arm_id]).get("parent_id"))
-            if menu_id is None and parent_id in records:
-                menu_id = parent_id
-        combined_ids = _unique(arm_ids + _ids(raw_arm.get("line_evidence_ids")))
-        facts = _facts(records.get(arm_id)) if arm_id is not None else {}
-        condition = raw_arm.get("condition", facts.get("condition"))
-        arm_value: dict[str, object] = {
-            "id": _text(raw_arm.get("id")) or arm_id,
-            "caption": _text(raw_arm.get("caption")) or _text(facts.get("caption")) or "Choice arm",
-            "condition": condition,
-            "consequence": _compat_consequence(raw_arm, combined_ids),
-            "evidence_ids": combined_ids,
-            "confidence": _text(raw_arm.get("confidence")) or "low",
-            "unresolved": raw_arm.get("unresolved", False),
-        }
-        destination_id = raw_arm.get("destination_id")
-        if destination_id is not None:
-            destination_text = _text(destination_id)
-            target = records.get(destination_text or "")
-            if target is not None:
-                target_kind = _text(target.get("kind"))
-                destination_kind = (
-                    "label" if target_kind == EvidenceKind.LABEL.value else "unresolved"
-                )
-                if destination_kind == "label":
-                    arm_value["destination"] = {
-                        "kind": "label",
-                        "target_evidence_id": destination_text,
-                        "evidence_ids": _unique([*combined_ids, destination_text or ""]),
-                        "confidence": _text(raw_arm.get("confidence")) or "low",
-                        "unresolved": False,
-                    }
-                else:
-                    arm_value["destination"] = _unresolved_destination(
-                        destination_text, combined_ids
-                    )
+def _copy_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        copied: dict[str, object] = {}
+        for raw_key, item in value.items():
+            key = str(raw_key)
+            if key.casefold() in _PATH_KEYS and isinstance(item, str):
+                copied[key] = _public_path(item)
             else:
-                arm_value["destination"] = _unresolved_destination(
-                    destination_text, combined_ids
-                )
-        else:
-            arm_value["destination"] = _unresolved_destination(None, combined_ids)
-        rejoin_id = _text(raw_arm.get("rejoin_id"))
-        if rejoin_id is not None:
-            arm_value["rejoin"] = rejoin_id
-        terminal = _text(raw_arm.get("terminal"))
-        if terminal not in {None, "none"}:
-            arm_value["terminal"] = terminal
-        arms.append(arm_value)
-
-    value: dict[str, object] = _copy_json_mapping(raw_choice)
-    value["menu_evidence_id"] = menu_id
-    value["arms"] = arms
-    if menu_id is None:
-        value["menu_id"] = None
+                copied[key] = _copy_json(item)
+        return copied
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [_copy_json(item) for item in value]
     return value
 
 
-def _compat_consequence(arm: Mapping[str, object], evidence_ids: Sequence[str]) -> object:
-    consequence = arm.get("consequence")
-    if isinstance(consequence, Mapping):
-        return _copy_json_mapping(consequence)
-    text = _text(consequence)
-    if text is None:
-        return None
-    return {
-        "text": text,
-        "evidence_ids": list(evidence_ids) or ["unresolved-consequence"],
-        "confidence": _text(arm.get("confidence")) or "low",
-        "unresolved": _unresolved_flag(arm.get("unresolved")),
-        "uncertainty": _uncertainty_text(arm.get("unresolved")),
-    }
-
-
-def _unresolved_destination(
-    destination_id: str | None, evidence_ids: Sequence[str]
-) -> dict[str, object]:
-    label = destination_id or "no concrete destination"
-    return {
-        "kind": "unresolved",
-        "label": label,
-        "evidence_ids": list(evidence_ids),
-        "confidence": "low",
-        "unresolved": True,
-        "uncertainty": (
-            f"The analysis names {label!r}, but the selected evidence does not establish a "
-            "concrete destination record."
-        ),
-    }
-
-
-def _compat_disagreements(value: object) -> list[dict[str, object]]:
-    result: list[dict[str, object]] = []
-    for raw in _sequence(value):
-        if not isinstance(raw, Mapping):
-            continue
-        if "parser" in raw or "parser_observation" in raw:
-            result.append(_copy_json_mapping(raw))
-            continue
-        evidence_ids = _ids(raw.get("deterministic_evidence_ids"))
-        unresolved = raw.get("unresolved")
-        result.append(
-            {
-                "id": _text(raw.get("id")) or "disagreement",
-                "evidence_ids": evidence_ids,
-                "parser": "Deterministic evidence cited by the parser: " + ", ".join(evidence_ids),
-                "ai": _text(raw.get("ai_statement")) or "AI interpretation was not supplied.",
-                "resolution": _text(raw.get("resolution")) or "unresolved",
-                "confidence": _text(raw.get("confidence")) or "low",
-                "unresolved": _unresolved_flag(unresolved),
-                "uncertainty": _uncertainty_text(unresolved)
-                or "The parser and AI interpretation remain separate for review.",
-            }
-        )
-    return result
-
-
-def _normalize_claim_metadata(value: object) -> None:
-    if isinstance(value, dict):
-        if "evidence_ids" in value and "confidence" in value and "unresolved" in value:
-            raw_unresolved = value.get("unresolved")
-            if not isinstance(raw_unresolved, bool):
-                unresolved = _unresolved_flag(raw_unresolved)
-                value["unresolved"] = unresolved
-                if unresolved and not _text(value.get("uncertainty")):
-                    value["uncertainty"] = _uncertainty_text(raw_unresolved) or (
-                        "The AI marked this evidence-dependent behavior as unresolved."
-                    )
-        for child in value.values():
-            _normalize_claim_metadata(child)
-    elif isinstance(value, list):
-        for child in value:
-            _normalize_claim_metadata(child)
-
-
-def _unresolved_flag(value: object) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalized = " ".join(value.casefold().split())
-        return normalized not in {"", "none", "no", "resolved", "not unresolved", "n/a", "na"}
-    return bool(value)
-
-
-def _uncertainty_text(value: object) -> str:
-    if isinstance(value, str) and _unresolved_flag(value):
-        return value
-    return ""
-
-
-def _record_lookup(evidence: Mapping[str, object]) -> dict[str, Mapping[str, object]]:
-    result: dict[str, Mapping[str, object]] = {}
-    for raw in _sequence(evidence.get("records", evidence.get("evidence"))):
-        if isinstance(raw, Mapping):
-            identifier = _text(raw.get("id", raw.get("evidence_id")))
-            if identifier is not None:
-                result[identifier] = raw
-    return result
-
-
-def _facts(record: Mapping[str, object] | None) -> Mapping[str, object]:
-    if record is None:
-        return {}
-    value = record.get("facts", record.get("metadata"))
-    return value if isinstance(value, Mapping) else {}
-
-
-def _first_kind(
-    identifiers: Sequence[str], records: Mapping[str, Mapping[str, object]], kind: str
-) -> str | None:
-    for identifier in identifiers:
-        if _text(records.get(identifier, {}).get("kind")) == kind:
-            return identifier
-    return None
-
-
-def _record_order(record: Mapping[str, object]) -> tuple[object, ...]:
-    source = record.get("source")
-    if not isinstance(source, Mapping):
-        return (1, "", 0, 0, _text(record.get("id")) or "")
-    span = source.get("span")
-    if not isinstance(span, Mapping):
-        return (1, _text(source.get("path")) or "", 0, 0, _text(record.get("id")) or "")
-    start = span.get("start")
-    if not isinstance(start, Mapping):
-        return (1, _text(source.get("path")) or "", 0, 0, _text(record.get("id")) or "")
-    line = start.get("line") if isinstance(start.get("line"), int) else 0
-    column = start.get("column") if isinstance(start.get("column"), int) else 0
-    return (0, _text(source.get("path")) or "", line, column, _text(record.get("id")) or "")
+def _text(value: object) -> str | None:
+    return value if isinstance(value, str) and value.strip() else None
 
 
 def _ids(value: object) -> list[str]:
@@ -1067,33 +563,30 @@ def _ids(value: object) -> list[str]:
     return []
 
 
-def _unique(values: Sequence[str]) -> list[str]:
-    return list(dict.fromkeys(item for item in values if item))
+_PATH_KEYS = frozenset(
+    {
+        "path",
+        "locator",
+        "source_path",
+        "relative_path",
+        "file",
+        "filename",
+        "input_path",
+        "output_path",
+        "output_directory",
+        "cwd",
+    }
+)
 
 
-def _sequence(value: object) -> tuple[object, ...]:
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return tuple(value)
-    return ()
-
-
-def _copy_json_mapping(value: object) -> dict[str, object]:
-    copied = _copy_json(value)
-    if not isinstance(copied, dict):
-        raise StoryboardPipelineError("storyboard JSON value must be an object")
-    return copied
-
-
-def _copy_json(value: object) -> object:
-    if isinstance(value, Mapping):
-        return {str(key): _copy_json(item) for key, item in value.items()}
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return [_copy_json(item) for item in value]
-    return value
-
-
-def _text(value: object) -> str | None:
-    return value if isinstance(value, str) and value.strip() else None
+def _public_path(value: str) -> str:
+    normalized = value.replace("\\", "/").strip()
+    parts = [part for part in normalized.split("/") if part not in {"", ".", ".."}]
+    if not parts:
+        return "source"
+    if normalized.startswith("/") or (len(normalized) >= 3 and normalized[1:3] == ":/"):
+        return f"source/{parts[-1]}"
+    return "/".join(parts)
 
 
 def _sha256_json(value: object) -> str:

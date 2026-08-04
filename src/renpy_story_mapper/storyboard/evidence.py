@@ -43,6 +43,7 @@ EVIDENCE_SCHEMA_VERSION = 1
 type SourceInput = str | os.PathLike[str] | IngestionSource
 
 _KIND_ORDER = {
+    EvidenceKind.SOURCE_LINE: -10,
     EvidenceKind.LABEL: 0,
     EvidenceKind.DIALOGUE: 10,
     EvidenceKind.NARRATION: 11,
@@ -299,15 +300,27 @@ def _index_selected_source(
         )
 
     raw_lines = text.splitlines(keepends=True)
+    ledger = _source_line_records(source.path, provenance, raw_lines)
     try:
         module = parse_script(source.path, raw_lines)
     except ScriptParseError as exc:
         diagnostics.append(EvidenceDiagnostic("parse_failed", str(exc)))
+        diagnostics.append(
+            EvidenceDiagnostic(
+                "parser_annotations_unavailable",
+                "parser annotations are unavailable; the raw source-line ledger "
+                "remains authoritative",
+            )
+        )
+        selected_ledger, line_diagnostics = _select_ledger_lines(
+            ledger, selection.start_line, selection.end_line
+        )
+        diagnostics.extend(line_diagnostics)
         return EvidenceIndex(
             EVIDENCE_SCHEMA_VERSION,
             origin,
             selection,
-            (),
+            tuple(selected_ledger),
             tuple(diagnostics),
         )
 
@@ -321,11 +334,18 @@ def _index_selected_source(
                     "no_labels", "selected source contains no statically parsed labels"
                 )
             )
+        if selection.label is not None:
+            selected_ledger = []
+        else:
+            selected_ledger, line_diagnostics = _select_ledger_lines(
+                ledger, selection.start_line, selection.end_line
+            )
+            diagnostics.extend(line_diagnostics)
         return EvidenceIndex(
             EVIDENCE_SCHEMA_VERSION,
             origin,
             selection,
-            (),
+            tuple(selected_ledger),
             tuple(diagnostics),
         )
 
@@ -337,6 +357,7 @@ def _index_selected_source(
             collector.collect_statement(root, None)
 
     records = collector.records
+    scope_start, scope_end = _scope_lines(records, selection)
     records, line_diagnostics = _apply_line_selection(
         records,
         selection.start_line,
@@ -344,6 +365,13 @@ def _index_selected_source(
         len(raw_lines),
     )
     diagnostics.extend(line_diagnostics)
+    selected_ledger, ledger_diagnostics = _select_ledger_lines(
+        ledger,
+        selection.start_line if selection.start_line is not None else scope_start,
+        selection.end_line if selection.end_line is not None else scope_end,
+    )
+    diagnostics.extend(ledger_diagnostics)
+    records.extend(selected_ledger)
     records.sort(key=_record_sort_key)
     return EvidenceIndex(
         EVIDENCE_SCHEMA_VERSION,
@@ -410,7 +438,7 @@ def _span_from_mapping(value: object) -> SourceSpan | None:
         and isinstance(end_column, int)
     ):
         return None
-    return SourceSpan(path, start_line, start_column, end_line, end_column)
+    return SourceSpan(_logical_path(path), start_line, start_column, end_line, end_column)
 
 
 class _Collector:
@@ -435,7 +463,11 @@ class _Collector:
         raw_span: SourceSpan | None = None,
     ) -> EvidenceRecord:
         evidence_span = raw_span or span
-        values: dict[str, object] = {"parser_text": parser_text}
+        values: dict[str, object] = {
+            "parser_text": parser_text,
+            "accountable": False,
+            "role": "annotation",
+        }
         if metadata:
             values.update(metadata)
         text = _raw_text(self.raw_lines, evidence_span)
@@ -603,6 +635,66 @@ def _parent_metadata(parent_id: str | None) -> dict[str, object]:
     return {} if parent_id is None else {"parent_id": parent_id}
 
 
+def _source_line_records(
+    path: str, provenance: EvidenceProvenance, raw_lines: Sequence[str]
+) -> list[EvidenceRecord]:
+    """Build the parser-independent physical source ledger first.
+
+    Every physical line receives an immutable record, including blank and comment lines. Only
+    non-empty, non-comment lines are semantic leaves; parser records are annotations over this
+    ledger and never replace it.
+    """
+
+    records: list[EvidenceRecord] = []
+    for line_number, raw_line in enumerate(raw_lines, 1):
+        text = raw_line
+        without_newline = raw_line.rstrip("\r\n")
+        stripped = without_newline.strip()
+        comment = stripped.startswith("#")
+        line_kind = "blank" if not stripped else "comment" if comment else "source"
+        span = SourceSpan(path, line_number, 1, line_number, len(without_newline) + 1)
+        metadata = {
+            "line_number": line_number,
+            "line_kind": line_kind,
+            "leaf": bool(stripped and not comment),
+            "accountable": bool(stripped and not comment),
+            "role": "leaf" if stripped and not comment else "ledger",
+            "parser_annotation": False,
+        }
+        records.append(
+            EvidenceRecord(
+                _stable_id(path, provenance, EvidenceKind.SOURCE_LINE, span, text),
+                EvidenceKind.SOURCE_LINE,
+                text,
+                EvidenceLocation(path, span, provenance),
+                metadata,
+            )
+        )
+    return records
+
+
+def _scope_lines(
+    records: Sequence[EvidenceRecord], selection: EvidenceSelection
+) -> tuple[int | None, int | None]:
+    if selection.start_line is not None or selection.end_line is not None:
+        return selection.start_line, selection.end_line
+    if selection.label is None or not records:
+        return None, None
+    return (
+        min(record.source.span.start_line for record in records),
+        max(record.source.span.end_line for record in records),
+    )
+
+
+def _select_ledger_lines(
+    records: Sequence[EvidenceRecord], start_line: int | None, end_line: int | None
+) -> tuple[list[EvidenceRecord], list[EvidenceDiagnostic]]:
+    selected, diagnostics = _apply_line_selection(
+        list(records), start_line, end_line, len(records)
+    )
+    return selected, diagnostics
+
+
 def _classify_simple(statement: Simple) -> tuple[EvidenceKind, dict[str, object]]:
     assignment = _assignment_details(statement.text)
     if assignment is not None:
@@ -754,7 +846,7 @@ def _opaque_span(span: SourceSpan, raw_lines: Sequence[str]) -> SourceSpan:
     if header_index < 0 or header_index >= len(raw_lines):
         return span
     header = raw_lines[header_index].rstrip("\r\n")
-    header_indent = len(header) - len(header.lstrip(" "))
+    header_indent = len(header) - len(header.lstrip(" \t"))
     last_body_line: int | None = None
     cursor = span.end_line
     while cursor < len(raw_lines):
@@ -762,7 +854,7 @@ def _opaque_span(span: SourceSpan, raw_lines: Sequence[str]) -> SourceSpan:
         if not current.strip():
             cursor += 1
             continue
-        indent = len(current) - len(current.lstrip(" "))
+        indent = len(current) - len(current.lstrip(" \t"))
         if indent <= header_indent:
             break
         last_body_line = cursor + 1
@@ -810,8 +902,13 @@ def _stable_id(
 
 
 def _logical_path(path: str) -> str:
-    normalized = PurePosixPath(path.replace("\\", "/"))
-    return normalized.as_posix().casefold()
+    normalized = path.replace("\\", "/").strip()
+    parts = [part for part in PurePosixPath(normalized).parts if part not in {"", ".", ".."}]
+    if not parts:
+        return "source"
+    if normalized.startswith("/") or re.match(r"^[A-Za-z]:/", normalized):
+        return f"source/{parts[-1]}".casefold()
+    return PurePosixPath(*parts).as_posix().casefold()
 
 
 def _apply_line_selection(
@@ -854,12 +951,37 @@ def _apply_line_selection(
     if effective_end < effective_start:
         return [], diagnostics
 
-    return [
+    selected = [
         record
         for record in records
         if record.source.span.end_line >= effective_start
         and record.source.span.start_line <= effective_end
-    ], diagnostics
+    ]
+    selected_ids = {record.id for record in selected}
+    records_by_id = {record.id: record for record in records}
+    # A line window may select a child annotation without its structural parents. Close the
+    # annotation chain so replay/AI/renderer never receive dangling parent IDs.
+    changed = True
+    while changed:
+        changed = False
+        for record in tuple(selected):
+            parent_id = record.metadata.get("parent_id")
+            if not isinstance(parent_id, str) or parent_id in selected_ids:
+                continue
+            parent = records_by_id.get(parent_id)
+            if parent is None:
+                diagnostics.append(
+                    EvidenceDiagnostic(
+                        "dangling_parent_id",
+                        f"evidence record {record.id!r} references missing parent {parent_id!r}",
+                        source=record.source.span,
+                    )
+                )
+                continue
+            selected.append(parent)
+            selected_ids.add(parent.id)
+            changed = True
+    return selected, diagnostics
 
 
 def _record_sort_key(record: EvidenceRecord) -> tuple[object, ...]:
