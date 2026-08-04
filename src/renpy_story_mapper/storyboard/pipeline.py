@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
+
 from renpy_story_mapper.errors import StoryMapperError
 from renpy_story_mapper.ingestion import IngestionOptions
 from renpy_story_mapper.storyboard.ai_client import (
@@ -141,13 +143,15 @@ def run_storyboard_pipeline(
     if before != after:
         raise StoryboardPipelineError("supported game input changed during evidence extraction")
 
-    evidence = evidence_index_to_mapping(evidence_object)
+    raw_evidence = _copy_json_mapping(evidence_object.to_dict())
     if not evidence_object.records:
-        diagnostics = evidence.get("diagnostics", [])
+        diagnostics = raw_evidence.get("diagnostics", [])
         raise StoryboardPipelineError(
             "canary evidence is empty; choose a valid source, label, or line span "
             f"(diagnostics: {_describe_diagnostics(diagnostics)})"
         )
+    evidence = evidence_index_to_mapping(evidence_object)
+    evidence_hash = _sha256_artifact_json(raw_evidence)
     if (
         selected_label is None
         and selected_start is None
@@ -171,24 +175,49 @@ def run_storyboard_pipeline(
         provider = _new_provider()
     profile = _load_or_request_profile(
         selected_profile_replay,
-        evidence,
+        raw_evidence,
         provider=provider,
+        evidence_hash=evidence_hash,
         model=model,
         reasoning_effort=reasoning_effort,
         fast_mode=fast_mode,
         timeout_seconds=timeout_seconds,
     )
+    _validate_schema_document(profile, "game-profile")
+    _verify_source_hash(
+        profile,
+        kind="game profile",
+        field="evidence_index_hash",
+        expected=evidence_hash,
+    )
+    profile_hash = _sha256_artifact_json(profile)
     analysis = _load_or_request_analysis(
         selected_analysis_replay,
-        evidence,
+        raw_evidence,
         profile,
         canary_ids,
         provider=provider,
+        evidence_hash=evidence_hash,
+        profile_hash=profile_hash,
         model=model,
         reasoning_effort=reasoning_effort,
         fast_mode=fast_mode,
         timeout_seconds=timeout_seconds,
     )
+    _validate_schema_document(analysis, "story-analysis")
+    _verify_source_hash(
+        analysis,
+        kind="story analysis",
+        field="evidence_index_hash",
+        expected=evidence_hash,
+    )
+    _verify_source_hash(
+        analysis,
+        kind="story analysis",
+        field="profile_hash",
+        expected=profile_hash,
+    )
+    analysis_hash = _sha256_artifact_json(analysis)
 
     validation_profile = _validation_profile(profile, evidence)
     validation_analysis = _validation_analysis(analysis, evidence)
@@ -196,15 +225,20 @@ def run_storyboard_pipeline(
     # exposes the exact deterministic findings instead of disappearing behind a failed command.
     validation_report = validate_phase01(evidence, validation_profile, validation_analysis)
     report_mapping = validation_report.to_dict()
+    provenance = _artifact_provenance(evidence_hash, profile_hash, analysis_hash)
+    report_mapping["provenance"] = provenance
     render_analysis = _presentation_analysis(analysis, evidence)
     html = render_storyboard_html(evidence, profile, render_analysis, report_mapping)
+    html_provenance = dict(provenance)
+    html_provenance["validation_report_hash"] = _sha256_artifact_json(report_mapping)
+    html = _add_html_provenance(html, html_provenance)
 
     if _supported_input_fingerprint(input_path) != before:
         raise StoryboardPipelineError("supported game input changed before artifact writing")
 
     output.mkdir(parents=True, exist_ok=True)
     artifacts = {name: output / name for name in ARTIFACT_FILENAMES}
-    _write_json(artifacts["evidence-index.json"], evidence)
+    _write_json(artifacts["evidence-index.json"], raw_evidence)
     _write_json(artifacts["game-profile.json"], profile)
     _write_json(artifacts["story-analysis.json"], analysis)
     _write_json(artifacts["validation-report.json"], report_mapping)
@@ -213,7 +247,7 @@ def run_storyboard_pipeline(
     return PipelineResult(
         output.resolve(),
         {name: path.resolve() for name, path in artifacts.items()},
-        evidence,
+        raw_evidence,
         profile,
         analysis,
         validation_report,
@@ -340,6 +374,7 @@ def _load_or_request_profile(
     evidence: Mapping[str, object],
     *,
     provider: StoryboardJsonClient | None,
+    evidence_hash: str,
     model: str,
     reasoning_effort: str,
     fast_mode: bool,
@@ -348,7 +383,8 @@ def _load_or_request_profile(
     if replay is not None:
         return _read_replay(replay, "profile", ("profile", "game_profile"))
     provider = provider or _new_provider()
-    payload = build_game_profile_request(evidence_index=evidence)
+    payload = build_game_profile_request(evidence_index=_copy_json_mapping(evidence))
+    payload["required_provenance"] = {"evidence_index_hash": evidence_hash}
     return _complete(
         provider,
         payload,
@@ -367,6 +403,8 @@ def _load_or_request_analysis(
     canary_ids: Sequence[str],
     *,
     provider: StoryboardJsonClient | None,
+    evidence_hash: str,
+    profile_hash: str,
     model: str,
     reasoning_effort: str,
     fast_mode: bool,
@@ -376,10 +414,14 @@ def _load_or_request_analysis(
         return _read_replay(replay, "analysis", ("analysis", "story_analysis"))
     provider = provider or _new_provider()
     payload = build_story_analysis_request(
-        evidence_index=evidence,
-        game_profile=profile,
+        evidence_index=_copy_json_mapping(evidence),
+        game_profile=_copy_json_mapping(profile),
         canary_evidence_ids=canary_ids,
     )
+    payload["required_provenance"] = {
+        "evidence_index_hash": evidence_hash,
+        "profile_hash": profile_hash,
+    }
     return _complete(
         provider,
         payload,
@@ -417,6 +459,78 @@ def _complete(
     if not isinstance(value, Mapping):
         raise StoryboardPipelineError(f"storyboard AI {kind} response must be a JSON object")
     return _copy_json_mapping(value)
+
+
+def _validate_schema_document(value: Mapping[str, object], kind: str) -> None:
+    if not value:
+        raise StoryboardPipelineError(f"storyboard AI {kind} response is empty")
+    try:
+        schema = json.loads(schema_path(kind).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise StoryboardPipelineError(f"could not load bundled {kind} schema") from error
+    validator = Draft202012Validator(schema)
+    errors = sorted(
+        validator.iter_errors(value),
+        key=lambda item: tuple(str(part) for part in item.path),
+    )
+    if errors:
+        details = "; ".join(
+            f"{'.'.join(str(part) for part in error.path) or '$'}: {error.message}"
+            for error in errors[:5]
+        )
+        raise StoryboardPipelineError(
+            f"storyboard AI {kind} response does not match the bundled schema: {details}"
+        )
+
+
+def _verify_source_hash(
+    document: Mapping[str, object], *, kind: str, field: str, expected: str
+) -> None:
+    source = document.get("source")
+    actual = source.get(field) if isinstance(source, Mapping) else None
+    if actual != expected:
+        raise StoryboardPipelineError(
+            f"{kind} source.{field} does not match the frozen source hash "
+            f"(expected {expected}, received {actual!r})"
+        )
+
+
+def _artifact_provenance(
+    evidence_hash: str, profile_hash: str, analysis_hash: str
+) -> dict[str, object]:
+    return {
+        "hash_algorithm": "sha256",
+        "hash_basis": "serialized artifact bytes",
+        "serialization": "UTF-8 JSON with sorted keys, two-space indentation, and trailing newline",
+        "evidence_index_hash": evidence_hash,
+        "game_profile_hash": profile_hash,
+        "story_analysis_hash": analysis_hash,
+    }
+
+
+def _add_html_provenance(html: str, provenance: Mapping[str, object]) -> str:
+    names = (
+        ("evidence-index", "evidence_index_hash"),
+        ("game-profile", "game_profile_hash"),
+        ("story-analysis", "story_analysis_hash"),
+        ("validation-report", "validation_report_hash"),
+    )
+    tags = [
+        '<meta name="storyboard-provenance-algorithm" content="sha256">',
+        '<meta name="storyboard-provenance-serialization" '
+        'content="utf8-json-sorted-keys-indent-2-trailing-newline">',
+    ]
+    for artifact, key in names:
+        value = _text(provenance.get(key))
+        if value is not None:
+            tags.append(
+                f'<meta name="storyboard-{artifact}-hash" content="{value}">'
+            )
+    marker = '<meta charset="utf-8">\n'
+    metadata = "\n".join(tags) + "\n"
+    if marker in html:
+        return html.replace(marker, marker + metadata, 1)
+    return html.replace("<head>\n", "<head>\n" + metadata, 1)
 
 
 def _new_provider() -> StoryboardJsonClient:
@@ -940,16 +1054,30 @@ def _sha256_json(value: object) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _sha256_artifact_json(value: object) -> str:
+    return hashlib.sha256(_artifact_json_text(value).encode("utf-8")).hexdigest()
+
+
+def _artifact_json_text(value: object) -> str:
+    try:
+        return (
+            json.dumps(
+                value,
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+                allow_nan=False,
+            )
+            + "\n"
+        )
+    except (TypeError, ValueError) as error:
+        raise StoryboardPipelineError("artifact is not finite JSON") from error
+
+
 def _write_json(path: Path, value: object) -> None:
     try:
-        content = json.dumps(
-            value,
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-            allow_nan=False,
-        ) + "\n"
-    except (TypeError, ValueError) as error:
+        content = _artifact_json_text(value)
+    except StoryboardPipelineError as error:
         raise StoryboardPipelineError(f"artifact is not finite JSON: {path.name}") from error
     _write_text(path, content)
 

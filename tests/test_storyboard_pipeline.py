@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -37,77 +38,40 @@ label unfamiliar_right:
 """
 
 
-def _source_and_evidence(tmp_path: Path) -> tuple[Path, dict[str, object]]:
+def _source_and_evidence(
+    tmp_path: Path,
+) -> tuple[Path, dict[str, object], dict[str, object]]:
     game = tmp_path / "input-game"
     game.mkdir()
     (game / "canary.rpy").write_text(SOURCE, encoding="utf-8")
     index = build_evidence_index(game, source_path="canary.rpy", label="unfamiliar_entry")
+    raw_evidence = index.to_dict()
     evidence = evidence_index_to_mapping(index)
-    assert index.to_dict()["menus"]
+    assert raw_evidence["menus"]
     assert isinstance(evidence["menus"], list)
-    return game, evidence
+    return game, raw_evidence, evidence
 
 
-def _legacy_replays(evidence: dict[str, object]) -> tuple[dict[str, object], dict[str, object]]:
-    records = [item for item in evidence["records"] if isinstance(item, dict)]
-    record_ids = [item["id"] for item in records]
-    menu = next(item for item in evidence["menus"] if isinstance(item, dict))
-    menu_id = menu["id"]
-    arms = menu["arm_ids"]
-    profile: dict[str, object] = {
-        "schema_version": "storyboard-profile-v1",
-        "source_revision": evidence["revision"],
-        "claims": [
-            {
-                "text": "The selected label is a bounded entry point.",
-                "evidence_ids": [next(item["id"] for item in records if item["kind"] == "label")],
-                "confidence": "high",
-                "unresolved": False,
-            }
-        ],
-    }
-    choices = [
-        {
-            "menu_evidence_id": menu_id,
-            "arm_evidence_id": arm_id,
-            "consequence": {
-                "text": f"Arm {ordinal + 1} continues to a separate route.",
-                "evidence_ids": [arm_id],
-                "confidence": "medium",
-                "unresolved": False,
-            },
-            "destination": {
-                "kind": "unresolved",
-                "evidence_ids": [arm_id],
-                "confidence": "low",
-                "unresolved": True,
-                "uncertainty": "The selected canary does not establish the target label body.",
-            },
-        }
-        for ordinal, arm_id in enumerate(arms)
-    ]
-    analysis: dict[str, object] = {
-        "schema_version": "storyboard-analysis-v1",
-        "source_revision": evidence["revision"],
-        "scenes": [
-            {
-                "id": "scene-unfamiliar-entry",
-                "member_evidence_ids": record_ids,
-                "line_evidence_ids": [
-                    item["id"]
-                    for item in records
-                    if item["kind"] in {"dialogue", "narration"}
-                ],
-                "choices": choices,
-            }
-        ],
-        "unresolved": [],
-        "disagreements": [],
-    }
-    return profile, analysis
+def _artifact_hash(value: object) -> str:
+    return hashlib.sha256(_artifact_text(value).encode("utf-8")).hexdigest()
 
 
-def _schema_replays(evidence: dict[str, object]) -> tuple[dict[str, object], dict[str, object]]:
+def _artifact_text(value: object) -> str:
+    return (
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+            allow_nan=False,
+        )
+        + "\n"
+    )
+
+
+def _schema_replays(
+    raw_evidence: dict[str, object], evidence: dict[str, object]
+) -> tuple[dict[str, object], dict[str, object]]:
     records = [item for item in evidence["records"] if isinstance(item, dict)]
     ids = [item["id"] for item in records]
     menu = next(item for item in evidence["menus"] if isinstance(item, dict))
@@ -115,7 +79,7 @@ def _schema_replays(evidence: dict[str, object]) -> tuple[dict[str, object], dic
     profile: dict[str, object] = {
         "schema": "storyboard-game-profile-v1",
         "source": {
-            "evidence_index_hash": evidence["revision"],
+            "evidence_index_hash": _artifact_hash(raw_evidence),
             "scope_evidence_ids": ids,
         },
         "entry_points": [],
@@ -129,8 +93,8 @@ def _schema_replays(evidence: dict[str, object]) -> tuple[dict[str, object], dic
     analysis: dict[str, object] = {
         "schema": "storyboard-story-analysis-v1",
         "source": {
-            "evidence_index_hash": evidence["revision"],
-            "profile_hash": "replay-profile",
+            "evidence_index_hash": _artifact_hash(raw_evidence),
+            "profile_hash": _artifact_hash(profile),
             "canary_evidence_ids": ids,
         },
         "scenes": [
@@ -186,7 +150,7 @@ def _schema_replays(evidence: dict[str, object]) -> tuple[dict[str, object], dic
 
 
 def test_evidence_adapter_makes_menu_ownership_and_facts_explicit(tmp_path: Path) -> None:
-    _game, evidence = _source_and_evidence(tmp_path)
+    _game, _raw_evidence, evidence = _source_and_evidence(tmp_path)
 
     records = {item["id"]: item for item in evidence["records"] if isinstance(item, dict)}
     menu = evidence["menus"][0]
@@ -198,8 +162,8 @@ def test_evidence_adapter_makes_menu_ownership_and_facts_explicit(tmp_path: Path
 
 
 def test_pipeline_writes_exactly_five_artifacts_and_keeps_input_unchanged(tmp_path: Path) -> None:
-    game, evidence = _source_and_evidence(tmp_path)
-    profile, analysis = _legacy_replays(evidence)
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
     before = (game / "canary.rpy").read_bytes()
     output = tmp_path / "artifacts"
 
@@ -219,14 +183,15 @@ def test_pipeline_writes_exactly_five_artifacts_and_keeps_input_unchanged(tmp_pa
     assert "An exact line from an unfamiliar speaker." in (output / "index.html").read_text(
         encoding="utf-8"
     )
-    assert "First branch" in (output / "index.html").read_text(encoding="utf-8")
+    assert "Arm 1" in (output / "index.html").read_text(encoding="utf-8")
+    assert json.loads((output / "evidence-index.json").read_text(encoding="utf-8")) == raw_evidence
 
 
 def test_schema_shaped_replay_is_validated_and_rendered_without_mutating_artifact(
     tmp_path: Path,
 ) -> None:
-    game, evidence = _source_and_evidence(tmp_path)
-    profile, analysis = _schema_replays(evidence)
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
     output = tmp_path / "schema-artifacts"
 
     result = run_storyboard_pipeline(
@@ -247,8 +212,155 @@ def test_schema_shaped_replay_is_validated_and_rendered_without_mutating_artifac
     assert "Arm 2" in html
 
 
+def test_empty_evidence_profile_and_analysis_are_rejected(tmp_path: Path) -> None:
+    empty_game = tmp_path / "empty-game"
+    empty_game.mkdir()
+    (empty_game / "empty.rpy").write_text("", encoding="utf-8")
+    with pytest.raises(StoryboardPipelineError, match="canary evidence is empty"):
+        run_storyboard_pipeline(
+            empty_game,
+            tmp_path / "empty-evidence-artifacts",
+            profile_replay={},
+            analysis_replay={},
+        )
+
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
+    with pytest.raises(StoryboardPipelineError, match="game-profile response is empty"):
+        run_storyboard_pipeline(
+            game,
+            tmp_path / "empty-profile-artifacts",
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            profile_replay={},
+            analysis_replay=analysis,
+        )
+    with pytest.raises(StoryboardPipelineError, match="story-analysis response is empty"):
+        run_storyboard_pipeline(
+            game,
+            tmp_path / "empty-analysis-artifacts",
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            profile_replay=profile,
+            analysis_replay={},
+        )
+
+
+def test_replays_must_match_bundled_schemas(tmp_path: Path) -> None:
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
+
+    invalid_profile = dict(profile)
+    invalid_profile.pop("source")
+    with pytest.raises(StoryboardPipelineError, match=r"game-profile.*bundled schema"):
+        run_storyboard_pipeline(
+            game,
+            tmp_path / "invalid-profile-artifacts",
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            profile_replay=invalid_profile,
+            analysis_replay=analysis,
+        )
+
+    invalid_analysis = dict(analysis)
+    invalid_analysis.pop("choices")
+    with pytest.raises(StoryboardPipelineError, match=r"story-analysis.*bundled schema"):
+        run_storyboard_pipeline(
+            game,
+            tmp_path / "invalid-analysis-artifacts",
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            profile_replay=profile,
+            analysis_replay=invalid_analysis,
+        )
+
+
+def test_replay_provenance_binds_raw_evidence_and_exact_profile_json(tmp_path: Path) -> None:
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
+    output = tmp_path / "provenance-artifacts"
+
+    run_storyboard_pipeline(
+        game,
+        output,
+        source_path="canary.rpy",
+        label="unfamiliar_entry",
+        profile_replay=profile,
+        analysis_replay=analysis,
+    )
+
+    expected_evidence_hash = _artifact_hash(raw_evidence)
+    expected_profile_hash = _artifact_hash(profile)
+    expected_analysis_hash = _artifact_hash(analysis)
+    written_evidence = json.loads((output / "evidence-index.json").read_text(encoding="utf-8"))
+    written_profile = json.loads((output / "game-profile.json").read_text(encoding="utf-8"))
+    written_analysis = json.loads((output / "story-analysis.json").read_text(encoding="utf-8"))
+    report = json.loads((output / "validation-report.json").read_text(encoding="utf-8"))
+    html = (output / "index.html").read_text(encoding="utf-8")
+
+    assert written_evidence == raw_evidence
+    assert written_profile == profile
+    assert written_analysis == analysis
+    assert hashlib.sha256((output / "evidence-index.json").read_bytes()).hexdigest() == (
+        expected_evidence_hash
+    )
+    assert hashlib.sha256((output / "game-profile.json").read_bytes()).hexdigest() == (
+        expected_profile_hash
+    )
+    assert hashlib.sha256((output / "story-analysis.json").read_bytes()).hexdigest() == (
+        expected_analysis_hash
+    )
+    assert written_profile["source"]["evidence_index_hash"] == expected_evidence_hash
+    assert written_analysis["source"]["evidence_index_hash"] == expected_evidence_hash
+    assert written_analysis["source"]["profile_hash"] == expected_profile_hash
+    assert report["provenance"] == {
+        "hash_algorithm": "sha256",
+        "hash_basis": "serialized artifact bytes",
+        "serialization": "UTF-8 JSON with sorted keys, two-space indentation, and trailing newline",
+        "evidence_index_hash": expected_evidence_hash,
+        "game_profile_hash": expected_profile_hash,
+        "story_analysis_hash": expected_analysis_hash,
+    }
+    assert f'name="storyboard-evidence-index-hash" content="{expected_evidence_hash}"' in html
+    assert (
+        f'name="storyboard-validation-report-hash" '
+        f'content="{_artifact_hash(report)}"'
+    ) in html
+
+
+def test_replay_provenance_mismatch_is_rejected(tmp_path: Path) -> None:
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
+
+    bad_profile = dict(profile)
+    bad_profile["source"] = {**profile["source"], "evidence_index_hash": "0" * 64}
+    with pytest.raises(
+        StoryboardPipelineError, match=r"game profile source\.evidence_index_hash"
+    ):
+        run_storyboard_pipeline(
+            game,
+            tmp_path / "bad-profile-provenance",
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            profile_replay=bad_profile,
+            analysis_replay=analysis,
+        )
+
+    bad_analysis = dict(analysis)
+    bad_analysis["source"] = {**analysis["source"], "profile_hash": "0" * 64}
+    with pytest.raises(StoryboardPipelineError, match=r"story analysis source\.profile_hash"):
+        run_storyboard_pipeline(
+            game,
+            tmp_path / "bad-analysis-provenance",
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            profile_replay=profile,
+            analysis_replay=bad_analysis,
+        )
+
+
 def test_output_inside_game_is_rejected_before_artifacts_are_written(tmp_path: Path) -> None:
-    game, _evidence = _source_and_evidence(tmp_path)
+    game, _raw_evidence, _evidence = _source_and_evidence(tmp_path)
 
     with pytest.raises(StoryboardPipelineError, match="outside"):
         run_storyboard_pipeline(
@@ -263,12 +375,12 @@ def test_output_inside_game_is_rejected_before_artifacts_are_written(tmp_path: P
 
 
 def test_cli_supports_json_replay_inputs_and_bounded_label(tmp_path: Path, capsys: Any) -> None:
-    game, evidence = _source_and_evidence(tmp_path)
-    profile, analysis = _legacy_replays(evidence)
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
     replay = tmp_path / "replay"
     replay.mkdir()
-    (replay / "profile.json").write_text(json.dumps(profile), encoding="utf-8")
-    (replay / "analysis.json").write_text(json.dumps(analysis), encoding="utf-8")
+    (replay / "profile.json").write_text(_artifact_text(profile), encoding="utf-8")
+    (replay / "analysis.json").write_text(_artifact_text(analysis), encoding="utf-8")
     output = tmp_path / "cli-artifacts"
 
     code = main(
@@ -296,20 +408,20 @@ def test_cli_supports_json_replay_inputs_and_bounded_label(tmp_path: Path, capsy
 def test_cli_returns_two_for_rejected_validation_and_keeps_artifacts(
     tmp_path: Path, capsys: Any
 ) -> None:
-    game, evidence = _source_and_evidence(tmp_path)
-    profile, analysis = _legacy_replays(evidence)
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
     scenes = analysis["scenes"]
     assert isinstance(scenes, list)
     scene = scenes[0]
     assert isinstance(scene, dict)
-    member_evidence_ids = scene["member_evidence_ids"]
-    assert isinstance(member_evidence_ids, list)
-    member_evidence_ids.append("fake-evidence-id")
+    evidence_ids = scene["evidence_ids"]
+    assert isinstance(evidence_ids, list)
+    scene["evidence_ids"] = [*evidence_ids, "fake-evidence-id"]
 
     replay = tmp_path / "rejected-replay"
     replay.mkdir()
-    (replay / "profile.json").write_text(json.dumps(profile), encoding="utf-8")
-    (replay / "analysis.json").write_text(json.dumps(analysis), encoding="utf-8")
+    (replay / "profile.json").write_text(_artifact_text(profile), encoding="utf-8")
+    (replay / "analysis.json").write_text(_artifact_text(analysis), encoding="utf-8")
     output = tmp_path / "rejected-artifacts"
 
     code = main(
@@ -336,7 +448,7 @@ def test_cli_returns_two_for_rejected_validation_and_keeps_artifacts(
 
 
 def test_pipeline_makes_one_profile_and_one_analysis_provider_call(tmp_path: Path) -> None:
-    game, _evidence = _source_and_evidence(tmp_path)
+    game, _raw_evidence, evidence = _source_and_evidence(tmp_path)
 
     class FakeClient:
         def __init__(self) -> None:
@@ -350,9 +462,15 @@ def test_pipeline_makes_one_profile_and_one_analysis_provider_call(tmp_path: Pat
             assert isinstance(payload, dict)
             request_input = payload["input"]
             assert isinstance(request_input, dict)
-            evidence = request_input["evidence_index"]
-            assert isinstance(evidence, dict)
-            profile, analysis = _legacy_replays(evidence)
+            raw_evidence = request_input["evidence_index"]
+            assert isinstance(raw_evidence, dict)
+            assert raw_evidence == _raw_evidence
+            required_provenance = payload["required_provenance"]
+            assert isinstance(required_provenance, dict)
+            assert required_provenance["evidence_index_hash"] == _artifact_hash(raw_evidence)
+            profile, analysis = _schema_replays(raw_evidence, evidence)
+            if schema_path.name.startswith("story-analysis"):
+                assert required_provenance["profile_hash"] == _artifact_hash(profile)
             return profile if schema_path.name.startswith("game-profile") else analysis
 
         def cancel(self) -> None:
