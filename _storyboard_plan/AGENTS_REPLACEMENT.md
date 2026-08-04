@@ -31,11 +31,3 @@ Game-specific discoveries belong in generated profile/analysis files.
 Build one thin vertical slice before scaling. Do not create another architecture layer, provider platform, database, or broad rewrite.
 
 Use real game source, preserve exact evidence, run focused tests, inspect generated output, and report limitations honestly. Keep legacy code untouched unless a small adapter or CLI registration is necessary.
-
-## Codex collaboration
-
-In this repository, Codex tasks and threads are user-visible Codex tasks shown in the app sidebar,
-not internal subagents. Never substitute internal subagents when the user asks for Codex tasks or
-threads. When independent investigations or implementation areas should run in parallel, dispatch
-bounded, non-overlapping user-visible Codex tasks using `gpt-5.6-sol` with High reasoning unless the
-user requests different settings. The coordinator owns scope, integration, and the final result.

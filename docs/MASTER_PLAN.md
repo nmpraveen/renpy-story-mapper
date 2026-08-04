@@ -1,174 +1,124 @@
 # Ren'Py Story Mapper master plan
 
-Updated: 2026-08-03
+Updated: 2026-08-04
 
 ## Product goal
 
-Build a quick desktop tool that accepts a Ren'Py game folder or readable script and produces a
-clean, trustworthy, full-width scrolling story timeline. A reader should understand the linear
-story, choices, conditions, nested routes, important state changes, destinations, rejoins, loops,
-endings, and uncertainty without reading raw code.
+Give the system a Ren'Py game or readable script and receive a complete, readable static web
+storyboard. A normal reader should understand the story in sensible order, exact dialogue and
+narration, meaningful choices, conditions, branch consequences, rejoins, loops, endings, routes,
+hidden or disconnected content, and behavior that remains unresolved because the source is dynamic.
+The output should read like a storyboard rather than compiler output.
 
-This is a personal script/game-to-story checker. It is not a production workflow platform, hosted
-service, universal Python interpreter, game editor, mobile app, or replacement Ren'Py runtime.
-
-## Current decision
-
-The selected direction is hybrid:
-
-1. deterministic Python builds and freezes factual execution/state structure;
-2. execution-derived corridors define story units;
-3. AI titles and summarizes only those frozen corridors;
-4. a simple scrolling reader presents the combined result; and
-5. independent structure and browser audits verify the real artifact.
-
-The existing Story River remains the last accepted integrated application baseline on Ms. Denvers.
-It is not the current proof strategy for a new game. The Resort v0.2.2 hybrid Story Atlas is the
-reference architecture proof, but it used a game already studied during diagnosis and does not
-prove third-game generalization.
-
-See [the complete history](PROJECT_HISTORY.md), [current state](PROJECT_STATE.md), and
-[hybrid architecture](HYBRID_APPROACH.md).
-
-## Story authority
-
-Python owns:
-
-- entry and execution order from labels, fallthrough, jumps, calls, returns, and known targets;
-- menus, conditions, every arm, nested ownership, and conditional visibility;
-- effects, requirements, state provenance, and path compatibility;
-- exact corridor membership and source spans;
-- destinations, rejoins, loops, local terminals, release terminals, and unresolved behavior;
-- stable IDs, scope/reachability, and evidence.
-
-AI may:
-
-- title and summarize frozen corridors;
-- explain character, motive, development, and route consequences;
-- provide uncertainty notes; and
-- editorially group adjacent corridors without moving or changing them.
-
-AI may not invent or relocate mechanics. Unsupported dynamic behavior remains unresolved.
-
-## Story-building model
+The eventual command is:
 
 ```text
-entry label
-  -> readable linear corridor
-  -> menu or condition
-     -> exact branch-owned corridors
-     -> nested choice or later state gate
-     -> proven rejoin, persistent continuation, loop, ending, or unresolved target
+renpy-story-mapper storyboard GAME_PATH --output OUTPUT_DIRECTORY
 ```
 
-When a later condition reads state established earlier, preserve both relationships:
+The first proof is deliberately smaller: one representative connected section from one real game.
 
-- the visible split occurs where the condition is evaluated; and
-- a dependency link points to the earlier choice or assignment that can establish it.
+## Active direction: AI-first with deterministic guardrails
 
-Source files, AI requests, token limits, model context windows, and arbitrary group counts are
-transport details. They never define story events.
+The active product architecture is:
 
-## Input and execution policy
+```text
+Ren'Py game
+  -> safe source recovery and evidence index
+  -> AI reconnaissance and game profile
+  -> AI story, branch, route, and ending analysis with citations
+  -> deterministic reference and coverage audit
+  -> AI repair of specific gaps when needed
+  -> static web storyboard
+```
 
-- Original supplied game inputs are read-only.
-- Trusted games may be executed when useful, preferably through a disposable headless copy.
-- Generated and recovered files stay outside the original game directory.
-- Game scripts and story content may be sent to cloud AI.
-- Cloud AI is the default unless the user requests local processing.
-- Supplied archives, extracted source trees, generated outputs, and model transcripts stay out of
-  Git.
+AI is the primary semantic game analyst. It may infer scene boundaries, character identities and
+aliases, variable meanings, custom statements and helper functions, route mechanics, choice
+consequences, endings, hidden or replay content, and plain-language story explanations. It is not
+limited to titles and prose polishing.
 
-## Presentation boundary
+Deterministic code is the guardrail and bookkeeper. It owns safe read-only ingestion, stable
+evidence identity, exact source text, file and line provenance, direct syntax inventory,
+cross-reference checks, coverage auditing, unresolved-item tracking, and rendering. It must not
+become a permanent hard-coded interpreter of one game's narrative conventions.
 
-The supported product outcome is a full-width desktop scrolling timeline:
+Every AI-derived structural or semantic claim must cite exact source evidence and carry a
+`high`, `medium`, or `low` confidence. If the source cannot establish dynamic behavior, the result
+must say so explicitly. Parser/AI disagreements remain visible until resolved; neither side
+silently overwrites the other.
 
-- shared chronology reads top to bottom;
-- choices and conditions fork locally;
-- descendants remain beneath the exact route that owns them;
-- immediate flavor routes can rejoin compactly;
-- persistent routes remain separate until a proven rejoin or terminal;
-- important state causes and later requirements are linked;
-- story names are human-readable while raw Python remains secondary evidence;
-- unresolved behavior is visible but not dominant; and
-- long scrolling remains readable with no horizontal page overflow.
+## Active phase: Phase 01 canary
 
-Do not make pan, zoom, fit, semantic zoom, mobile layouts, a giant world graph, or a production
-dashboard part of the current plan.
+Phase 01 proves a thin vertical slice on one representative connected section of a real Ren'Py
+game. It combines reusable low-level extraction with AI interpretation without adding game-specific
+Python rules. It is a canary, not a whole-game mapping or a final reader.
 
-## What the repository has already proved
+The canary must include, where the supplied game makes them available, dialogue or narration, a
+menu or conditional branch, a state variable or delayed dependency, and a custom or ambiguous
+construct. The evidence index must preserve stable IDs, exact source text, provenance, labels,
+menus, choice arms, conditions, assignments, jumps, calls, returns, Python/custom blocks, and
+unknown statements.
 
-- Safe read-only RPA/source ingestion and inert static parsing.
-- Durable graph/state/evidence projects and incremental refresh.
-- Canonical control, guard, state, rejoin, loop, and terminal facts.
-- Human scene, route, and source-evidence projections.
-- Optional editorial AI that cannot change deterministic authority.
-- A complete accepted family-tree reader and painted Story River on Ms. Denvers.
-- A source-grounded direct-analysis benchmark on Resort.
-- A generic fix for Resort's cyclic region-parent failure.
-- A complete hybrid Resort Atlas with 1,103 exact-once corridors and passing independent structure
-  and Chrome audits.
+The canary output is one directly openable static directory containing:
 
-## What remains unproved
+```text
+evidence-index.json
+game-profile.json
+story-analysis.json
+validation-report.json
+index.html
+```
 
-- The existing integrated Story River app has not completed end to end on Resort.
-- The old durable Story Map publication path still needs a broad Episode 3 nested-lineage canary.
-- The hybrid architecture has not run on a genuinely unseen third game.
-- The best reusable presentation after that proof is undecided.
-- Static analysis cannot resolve every screen, timer, replay, persistent/platform, or opaque-Python
-  mechanic.
+The normal reader must be able to follow the selected section, see exact lines and choices, read
+branch outcomes and consequences, and recognize uncertainty. Validation must reject nonexistent
+evidence citations, report missing or duplicated menu arms, report unaccounted source material,
+keep parser/AI conflicts visible, and prevent uncertain dynamic behavior from becoming fact.
 
-## Current roadmap
+## Reuse and isolation boundary
 
-The active contract is
-[M16 Hybrid story mapping and third-game proof](milestones/M16_HYBRID_STORY_ATLAS/GOAL.md).
+Reuse first only the low-level safe ingestion, archive/source recovery, hashing/provenance, source
+inventory, and exact-text parser work that proves useful. Reuse control-flow, state, canonical-graph,
+or solver code only through a narrow adapter after focused generic tests prove it is safe.
 
-### Gate 1 - Third-game deterministic section
+The new path belongs under `src/renpy_story_mapper/storyboard/`. Story River, the old web API and
+Qt flow, durable Story Map V2 workflows, milestone orchestration, provider platforms, and the
+hard-coded whole-game reader are bypassed for this phase. Do not delete them or perform broad
+legacy cleanup. Reusable code must contain no known game title, character, dialogue line, label,
+expected count, fixed AI batch count, or game-specific exclusion.
 
-Run the unchanged extractor on a third unseen game. Prove one representative real section with
-correct branch membership, nesting, conditions, state provenance, destinations, rejoins, loops or
-terminals, and source evidence. Preserve any generic failure before repairing it.
+## Phase 01 acceptance
 
-### Gate 2 - Frozen corridors and editorial canary
+Phase 01 is useful only when all of these are true:
 
-Build execution-derived packets. Prove exact statement accounting, then inspect the first ten plus
-difficult structural corridors. Correct packet shape or prompt before any bulk work.
+1. One real canary section is identified and its source remains read-only.
+2. Exact source material and stable evidence references survive into the analysis.
+3. AI semantic claims include evidence, confidence, and explicit unresolved explanations where
+   required.
+4. Deterministic validation catches invalid citations, choice-arm omissions or duplication,
+   unaccounted source material, and visible parser/AI disagreements.
+5. The rendered static page communicates story order, choices, branch outcomes, and uncertainty.
+6. Focused tests show unfamiliar names do not require code changes and reusable runtime code has no
+   game-specific names, dialogue, or fixed counts.
 
-### Gate 3 - Rendered prototype
+Stop after the canary is inspected and reported. Do not start Phase 02 or scale to the full game
+until the user accepts the Phase 01 proof.
 
-Render one real section in Chrome. Check nested interaction, evidence, state/destination/rejoin
-links, search/filter behavior, readability, console, long scrolling, and overflow. Stop if the
-presentation is not useful.
+## Later direction
 
-### Gate 4 - Full audited result
+Only after Phase 01 is useful may the project decompose a full game into evidence scopes, analyze
+cross-scope dependencies, repair concrete coverage gaps, and choose the smallest reusable reader
+surface. Full-game scaling, polished navigation, one-command integration, unseen-game
+generalization, and gradual legacy cleanup are later work, not current acceptance requirements.
 
-Parallelize only editorial summaries. Integrate by stable ID with exact-once checks. Run independent
-source/structure and rendered-browser audits. Record time to first useful story, full audited result,
-manual interventions, model settings, and unresolved coverage.
+## Historical boundary
 
-### Gate 5 - Product selection
-
-Only after the third-game proof, choose the smallest reusable surface:
-
-- a static Story Atlas;
-- a text-first dossier with deterministic evidence; or
-- an adapted Story River using the same frozen hybrid packets.
-
-Then implement only the seams demonstrated necessary by the proof.
-
-## Delivery discipline
-
-- Prove one real section before whole-game work.
-- Run focused checks while changing parser/story/UI seams.
-- Keep a failed baseline immutable and give repaired runs new identities.
-- Do not repeat a failed bulk-summary pattern.
-- Distinguish deterministic completion, AI completion, publication, and rendered acceptance.
-- Use pull requests for GitHub updates.
-- Do not let sunk cost or attractive screenshots substitute for cross-game correctness.
+The earlier M16 hybrid/Resort work remains valuable history: deterministic facts, source evidence,
+the region-hierarchy repair, and the known-game Atlas proof are preserved in
+`docs/PROJECT_HISTORY.md`, `docs/HYBRID_APPROACH.md`, and the M16 milestone files. They are not
+the active Phase 01 contract and do not establish generalization for this AI-first canary.
 
 ## Completion
 
-The project succeeds when a new Ren'Py game can be turned into a coherent, source-grounded,
-auditable scrolling story in reasonable time without a game-specific product rewrite. Branches,
-state causes, routes, rejoins, endings, and uncertainty must be understandable to the user and
-mechanically traceable to Python-owned evidence.
+The product succeeds when a new Ren'Py game can be turned into a coherent, source-grounded,
+auditable storyboard without a game-specific product rewrite, while semantic interpretation,
+deterministic evidence, and unresolved behavior remain clearly distinguishable.

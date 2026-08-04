@@ -23,6 +23,7 @@ from renpy_story_mapper.project import (
 from renpy_story_mapper.rpa import ArchiveFingerprint, RpaArchive, fingerprint_file
 from renpy_story_mapper.semantic import build_semantic_story
 from renpy_story_mapper.storage import ProjectStorageError
+from renpy_story_mapper.storyboard.pipeline import run_storyboard_pipeline
 
 
 def _write_json(path: Path, value: object) -> None:
@@ -169,6 +170,29 @@ def _analyze(args: argparse.Namespace) -> int:
     return 0
 
 
+def _storyboard(args: argparse.Namespace) -> int:
+    result = run_storyboard_pipeline(
+        args.game_path,
+        args.output,
+        source_path=args.source_path,
+        label=args.label,
+        start_line=args.start_line,
+        end_line=args.end_line,
+        profile_replay=args.profile_replay,
+        analysis_replay=args.analysis_replay,
+        model=args.model,
+        reasoning_effort=args.reasoning_effort,
+        fast_mode=args.fast_mode,
+        timeout_seconds=args.timeout_seconds,
+        ingestion_options=_ingestion_options(args),
+    )
+    print(f"Storyboard output: {result.output_directory}")
+    print(f"Validation: {result.validation_report.status}")
+    for name in result.artifacts:
+        print(f"{name}: {result.artifacts[name]}")
+    return 0 if result.validation_report.publishable else 2
+
+
 def _project_create(args: argparse.Namespace) -> int:
     source = Path(args.source).resolve(strict=True)
     project_path = Path(args.project)
@@ -260,7 +284,7 @@ def _reject_project_in_source(source: Path, project_path: Path) -> None:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="renpy-story-mapper",
-        description="Safely inventory RPA 3.0 archives and build inert Ren'Py control-flow graphs.",
+        description="Build source-grounded Ren'Py storyboards and inspect deterministic evidence.",
     )
     parser.add_argument("--version", action="version", version=__version__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -287,6 +311,70 @@ def _parser() -> argparse.ArgumentParser:
         help="include labels in matching archive source paths; repeatable",
     )
     analyze_parser.set_defaults(handler=_analyze)
+
+    storyboard_parser = subparsers.add_parser(
+        "storyboard", help="build a bounded AI-first static storyboard canary"
+    )
+    storyboard_parser.add_argument("game_path", help="game folder, source file, or archive")
+    storyboard_parser.add_argument(
+        "--output", required=True, help="directory for the five Phase 01 storyboard artifacts"
+    )
+    storyboard_parser.add_argument(
+        "--source-path",
+        "--source",
+        dest="source_path",
+        help="logical source path inside a game folder or archive",
+    )
+    storyboard_parser.add_argument(
+        "--label",
+        "--canary-label",
+        dest="label",
+        help="selected Ren'Py label for the bounded canary",
+    )
+    storyboard_parser.add_argument(
+        "--start-line",
+        "--canary-start-line",
+        dest="start_line",
+        type=int,
+        help="inclusive physical start line for the bounded canary",
+    )
+    storyboard_parser.add_argument(
+        "--end-line",
+        "--canary-end-line",
+        dest="end_line",
+        type=int,
+        help="inclusive physical end line for the bounded canary",
+    )
+    storyboard_parser.add_argument(
+        "--profile-replay",
+        "--profile-json",
+        "--game-profile-json",
+        dest="profile_replay",
+        help="read game-profile JSON from a replay file",
+    )
+    storyboard_parser.add_argument(
+        "--analysis-replay",
+        "--analysis-json",
+        "--story-analysis-json",
+        dest="analysis_replay",
+        help="read story-analysis JSON from a replay file",
+    )
+    storyboard_parser.add_argument(
+        "--model", default="gpt-5.5", help="model used when a replay is not supplied"
+    )
+    storyboard_parser.add_argument(
+        "--reasoning-effort",
+        choices=("low", "medium", "high", "xhigh"),
+        default="high",
+    )
+    fast_group = storyboard_parser.add_mutually_exclusive_group()
+    fast_group.add_argument("--fast-mode", dest="fast_mode", action="store_true")
+    fast_group.add_argument("--no-fast-mode", dest="fast_mode", action="store_false")
+    storyboard_parser.set_defaults(fast_mode=True)
+    storyboard_parser.add_argument("--timeout-seconds", type=float)
+    storyboard_parser.add_argument("--allow-partial-recovery", action="store_true")
+    storyboard_parser.add_argument("--cache-root")
+    storyboard_parser.set_defaults(handler=_storyboard)
 
     project_parser = subparsers.add_parser(
         "project", help="create, refresh, inspect, or delete a durable SQLite project"

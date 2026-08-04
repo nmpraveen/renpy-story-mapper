@@ -1,38 +1,30 @@
-# **QUICK, CRUDE SCRIPT TO STORY CHECKER — NOT A PRODUCTION-GRADE SYSTEM**
+# Ren'Py Story Mapper - AI-first storyboard canary
 
-## Ren'Py Story Mapper — Local Browser Story Map
+This branch is an isolated Phase 01 proof, not a production-grade system.
 
-**Primary rule: load Ren'Py files and quickly show the rough whole story, choices, branches,
-important state changes, routes, and rejoins. If work does not directly improve that result or
-remove a demonstrated blocker, do not build it.**
+**Primary rule: load a bounded Ren'Py section and produce a readable static storyboard with exact
+lines, choices, branches, consequences, destinations, uncertainty, and source evidence.**
 
 ## Current direction
 
-The last accepted integrated application baseline is the painted Story River merged in
-[PR #36](https://github.com/nmpraveen/renpy-story-mapper/pull/36). It produced a useful whole-game
-reader for the original Ms. Denvers development game, but an unchanged run on a second game failed
-before story publication. A clean-slate source analysis was useful much sooner, while a later
-hybrid experiment combined the reusable deterministic extractor with AI-written corridor summaries
-and a small static Story Atlas.
-
-The project is therefore no longer treating additional River polish as the primary next step. The
-current direction is a hybrid pipeline: Python freezes execution, choices, conditions, state,
-destinations, rejoins, loops, terminals, unresolved mechanics, and source evidence; AI adds only
-titles and narrative explanation; and a simple scrolling reader presents the result. The hybrid
-has passed one complete proof on Resort of Temptation v0.2.2, but it has not yet proved
-generalization on a third unseen game or replaced the integrated application.
+The active direction is an AI-first pipeline. Deterministic code safely recovers source, freezes
+exact evidence and provenance, and audits citations, coverage, references, menu arms, and unresolved
+behavior. Two schema-bound AI passes build a game profile and interpret the selected story section.
+A dependency-free HTML renderer presents the result. Story River, the prior hybrid experiment, and
+the loopback browser are historical implementations rather than current product authority.
 
 Start here for current context:
 
 - [Current project state](docs/PROJECT_STATE.md)
+- [Active master plan](docs/MASTER_PLAN.md)
+- [Phase 01 goal and acceptance](docs/storyboard-v2/GOAL.md)
 - [Full project history](docs/PROJECT_HISTORY.md)
-- [Hybrid architecture and proof contract](docs/HYBRID_APPROACH.md)
-- [Current milestone](docs/milestones/M16_HYBRID_STORY_ATLAS/GOAL.md)
 
-This repository contains a local-first Windows browser application and analyzer for exploring
-Ren'Py stories as a bounded, source-linked Route Map. It safely reads folders, individual source
-files, or RPA 3.0 archives, prefers available `.rpy` source over matching `.rpyc`, stores durable
-SQLite projects, and presents deterministic routes, choices, requirements, effects, and exact
+This repository also preserves the prior local-first Windows browser and deterministic analyzer for
+historical comparison. That path explores Ren'Py stories as a bounded, source-linked Route Map. It
+safely reads folders, individual source files, or RPA 3.0 archives, prefers available `.rpy` source
+over matching `.rpyc`, stores durable SQLite projects, and presents deterministic routes, choices,
+requirements, effects, and exact
 evidence. It does **not** initialize Ren'Py, execute init/Python/creator code, or evaluate script
 expressions. When original `.rpy` is unavailable, compiled `.rpyc` recovery uses an isolated,
 pinned Unrpyc helper; its output is provenance-qualified reconstructed evidence and never original
@@ -75,9 +67,26 @@ python -m pip install -e ".[dev]"
 
 If PowerShell activation is disabled, invoke `.\.venv\Scripts\python.exe` directly as shown below.
 
-## Local browser application
+## Phase 01 storyboard canary
 
-Launch the supported product after setup:
+Live mode requires an installed and authenticated native Codex CLI. The output directory must be a
+new path outside the selected game or source directory.
+
+```powershell
+renpy-story-mapper storyboard "C:\path\to\game" `
+  --output "C:\path\outside\game\storyboard-canary" `
+  --source-path "game/script.rpy" `
+  --label "selected_label"
+```
+
+For deterministic replay without a provider call, also pass `--profile-json` and
+`--analysis-json` with previously captured schema-valid responses. Both modes emit exactly
+`evidence-index.json`, `game-profile.json`, `story-analysis.json`, `validation-report.json`, and
+`index.html`.
+
+## Historical local browser application
+
+The previous loopback browser remains available for historical comparison:
 
 ```powershell
 .\.venv\Scripts\renpy-story-mapper-web.exe
@@ -236,8 +245,7 @@ recovered-source acknowledgement policy. Interactive `call screen` statements re
 fallthrough plus an explicit unresolved-interaction edge. Those boundaries are security properties,
 not missing runtime dependencies.
 
-The loopback browser is the sole supported product surface. The command-line analyzer remains a
-diagnostic and export harness, not a second interactive product. The legacy QGraphicsView desktop
-application is not packaged. Optional organization cannot change deterministic edges, gates,
-effects, routes, endings, unresolved records, or source evidence. Hosted deployment, installers,
-standalone executables, macOS support, game editing, and game patching remain out of scope.
+The Phase 01 static storyboard is the active product proof. The loopback browser, Story River, and
+legacy QGraphicsView desktop application are historical surfaces and are not being extended by this
+phase. Hosted deployment, installers, standalone executables, macOS support, game editing, and game
+patching remain out of scope.
