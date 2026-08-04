@@ -862,6 +862,12 @@ def _call_occurrences(
 def _temporary_region_index(
     regions: Sequence[Mapping[str, object]],
 ) -> tuple[list[Mapping[str, object]], dict[str, str | None]]:
+    region_by_id: dict[str, Mapping[str, object]] = {}
+    for region in regions:
+        region_id = _text(region, "id")
+        if region_id in region_by_id:
+            raise ValueError(f"M10 region hierarchy repeats region {region_id}")
+        region_by_id[region_id] = region
     temporary = [
         item
         for item in regions
@@ -869,7 +875,7 @@ def _temporary_region_index(
         and isinstance(item.get("merge_node_id"), str)
     ]
     canonical_by_origin: dict[str, str] = {}
-    for region in temporary:
+    for region in regions:
         for origin in _records_or_empty(region.get("origins")):
             if origin.get("collection") == "m06_control_flow":
                 canonical_by_origin[str(origin.get("record_id"))] = _text(region, "id")
@@ -879,15 +885,48 @@ def _temporary_region_index(
         parent_origin = _mapping(region.get("attributes"), "region attributes").get(
             "parent_region_id"
         )
-        parent_id = (
-            canonical_by_origin.get(parent_origin, parent_origin)
-            if isinstance(parent_origin, str)
-            else None
-        )
+        if parent_origin is None:
+            parent_id = None
+        elif not isinstance(parent_origin, str):
+            raise ValueError(
+                f"M10 region hierarchy has an invalid parent_region_id for {_text(region, 'id')}"
+            )
+        else:
+            parent_id = canonical_by_origin.get(parent_origin, parent_origin)
+            if parent_id not in region_by_id:
+                raise ValueError(
+                    f"M10 region {_text(region, 'id')} references unknown parent {parent_origin}"
+                )
         parent_by_region[_text(region, "id")] = (
             parent_id if parent_id in temporary_ids else None
         )
+    _validate_temporary_region_hierarchy(parent_by_region)
     return temporary, parent_by_region
+
+
+def _validate_temporary_region_hierarchy(
+    parent_by_region: Mapping[str, str | None],
+) -> None:
+    for start in sorted(parent_by_region):
+        path: list[str] = []
+        positions: dict[str, int] = {}
+        current: str | None = start
+        while current is not None:
+            position = positions.get(current)
+            if position is not None:
+                cycle = (*path[position:], current)
+                raise ValueError(
+                    "M10 temporary-region hierarchy contains a cycle: "
+                    + " -> ".join(cycle)
+                )
+            positions[current] = len(path)
+            path.append(current)
+            parent = parent_by_region[current]
+            if parent is not None and parent not in parent_by_region:
+                raise ValueError(
+                    f"M10 temporary-region hierarchy references unknown parent {parent}"
+                )
+            current = parent
 
 
 def _temporary_arm_contexts(

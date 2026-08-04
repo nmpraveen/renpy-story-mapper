@@ -9,8 +9,11 @@ from typing import Any
 import pytest
 
 from renpy_story_mapper.control_flow import (
+    ControlArm,
+    ControlRegion,
     FlowEdgeRole,
     RouteClassification,
+    _region_parents,
     analyze_control_flow,
     derive_story_quotient,
 )
@@ -21,6 +24,55 @@ from renpy_story_mapper.semantic import build_semantic_story
 from renpy_story_mapper.state import extract_state
 
 FIXTURES = Path(__file__).parent / "fixtures" / "m06"
+
+
+def _synthetic_region(
+    region_id: str,
+    split_node_id: str,
+    node_ids: tuple[str, ...],
+    arm_nodes: tuple[tuple[str, ...], ...],
+) -> tuple[ControlRegion, tuple[ControlArm, ...]]:
+    arm_ids = tuple(f"{region_id}_arm_{ordinal}" for ordinal in range(len(arm_nodes)))
+    region = ControlRegion(
+        id=region_id,
+        split_node_id=split_node_id,
+        merge_node_id=None,
+        classification=RouteClassification.LOCAL_DETOUR,
+        arm_ids=arm_ids,
+        node_ids=node_ids,
+        parent_region_id=None,
+        single_entry=True,
+        single_exit=True,
+        persistence_reasons=(),
+    )
+    arms = tuple(
+        ControlArm(
+            id=arm_id,
+            region_id=region_id,
+            ordinal=ordinal,
+            entry_node_id=f"{arm_id}_entry",
+            edge_id=f"{arm_id}_edge",
+            node_ids=nodes,
+            terminal_node_ids=(),
+            unresolved=False,
+        )
+        for ordinal, (arm_id, nodes) in enumerate(zip(arm_ids, arm_nodes, strict=True))
+    )
+    return region, arms
+
+
+def _assert_region_parents_are_acyclic(
+    regions: tuple[ControlRegion, ...] | list[ControlRegion],
+) -> None:
+    by_id = {region.id: region for region in regions}
+    for region in regions:
+        seen: set[str] = set()
+        current = region.id
+        while current is not None:
+            assert current not in seen
+            seen.add(current)
+            parent = by_id[current].parent_region_id
+            current = parent
 
 
 def analyze_fixture(name: str, *, entry: str = "start") -> tuple[dict[str, Any], Any]:
@@ -320,6 +372,8 @@ def test_nested_regions_have_stable_innermost_ownership_and_permutation_output()
     assert len(first.regions) == 2
     assert any(region.parent_region_id is not None for region in first.regions)
     outer_region = next(region for region in first.regions if region.parent_region_id is None)
+    inner_region = next(region for region in first.regions if region.parent_region_id is not None)
+    assert inner_region.parent_region_id == outer_region.id
     outer_first_arm = next(
         arm for arm in first.arms if arm.region_id == outer_region.id and arm.ordinal == 0
     )
@@ -336,6 +390,63 @@ def test_nested_regions_have_stable_innermost_ownership_and_permutation_output()
             first.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")
         ).encode()
     )
+
+
+def test_region_parent_requires_one_parent_arm_for_genuine_nesting() -> None:
+    outer, outer_arms = _synthetic_region(
+        "outer", "outer_split", ("outer_split", "inner_split", "outer_tail"),
+        (("inner_split", "outer_tail"), ("other_tail",)),
+    )
+    inner, inner_arms = _synthetic_region(
+        "inner", "inner_split", ("inner_split", "inner_a", "inner_b"),
+        (("inner_a",), ("inner_b",)),
+    )
+    normalized = _region_parents((inner, outer), (*inner_arms, *outer_arms))
+    assert {region.id: region.parent_region_id for region in normalized} == {
+        "inner": "outer", "outer": None,
+    }
+
+
+def test_region_parent_rejects_split_shared_by_multiple_parent_arms() -> None:
+    parent, parent_arms = _synthetic_region(
+        "parent", "parent_split", ("parent_split", "child_split", "tail"),
+        (("child_split",), ("child_split", "other")),
+    )
+    child, child_arms = _synthetic_region(
+        "child", "child_split", ("child_split", "child_tail"),
+        (("child_a",), ("child_b",)),
+    )
+    normalized = _region_parents((child, parent), (*child_arms, *parent_arms))
+    assert {region.id: region.parent_region_id for region in normalized} == {
+        "child": None, "parent": None,
+    }
+
+
+@pytest.mark.parametrize(
+    ("node_counts", "expected_root"),
+    [((2, 3), "region_1"), ((2, 2, 2), "region_2")],
+)
+def test_region_parent_cycles_are_deterministic_acyclic_and_permutation_stable(
+    node_counts: tuple[int, ...], expected_root: str
+) -> None:
+    regions: list[ControlRegion] = []
+    arms: list[ControlArm] = []
+    for ordinal, node_count in enumerate(node_counts):
+        region, region_arms = _synthetic_region(
+            f"region_{ordinal}", f"split_{ordinal}",
+            tuple(f"region_{ordinal}_node_{index}" for index in range(node_count)),
+            ((f"split_{(ordinal + 1) % len(node_counts)}",),),
+        )
+        regions.append(region)
+        arms.extend(region_arms)
+    normalized = _region_parents(regions, arms)
+    permuted = _region_parents(list(reversed(regions)), list(reversed(arms)))
+    normalized_parents = {region.id: region.parent_region_id for region in normalized}
+    permuted_parents = {region.id: region.parent_region_id for region in permuted}
+    assert normalized_parents == permuted_parents
+    assert normalized_parents[expected_root] is None
+    assert sum(parent is None for parent in normalized_parents.values()) == 1
+    _assert_region_parents_are_acyclic(normalized)
 
 
 def test_quotient_preserves_multiple_roles_and_ordered_evidence() -> None:

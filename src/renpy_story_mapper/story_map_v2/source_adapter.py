@@ -228,14 +228,20 @@ def _choice_regions(
         )
         for region, _key, _path, _line, raw_arms in provisional
     }
+    ownership_arm_members_by_region = {
+        region.id: tuple(
+            _raw_arm_members(raw_arm)
+            for raw_arm in sorted(raw_arms, key=lambda item: _required_ordinal(item, "ordinal"))
+        )
+        for region, _key, _path, _line, raw_arms in provisional
+    }
     result: list[_ChoiceRegion] = []
     for region, key, path, line, raw_arms in provisional:
-        parent_lineage = _lineage_for_node(
-            region.split_node_id,
-            provisional,
+        parent_lineage = _declared_parent_lineage(
+            region,
+            origin_to_region,
             key_by_region,
-            depth_by_region,
-            arm_members_by_region,
+            ownership_arm_members_by_region,
         )
         mechanics: list[ArmMechanic] = []
         member_sets = arm_members_by_region[region.id]
@@ -335,13 +341,22 @@ def _expanded_arm_members(
     def include_descendants(parent: CanonicalRegion) -> None:
         for child in children_by_region.get(parent.id, ()):
             child_members = _region_member_ids(child)
-            if not members.intersection(child_members):
+            if child.split_node_id not in members:
                 continue
             members.update(child_members)
             include_descendants(child)
 
     include_descendants(region)
     return frozenset(members)
+
+
+def _raw_arm_members(raw_arm: Mapping[str, object]) -> frozenset[str]:
+    return frozenset(
+        {
+            *_string_sequence(raw_arm.get("member_node_ids")),
+            _required_text(raw_arm, "entry_node_id"),
+        }
+    )
 
 
 def _region_member_ids(region: CanonicalRegion) -> set[str]:
@@ -380,32 +395,39 @@ def _region_depth(
     return depth
 
 
-def _lineage_for_node(
-    node_id: str,
-    choices: Sequence[tuple[CanonicalRegion, str, str, int, tuple[Mapping[str, object], ...]]],
+def _declared_parent_lineage(
+    region: CanonicalRegion,
+    origin_to_region: Mapping[str, CanonicalRegion],
     key_by_region: Mapping[str, str],
-    depth_by_region: Mapping[str, int],
     arm_members_by_region: Mapping[str, tuple[frozenset[str], ...]],
 ) -> tuple[ArmLineageStep, ...]:
-    steps: list[tuple[int, ArmLineageStep]] = []
-    for region, _key, _path, _line, _raw_arms in choices:
-        if region.split_node_id == node_id:
-            continue
-        for ordinal, members in enumerate(arm_members_by_region[region.id], start=1):
-            if node_id in members:
-                steps.append(
-                    (
-                        depth_by_region[region.id],
-                        ArmLineageStep(key_by_region[region.id], ordinal),
-                    )
+    steps: list[ArmLineageStep] = []
+    child = region
+    seen: set[str] = set()
+    parent_origin = child.attributes.get("parent_region_id")
+    while isinstance(parent_origin, str):
+        if parent_origin in seen:
+            raise SourceAdaptationError("declared choice parent lineage contains a cycle")
+        seen.add(parent_origin)
+        parent = origin_to_region.get(parent_origin)
+        if parent is None:
+            raise SourceAdaptationError("declared choice parent lineage is unresolved")
+        parent_key = key_by_region.get(parent.id)
+        parent_arms = arm_members_by_region.get(parent.id)
+        if parent_key is not None and parent_arms is not None:
+            owning_arms = tuple(
+                ordinal
+                for ordinal, members in enumerate(parent_arms, start=1)
+                if child.split_node_id in members
+            )
+            if len(owning_arms) != 1:
+                raise SourceAdaptationError(
+                    "declared choice parent does not uniquely own the child split"
                 )
-                break
-    lineage = tuple(
-        step for _depth, step in sorted(steps, key=lambda item: (item[0], item[1]))
-    )
-    if len({step.choice_key for step in lineage}) != len(lineage):
-        raise SourceAdaptationError("choice parent lineage repeats a choice")
-    return lineage
+            steps.append(ArmLineageStep(parent_key, owning_arms[0]))
+        child = parent
+        parent_origin = child.attributes.get("parent_region_id")
+    return tuple(reversed(steps))
 
 
 def _arm_mechanic(
@@ -817,18 +839,31 @@ def _span_lineage(
 
 
 def _node_lineage(node_id: str, choices: Sequence[_ChoiceRegion]) -> tuple[ArmLineageStep, ...]:
-    steps: list[ArmLineageStep] = []
-    for choice in sorted(choices, key=_choice_sort_key):
-        for ordinal, members in enumerate(choice.arm_members, start=1):
-            if node_id in members:
-                for step in (
-                    *choice.mechanic.parent_lineage,
-                    ArmLineageStep(choice.key, ordinal),
-                ):
-                    if step not in steps:
-                        steps.append(step)
-                break
-    return tuple(steps)
+    candidates: list[tuple[int, str, int, _ChoiceRegion]] = []
+    for choice in choices:
+        owning_arms = tuple(
+            ordinal
+            for ordinal, members in enumerate(choice.arm_members, start=1)
+            if node_id in members
+        )
+        if len(owning_arms) == 1:
+            candidates.append(
+                (
+                    len(_region_member_ids(choice.region)),
+                    choice.region.id,
+                    owning_arms[0],
+                    choice,
+                )
+            )
+    if not candidates:
+        return ()
+    _size, _region_id, arm_order, owner = min(
+        candidates, key=lambda item: (item[0], item[1], item[2])
+    )
+    return (
+        *owner.mechanic.parent_lineage,
+        ArmLineageStep(owner.key, arm_order),
+    )
 
 
 def _span_choice_keys(node_ids: Sequence[str], choices: Sequence[_ChoiceRegion]) -> tuple[str, ...]:

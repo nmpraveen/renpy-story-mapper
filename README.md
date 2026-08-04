@@ -6,6 +6,29 @@
 important state changes, routes, and rejoins. If work does not directly improve that result or
 remove a demonstrated blocker, do not build it.**
 
+## Current direction
+
+The last accepted integrated application baseline is the painted Story River merged in
+[PR #36](https://github.com/nmpraveen/renpy-story-mapper/pull/36). It produced a useful whole-game
+reader for the original Ms. Denvers development game, but an unchanged run on a second game failed
+before story publication. A clean-slate source analysis was useful much sooner, while a later
+hybrid experiment combined the reusable deterministic extractor with AI-written corridor summaries
+and a small static Story Atlas.
+
+The project is therefore no longer treating additional River polish as the primary next step. The
+current direction is a hybrid pipeline: Python freezes execution, choices, conditions, state,
+destinations, rejoins, loops, terminals, unresolved mechanics, and source evidence; AI adds only
+titles and narrative explanation; and a simple scrolling reader presents the result. The hybrid
+has passed one complete proof on Resort of Temptation v0.2.2, but it has not yet proved
+generalization on a third unseen game or replaced the integrated application.
+
+Start here for current context:
+
+- [Current project state](docs/PROJECT_STATE.md)
+- [Full project history](docs/PROJECT_HISTORY.md)
+- [Hybrid architecture and proof contract](docs/HYBRID_APPROACH.md)
+- [Current milestone](docs/milestones/M16_HYBRID_STORY_ATLAS/GOAL.md)
+
 This repository contains a local-first Windows browser application and analyzer for exploring
 Ren'Py stories as a bounded, source-linked Route Map. It safely reads folders, individual source
 files, or RPA 3.0 archives, prefers available `.rpy` source over matching `.rpyc`, stores durable

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
 
 import renpy_story_mapper.project_analysis as project_analysis
 from renpy_story_mapper.m11_persistence import M11_PHASES, M11Availability
-from renpy_story_mapper.m11_scene_projection import scene_model_from_phase_results
+from renpy_story_mapper.m11_scene_projection import (
+    build_scene_assembly,
+    build_scene_boundaries,
+    build_story_atoms,
+    scene_model_from_phase_results,
+)
 from renpy_story_mapper.project import Project, create_ingested_project, refresh_ingested_project
 from renpy_story_mapper.storage import canonical_json
 from renpy_story_mapper.web.scene_api import scene_page
@@ -560,6 +566,58 @@ def test_canonical_edges_order_scenes_and_project_scene_flow(tmp_path: Path) -> 
         current_canonical_hash=model.binding.canonical_hash,
     )
     assert any(item["kind"] == "scene_flow" for item in page["relationships"])
+
+
+def test_malformed_temporary_region_cycle_is_rejected_before_projection(tmp_path: Path) -> None:
+    source = _source(tmp_path)
+    with create_ingested_project(tmp_path / "cycle.rsmproj", source) as project:
+        canonical = deepcopy(_mapping(project, "m10_canonical_graph"))
+    temporary = sorted(
+        (item for item in canonical["regions"] if item["kind"] in {
+            "local_detour", "optional_detour", "reconvergent_route_segment"
+        }), key=lambda item: item["id"],
+    )
+    first, second = temporary[:2]
+    first_origin = next(
+        item["record_id"]
+        for item in first["origins"]
+        if item["collection"] == "m06_control_flow"
+    )
+    second_origin = next(
+        item["record_id"]
+        for item in second["origins"]
+        if item["collection"] == "m06_control_flow"
+    )
+    first["attributes"]["parent_region_id"] = second_origin
+    second["attributes"]["parent_region_id"] = first_origin
+    atoms = build_story_atoms(canonical)
+    with pytest.raises(ValueError, match="M10 temporary-region hierarchy contains a cycle"):
+        build_scene_boundaries(canonical, atoms)
+
+
+def test_nested_temporary_branch_cannot_have_two_arm_owners(tmp_path: Path) -> None:
+    source = _source(tmp_path)
+    with create_ingested_project(tmp_path / "nested-owner.rsmproj", source) as project:
+        canonical = deepcopy(_mapping(project, "m10_canonical_graph"))
+    temporary = sorted(
+        (item for item in canonical["regions"] if item["kind"] in {
+            "local_detour", "optional_detour", "reconvergent_route_segment"
+        }), key=lambda item: item["id"],
+    )
+    parent, child = temporary[:2]
+    parent_origin = next(
+        item["record_id"]
+        for item in parent["origins"]
+        if item["collection"] == "m06_control_flow"
+    )
+    child["attributes"]["parent_region_id"] = parent_origin
+    child_split = child["split_node_id"]
+    for arm in parent["attributes"]["arms"]:
+        arm["member_node_ids"] = sorted(set(arm["member_node_ids"]) | {child_split})
+    atoms = build_story_atoms(canonical)
+    boundaries = build_scene_boundaries(canonical, atoms)
+    with pytest.raises(ValueError, match=r"temporary branch .* has multiple owners"):
+        build_scene_assembly(canonical, atoms, boundaries)
 
 
 def test_fresh_replay_has_identical_m11_phase_bytes(tmp_path: Path) -> None:
