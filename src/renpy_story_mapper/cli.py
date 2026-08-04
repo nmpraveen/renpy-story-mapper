@@ -284,7 +284,7 @@ def _reject_project_in_source(source: Path, project_path: Path) -> None:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="renpy-story-mapper",
-        description="Safely inventory RPA 3.0 archives and build inert Ren'Py control-flow graphs.",
+        description="Build source-grounded Ren'Py storyboards and inspect deterministic evidence.",
     )
     parser.add_argument("--version", action="version", version=__version__)
     subparsers = parser.add_subparsers(dest="command", required=True)

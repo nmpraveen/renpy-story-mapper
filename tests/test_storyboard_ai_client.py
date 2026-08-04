@@ -11,6 +11,7 @@ from renpy_story_mapper.storyboard.ai_client import (
     ProcessSpec,
     ProviderCancelledError,
     ProviderIdentityMismatchError,
+    ProviderOutputError,
     ProviderPolicyViolationError,
     ProviderTimeoutError,
     build_codex_command,
@@ -172,7 +173,18 @@ def test_complete_sends_canonical_json_and_verifies_runtime_metadata(tmp_path: P
 
 
 def test_runtime_model_mismatch_is_sanitized() -> None:
-    process = FakeProcess(_jsonl({"ok": True}, model="unexpected-model"))
+    profile = {
+        "schema": PROFILE_SCHEMA_ID,
+        "source": {"evidence_index_hash": "hash", "scope_evidence_ids": ["E1"]},
+        "entry_points": [],
+        "characters": [],
+        "variables": [],
+        "custom_constructs": [],
+        "conventions": [],
+        "ending_patterns": [],
+        "unresolved": [],
+    }
+    process = FakeProcess(_jsonl(profile, model="unexpected-model"))
     created: list[tuple[ProcessSpec, FakeProcess]] = []
     client = _client(process, created)
 
@@ -187,6 +199,24 @@ def test_runtime_model_mismatch_is_sanitized() -> None:
 
     assert raised.value.error_code == "model_mismatch"
     assert "unexpected-model" not in str(raised.value)
+
+
+def test_complete_rejects_provider_json_that_misses_the_requested_schema() -> None:
+    process = FakeProcess(_jsonl({"ok": True}))
+    created: list[tuple[ProcessSpec, FakeProcess]] = []
+    client = _client(process, created)
+
+    with pytest.raises(ProviderOutputError) as raised:
+        client.complete(
+            payload={"request": "profile"},
+            schema_path=schema_path("game-profile"),
+            model="model-a",
+            reasoning_effort="high",
+            fast_mode=True,
+        )
+
+    assert raised.value.error_code == "schema_mismatch"
+    assert "ok" not in str(raised.value)
 
 
 def test_forbidden_policy_event_is_rejected() -> None:

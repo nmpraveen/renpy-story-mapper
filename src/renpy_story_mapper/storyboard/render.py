@@ -137,7 +137,7 @@ def render_storyboard_html(
 
     report_notes = _notes_from(
         report,
-        ("issues", "warnings", "unresolved", "unresolved_items"),
+        ("errors", "issues", "warnings", "unresolved", "unresolved_items"),
         "Validation",
     )
     report_disagreements = _notes_from(
@@ -307,9 +307,9 @@ def _render_scene(scene: Mapping[str, object], scene_index: int, state: _RenderS
             "line_evidence_ids",
             "exact_line_evidence_ids",
             "source_evidence_ids",
-            "evidence_ids",
         ),
     )
+    evidence_ids = _evidence_ids(scene, ("evidence_ids",))
     parts = [f'<article class="scene" id="scene-{scene_index}">', f"<h2>{_escape(title)}"]
     if confidence:
         parts[-1] += f' <span class="confidence">{_escape(confidence)}</span>'
@@ -320,6 +320,8 @@ def _render_scene(scene: Mapping[str, object], scene_index: int, state: _RenderS
         parts.append(_render_exact_lines("Exact lines", lines, state))
     else:
         parts.append('<p class="uncertainty">No cited exact-line evidence.</p>')
+    if evidence_ids:
+        parts.append(_render_evidence_citations("Scene evidence", evidence_ids, state))
 
     branches = _records(scene, ("branches", "outcomes", "routes"))
     if branches:
@@ -342,7 +344,7 @@ def _render_scene(scene: Mapping[str, object], scene_index: int, state: _RenderS
         "Scene",
     )
     if scene_notes:
-        parts.append(_render_notes("Uncertainty", scene_notes, state))
+        parts.append(_render_notes("Uncertainty", scene_notes, state, heading_level=3))
     parts.append("</article>")
     return "\n".join(parts)
 
@@ -478,15 +480,36 @@ def _render_evidence_ref(identifier: str, state: _RenderState, *, show_text: boo
     return f'<span class="evidence-ref">{_render_source_label(evidence)}{text}</span>'
 
 
-def _render_notes(title: str, notes: Sequence[Mapping[str, object]], state: _RenderState) -> str:
+def _render_evidence_citations(
+    title: str, identifiers: Sequence[str], state: _RenderState
+) -> str:
+    refs = "".join(
+        _render_evidence_ref(identifier, state, show_text=False)
+        for identifier in _ordered_identifiers(identifiers, state.evidence)
+    )
+    return (
+        f'<section class="scene-evidence" aria-label="{_escape(title)}">'
+        f"<h3>{_escape(title)}</h3>{refs}</section>"
+    )
+
+
+def _render_notes(
+    title: str,
+    notes: Sequence[Mapping[str, object]],
+    state: _RenderState,
+    *,
+    heading_level: int = 2,
+) -> str:
+    if heading_level not in {2, 3}:
+        raise ValueError("heading_level must be 2 or 3")
     parts = [
         f'<section class="notes-section" aria-label="{_escape(title)}">',
-        f"<h2>{_escape(title)}</h2>",
+        f"<h{heading_level}>{_escape(title)}</h{heading_level}>",
         '<ul class="notes">',
     ]
     for note in notes:
         message = _note_message(note)
-        kind = _first_text(note, "severity", "kind", "code", "source")
+        kind = _first_text(note, "code", "severity", "kind", "source")
         kind_html = f'<span class="note-kind">{_escape(kind)}:</span> ' if kind else ""
         evidence_html = "".join(
             _render_evidence_ref(identifier, state, show_text=False)
@@ -494,10 +517,29 @@ def _render_notes(title: str, notes: Sequence[Mapping[str, object]], state: _Ren
                 _evidence_ids(note, ("evidence_ids", "source_evidence_ids")), state.evidence
             )
         )
-        parts.append(f'<li class="note">{kind_html}{_escape(message)}{evidence_html}</li>')
+        source_html = _render_note_source(note)
+        parts.append(
+            f'<li class="note">{kind_html}{_escape(message)}{source_html}{evidence_html}</li>'
+        )
     parts.append("</ul>")
     parts.append("</section>")
     return "\n".join(parts)
+
+
+def _render_note_source(note: Mapping[str, object]) -> str:
+    source = note.get("source")
+    if not isinstance(source, Mapping):
+        return ""
+    location = _location_mapping(note)
+    path = _first_text(location, "path", "relative_path", "source_path", "file")
+    if path is None:
+        return ""
+    start_line = _line_value(location, ("start_line", "line"))
+    start = location.get("start")
+    if isinstance(start, Mapping):
+        start_line = start_line or _line_value(start, ("line", "start_line"))
+    label = path if start_line is None else f"{path}:{start_line}"
+    return f'<span class="source-line"><span class="source-location">{_escape(label)}</span></span>'
 
 
 def _notes_from(

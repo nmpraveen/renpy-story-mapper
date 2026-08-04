@@ -13,6 +13,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
+import tempfile
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
@@ -119,8 +121,10 @@ def run_storyboard_pipeline(
     output = _resolve_output_directory(output_directory, output_dir)
     input_path = Path(game_path).resolve(strict=True)
     _reject_output_inside_input(input_path, output)
-    if output.exists() and not output.is_dir():
-        raise StoryboardPipelineError(f"output path is not a directory: {output}")
+    if output.exists():
+        raise StoryboardPipelineError(
+            f"output directory already exists; choose a new output directory: {output}"
+        )
 
     selected_label = _coalesce_scope_value(label, canary_label, "label")
     selected_start = _coalesce_scope_int(start_line, canary_start_line, "start_line")
@@ -190,6 +194,12 @@ def run_storyboard_pipeline(
         field="evidence_index_hash",
         expected=evidence_hash,
     )
+    _verify_source_ids(
+        profile,
+        kind="game profile",
+        field="scope_evidence_ids",
+        expected=canary_ids,
+    )
     profile_hash = _sha256_artifact_json(profile)
     analysis = _load_or_request_analysis(
         selected_analysis_replay,
@@ -217,6 +227,12 @@ def run_storyboard_pipeline(
         field="profile_hash",
         expected=profile_hash,
     )
+    _verify_source_ids(
+        analysis,
+        kind="story analysis",
+        field="canary_evidence_ids",
+        expected=canary_ids,
+    )
     analysis_hash = _sha256_artifact_json(analysis)
 
     validation_profile = _validation_profile(profile, evidence)
@@ -236,13 +252,29 @@ def run_storyboard_pipeline(
     if _supported_input_fingerprint(input_path) != before:
         raise StoryboardPipelineError("supported game input changed before artifact writing")
 
-    output.mkdir(parents=True, exist_ok=True)
+    staging: Path | None = None
+    try:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        staging = Path(
+            tempfile.mkdtemp(prefix=f".{output.name}-", dir=output.parent)
+        ).resolve()
+        staged_artifacts = {name: staging / name for name in ARTIFACT_FILENAMES}
+        _write_json(staged_artifacts["evidence-index.json"], raw_evidence)
+        _write_json(staged_artifacts["game-profile.json"], profile)
+        _write_json(staged_artifacts["story-analysis.json"], analysis)
+        _write_json(staged_artifacts["validation-report.json"], report_mapping)
+        _write_text(staged_artifacts["index.html"], html)
+        staging.replace(output)
+        staging = None
+    except StoryboardPipelineError:
+        raise
+    except OSError as error:
+        raise StoryboardPipelineError(f"could not publish output directory: {output}") from error
+    finally:
+        if staging is not None:
+            shutil.rmtree(staging, ignore_errors=True)
+
     artifacts = {name: output / name for name in ARTIFACT_FILENAMES}
-    _write_json(artifacts["evidence-index.json"], raw_evidence)
-    _write_json(artifacts["game-profile.json"], profile)
-    _write_json(artifacts["story-analysis.json"], analysis)
-    _write_json(artifacts["validation-report.json"], report_mapping)
-    _write_text(artifacts["index.html"], html)
 
     return PipelineResult(
         output.resolve(),
@@ -493,6 +525,27 @@ def _verify_source_hash(
             f"{kind} source.{field} does not match the frozen source hash "
             f"(expected {expected}, received {actual!r})"
         )
+
+
+def _verify_source_ids(
+    document: Mapping[str, object],
+    *,
+    kind: str,
+    field: str,
+    expected: Sequence[str],
+) -> None:
+    source = document.get("source")
+    actual = _ids(source.get(field)) if isinstance(source, Mapping) else []
+    expected_set = set(expected)
+    actual_set = set(actual)
+    if actual_set == expected_set and len(actual) == len(expected):
+        return
+    missing = sorted(expected_set - actual_set)
+    extra = sorted(actual_set - expected_set)
+    raise StoryboardPipelineError(
+        f"{kind} source.{field} does not match the complete canary evidence scope "
+        f"(missing {missing!r}, extra {extra!r})"
+    )
 
 
 def _artifact_provenance(
@@ -1107,14 +1160,12 @@ def _resolve_output_directory(
 
 
 def _reject_output_inside_input(input_path: Path, output: Path) -> None:
-    if input_path.is_dir():
-        try:
-            output.relative_to(input_path)
-        except ValueError:
-            return
-        raise StoryboardPipelineError("output directory must be outside the selected game input")
-    if output == input_path:
-        raise StoryboardPipelineError("output directory cannot overwrite the selected game input")
+    protected_root = input_path if input_path.is_dir() else input_path.parent
+    try:
+        output.relative_to(protected_root)
+    except ValueError:
+        return
+    raise StoryboardPipelineError("output directory must be outside the selected game input")
 
 
 def _coalesce_scope_value(first: str | None, second: str | None, name: str) -> str | None:

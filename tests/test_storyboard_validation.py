@@ -236,3 +236,41 @@ def test_parser_ai_disagreements_remain_visible_as_warnings() -> None:
     assert any(
         item["code"] == "parser_ai_disagreement" for item in result["warnings"]
     )
+
+
+def test_empty_inputs_are_never_publishable() -> None:
+    report = validate_phase01({}, {}, {})
+    codes = {item.code for item in report.errors}
+
+    assert not report.publishable
+    assert not report.coverage["complete"]
+    assert {"empty_evidence_index", "empty_game_profile", "empty_story_analysis"} <= codes
+
+
+def test_dynamic_evidence_in_any_inference_object_is_not_a_resolved_fact() -> None:
+    evidence, profile, analysis = _base_objects()
+    records = evidence["records"]
+    assert isinstance(records, list)
+    records.append(
+        {
+            "id": "custom-dynamic",
+            "kind": "custom",
+            "accountable": False,
+            "source": _span(15),
+            "facts": {"opaque_reason": "creator_defined_statement"},
+        }
+    )
+    profile["custom_constructs"] = [
+        {
+            "id": "custom-meaning",
+            "meaning": "This construct always redirects the route.",
+            "evidence_ids": ["custom-dynamic"],
+            "confidence": "high",
+            "unresolved": False,
+        }
+    ]
+
+    report = validate_phase01(evidence, profile, analysis)
+
+    assert not report.publishable
+    assert any(item.code == "dynamic_behavior_as_fact" for item in report.errors)

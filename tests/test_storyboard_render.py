@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import MappingProxyType
 
-from renpy_story_mapper.storyboard.render import render_storyboard_html
+from renpy_story_mapper.storyboard import render_storyboard, render_storyboard_html
 
 
 def _inputs() -> tuple[dict[str, object], dict[str, object], dict[str, object], dict[str, object]]:
@@ -179,3 +179,40 @@ def test_mapping_compatible_inputs_are_accepted() -> None:
 
     assert "Profile &amp; &lt;unsafe&gt; &quot;name&quot;" in html
     assert "Choice &lt;point&gt;" in html
+
+
+def test_scene_evidence_is_cited_without_being_presented_as_an_exact_line() -> None:
+    evidence, profile, analysis, report = _inputs()
+    scene = analysis["scenes"][0]
+    assert isinstance(scene, dict)
+    scene["evidence_ids"] = ["menu"]
+    scene["line_evidence_ids"] = ["line-one"]
+
+    html = render_storyboard(evidence, profile, analysis, report)
+
+    assert "First exact line" in html
+    assert "Scene evidence" in html
+    assert '<span class="exact-line-text">menu:</span>' not in html
+
+
+def test_validation_errors_are_visible_and_scene_uncertainty_is_nested() -> None:
+    evidence, profile, analysis, _report = _inputs()
+    report = {
+        "status": "rejected",
+        "errors": [
+            {
+                "code": "missing_menu_arm",
+                "message": "The second arm is missing.",
+                "evidence_ids": ["arm-second"],
+                "source": {"path": "game/canary.rpy", "start": {"line": 13}},
+            }
+        ],
+    }
+
+    html = render_storyboard_html(evidence, profile, analysis, report)
+
+    assert "Validation: rejected" in html
+    assert "missing_menu_arm" in html
+    assert "The second arm is missing." in html
+    assert "game/canary.rpy:13" in html
+    assert "<h3>Uncertainty</h3>" in html

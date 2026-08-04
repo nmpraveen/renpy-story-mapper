@@ -37,11 +37,12 @@ explicitly requests one.
 
 For story work:
 
-1. Build factual execution flow and state provenance in Python.
-2. Prove it on one real story section.
-3. Let AI summarize the Python-built corridors.
-4. Show the rendered section to the user.
-5. Apply it to the full game only after the proof is useful.
+1. Build a deterministic, source-grounded evidence index.
+2. Let AI profile unfamiliar game conventions with citations and confidence.
+3. Let AI interpret one bounded story section without game-specific runtime rules.
+4. Deterministically audit citations, coverage, references, menu arms, and uncertainty.
+5. Render and inspect the static section with the user.
+6. Apply it to the full game only after the proof is useful.
 
 Cloud AI is the default; use a local LLM only when the user explicitly requests it. Trusted game
 execution is allowed and should be headless when possible. Original inputs stay read-only.

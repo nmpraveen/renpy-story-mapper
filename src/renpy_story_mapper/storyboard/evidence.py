@@ -792,6 +792,8 @@ def _stable_id(
     span: SourceSpan,
     text: str,
 ) -> str:
+    span_value = span.to_dict()
+    span_value["path"] = _logical_path(span.path)
     identity = {
         "path": _logical_path(path),
         "source": {
@@ -800,7 +802,7 @@ def _stable_id(
             "line_basis": provenance.line_basis,
         },
         "kind": kind.value,
-        "span": span.to_dict(),
+        "span": span_value,
         "text": text,
     }
     payload = json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":"))

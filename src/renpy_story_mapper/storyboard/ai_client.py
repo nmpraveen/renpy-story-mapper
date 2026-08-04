@@ -19,6 +19,9 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Protocol, cast
 
+from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
+from jsonschema.exceptions import SchemaError  # type: ignore[import-untyped]
+
 _POLL_SECONDS = 0.05
 _CANCEL_GRACE_SECONDS = 0.5
 _KILL_GRACE_SECONDS = 0.1
@@ -215,7 +218,7 @@ def _validate_reasoning_effort(reasoning_effort: str) -> None:
         raise ValueError("reasoning_effort must be one of low, medium, high, or xhigh")
 
 
-def _validate_schema_path(schema_path: Path) -> Path:
+def _load_schema_validator(schema_path: Path) -> tuple[Path, Draft202012Validator]:
     resolved = schema_path.resolve()
     if not resolved.is_absolute() or not resolved.is_file():
         raise ValueError("schema_path must be an existing absolute file")
@@ -225,6 +228,15 @@ def _validate_schema_path(schema_path: Path) -> Path:
         raise ValueError("schema_path must contain valid UTF-8 JSON") from None
     if not isinstance(schema, dict):
         raise ValueError("schema_path must contain a JSON object")
+    try:
+        Draft202012Validator.check_schema(schema)
+    except SchemaError:
+        raise ValueError("schema_path must contain a valid JSON schema") from None
+    return resolved, Draft202012Validator(schema)
+
+
+def _validate_schema_path(schema_path: Path) -> Path:
+    resolved, _validator = _load_schema_validator(schema_path)
     return resolved
 
 
@@ -401,7 +413,7 @@ class CodexCliJsonClient:
         _validate_reasoning_effort(reasoning_effort)
         if not isinstance(fast_mode, bool):
             raise ValueError("fast_mode must be a boolean")
-        resolved_schema = _validate_schema_path(schema_path)
+        resolved_schema, response_validator = _load_schema_validator(schema_path)
         request = _serialize_payload(payload)
         if len(request) > self._maximum_input_bytes:
             raise ProviderLimitError(
@@ -471,6 +483,12 @@ class CodexCliJsonClient:
                         transmission=TransmissionDisposition.TRANSMITTED,
                     )
                 payload_value, observed = _parse_jsonl(stdout)
+                if next(response_validator.iter_errors(payload_value), None) is not None:
+                    raise ProviderOutputError(
+                        "schema_mismatch",
+                        "The provider returned JSON that does not match the requested schema.",
+                        transmission=TransmissionDisposition.TRANSMITTED,
+                    )
         except StoryboardAIError:
             raise
         except OSError:

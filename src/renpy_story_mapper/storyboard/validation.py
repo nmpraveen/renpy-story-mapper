@@ -150,12 +150,17 @@ def validate_phase01(
     analysis_value = _require_mapping(analysis, "story analysis")
     issues = _Issues()
     view = _index_view(index, issues)
+    if not profile_value:
+        issues.add("empty_game_profile", "game profile must not be empty")
+    if not analysis_value:
+        issues.add("empty_story_analysis", "story analysis must not be empty")
 
     _validate_revision(index, profile_value, analysis_value, issues)
     _validate_citations(profile_value, "profile", view, issues)
     _validate_citations(analysis_value, "analysis", view, issues)
     _validate_claims(profile_value, "profile", view, issues)
     _validate_claims(analysis_value, "analysis", view, issues)
+    _validate_story_references(analysis_value, issues)
     _validate_analysis(analysis_value, view, issues)
     _validate_menu_coverage(analysis_value, view, issues)
     coverage = _validate_coverage(analysis_value, view, issues)
@@ -204,6 +209,9 @@ def _index_view(index: JsonObject, issues: _Issues) -> _IndexView:
             issues.add("duplicate_evidence_id", f"evidence ID {record_id!r} is declared twice")
             continue
         records[record_id] = raw
+
+    if not records:
+        issues.add("empty_evidence_index", "evidence index must contain at least one record")
 
     menus: dict[str, tuple[str, ...]] = {}
     raw_menus = _sequence(index.get("menus"))
@@ -352,6 +360,104 @@ def _validate_analysis(value: JsonObject, view: _IndexView, issues: _Issues) -> 
                 )
             destination = raw_choice.get("destination")
             _validate_destination(destination, raw_choice, view, issues, scene_index, choice_index)
+
+
+def _validate_story_references(value: JsonObject, issues: _Issues) -> None:
+    """Validate the strict Phase 01 scene/choice/transition object graph.
+
+    Older validator fixtures use nested compatibility choices and intentionally have no top-level
+    ``choices`` or ``transitions`` collections.  The strict graph checks apply only when either
+    collection is present, which is always true for schema-bound pipeline responses.
+    """
+
+    if "choices" not in value and "transitions" not in value:
+        return
+
+    scenes = [item for item in _sequence(value.get("scenes")) if isinstance(item, Mapping)]
+    choices = [item for item in _sequence(value.get("choices")) if isinstance(item, Mapping)]
+    transitions = [
+        item for item in _sequence(value.get("transitions")) if isinstance(item, Mapping)
+    ]
+
+    typed_objects: list[tuple[str, JsonObject]] = []
+    typed_objects.extend(("scene", item) for item in scenes)
+    typed_objects.extend(("choice", item) for item in choices)
+    typed_objects.extend(("transition", item) for item in transitions)
+    for choice in choices:
+        typed_objects.extend(
+            ("arm", item)
+            for item in _sequence(choice.get("arms"))
+            if isinstance(item, Mapping)
+        )
+
+    ids_by_kind: dict[str, set[str]] = defaultdict(set)
+    owner_by_id: dict[str, str] = {}
+    for kind, item in typed_objects:
+        identifier = _text(item.get("id"))
+        if identifier is None:
+            issues.add("invalid_story_id", f"{kind} is missing an ID")
+            continue
+        previous = owner_by_id.get(identifier)
+        if previous is not None:
+            issues.add(
+                "duplicate_story_id",
+                f"{kind} ID {identifier!r} conflicts with an existing {previous} ID",
+            )
+        else:
+            owner_by_id[identifier] = kind
+        ids_by_kind[kind].add(identifier)
+
+    scene_ids = ids_by_kind["scene"]
+    choice_ids = ids_by_kind["choice"]
+    scene_choice_ids: dict[str, set[str]] = {}
+    for scene in scenes:
+        scene_id = _text(scene.get("id"))
+        if scene_id is None:
+            continue
+        declared = set(_text_ids(scene.get("choice_ids"), issues, f"scene {scene_id}.choice_ids"))
+        scene_choice_ids[scene_id] = declared
+        for declared_choice_id in sorted(declared - choice_ids):
+            issues.add(
+                "invalid_story_reference",
+                f"scene {scene_id!r} references unknown choice {declared_choice_id!r}",
+            )
+
+    for choice in choices:
+        choice_id = _text(choice.get("id"))
+        scene_id = _text(choice.get("scene_id"))
+        if scene_id not in scene_ids:
+            issues.add(
+                "invalid_story_reference",
+                f"choice {choice_id!r} references unknown scene {scene_id!r}",
+            )
+        elif choice_id is not None and choice_id not in scene_choice_ids.get(scene_id, set()):
+            issues.add(
+                "invalid_story_reference",
+                f"choice {choice_id!r} is not listed by scene {scene_id!r}",
+            )
+        for arm in _sequence(choice.get("arms")):
+            if not isinstance(arm, Mapping):
+                continue
+            arm_id = _text(arm.get("id"))
+            for field in ("destination_id", "rejoin_id"):
+                target = _text(arm.get(field))
+                if target is not None and target not in scene_ids:
+                    issues.add(
+                        "invalid_story_reference",
+                        f"arm {arm_id!r} {field} references unknown scene {target!r}",
+                    )
+
+    for transition in transitions:
+        transition_id = _text(transition.get("id"))
+        for field in ("from_id", "to_id"):
+            target = _text(transition.get(field))
+            if field == "to_id" and target is None:
+                continue
+            if target not in scene_ids:
+                issues.add(
+                    "invalid_story_reference",
+                    f"transition {transition_id!r} {field} references unknown scene {target!r}",
+                )
 
 
 def _register_scene_membership(
@@ -580,7 +686,12 @@ def _validate_coverage(value: JsonObject, view: _IndexView, issues: _Issues) -> 
         )
 
     duplicate_count = len(duplicate_membership_ids)
-    complete = not unaccounted and not unknown_members and duplicate_count == 0
+    complete = (
+        bool(view.accountable_ids)
+        and not unaccounted
+        and not unknown_members
+        and duplicate_count == 0
+    )
     return {
         "expected": len(view.accountable_ids),
         "covered": len(covered),
@@ -654,24 +765,17 @@ def _unresolved_items(
     return tuple(result)
 
 
-def _claim_fields(value: object) -> Iterable[tuple[tuple[str, ...], JsonObject]]:
+def _claim_fields(
+    value: object, path: tuple[str, ...] = ()
+) -> Iterable[tuple[tuple[str, ...], JsonObject]]:
     if isinstance(value, Mapping):
+        if {"evidence_ids", "confidence", "unresolved"}.issubset(value):
+            yield path, value
         for key, child in value.items():
-            path = (str(key),)
-            if key in {"claims", "outcomes", "consequences"}:
-                for ordinal, item in enumerate(_sequence(child)):
-                    if isinstance(item, Mapping):
-                        yield (*path, str(ordinal)), item
-            elif key in {"consequence", "outcome", "destination"} and isinstance(child, Mapping):
-                yield path, child
-            elif key == "unresolved":
-                for ordinal, item in enumerate(_sequence(child)):
-                    if isinstance(item, Mapping):
-                        yield (*path, str(ordinal)), item
-            yield from _claim_fields(child)
+            yield from _claim_fields(child, (*path, str(key)))
     elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        for child in value:
-            yield from _claim_fields(child)
+        for ordinal, child in enumerate(value):
+            yield from _claim_fields(child, (*path, str(ordinal)))
 
 
 def _validate_claim(
@@ -699,8 +803,27 @@ def _validate_claim_metadata(
         issues.add("missing_confidence", f"{label} must declare confidence")
     elif confidence not in _CONFIDENCE_VALUES:
         issues.add("invalid_confidence", f"{label} has unsupported confidence {confidence!r}")
-    unresolved = claim.get("unresolved") is True
-    if unresolved and not _has_text(claim.get("uncertainty")):
+    unresolved_value = claim.get("unresolved")
+    if isinstance(unresolved_value, bool):
+        unresolved = unresolved_value
+        unresolved_text = None
+    elif isinstance(unresolved_value, str):
+        normalized = " ".join(unresolved_value.casefold().split())
+        unresolved = normalized not in {
+            "",
+            "none",
+            "no",
+            "resolved",
+            "not unresolved",
+            "n/a",
+            "na",
+        }
+        unresolved_text = unresolved_value if unresolved else None
+    else:
+        unresolved = False
+        unresolved_text = None
+        issues.add("invalid_unresolved", f"{label} must declare unresolved as text or boolean")
+    if unresolved and not _has_text(claim.get("uncertainty"), unresolved_text):
         issues.add("missing_uncertainty", f"{label} requires uncertainty text when unresolved")
     if (
         not unresolved

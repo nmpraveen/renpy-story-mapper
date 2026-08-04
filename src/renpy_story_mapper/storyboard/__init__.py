@@ -25,6 +25,7 @@ from renpy_story_mapper.storyboard.pipeline import (
     run_phase01_pipeline,
     run_storyboard_pipeline,
 )
+from renpy_story_mapper.storyboard.render import render_storyboard, render_storyboard_html
 
 __all__ = [
     "ARTIFACT_FILENAMES",
@@ -44,6 +45,8 @@ __all__ = [
     "build_evidence_index_from_source",
     "build_evidence_index_from_text",
     "evidence_index_to_mapping",
+    "render_storyboard",
+    "render_storyboard_html",
     "run_phase01_pipeline",
     "run_storyboard_pipeline",
 ]

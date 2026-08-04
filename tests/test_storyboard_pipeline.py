@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+import renpy_story_mapper.storyboard.pipeline as storyboard_pipeline
 from renpy_story_mapper.cli import main
 from renpy_story_mapper.storyboard.evidence import build_evidence_index
 from renpy_story_mapper.storyboard.pipeline import (
@@ -111,7 +112,7 @@ def _schema_replays(
                 "choice_ids": ["choice-main"],
                 "evidence_ids": ids,
                 "confidence": "medium",
-                "unresolved": "none",
+                "unresolved": "Custom and embedded Python behavior remains unresolved.",
             }
         ],
         "choices": [
@@ -372,6 +373,137 @@ def test_output_inside_game_is_rejected_before_artifacts_are_written(tmp_path: P
             analysis_replay={},
         )
     assert not (game / "generated").exists()
+
+
+def test_file_input_protects_its_source_directory_from_output(tmp_path: Path) -> None:
+    game, _raw_evidence, _evidence = _source_and_evidence(tmp_path)
+    source = game / "canary.rpy"
+
+    with pytest.raises(StoryboardPipelineError, match="outside"):
+        run_storyboard_pipeline(
+            source,
+            game / "generated-from-file",
+            label="unfamiliar_entry",
+            profile_replay={},
+            analysis_replay={},
+        )
+
+    assert not (game / "generated-from-file").exists()
+
+
+def test_source_scope_echoes_must_cover_every_canary_evidence_id(tmp_path: Path) -> None:
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
+    profile_source = profile["source"]
+    assert isinstance(profile_source, dict)
+    profile_source["scope_evidence_ids"] = profile_source["scope_evidence_ids"][:-1]
+
+    with pytest.raises(StoryboardPipelineError, match="scope_evidence_ids"):
+        run_storyboard_pipeline(
+            game,
+            tmp_path / "profile-subset",
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            profile_replay=profile,
+            analysis_replay=analysis,
+        )
+
+    profile, analysis = _schema_replays(raw_evidence, evidence)
+    analysis_source = analysis["source"]
+    assert isinstance(analysis_source, dict)
+    analysis_source["canary_evidence_ids"] = analysis_source["canary_evidence_ids"][:-1]
+
+    with pytest.raises(StoryboardPipelineError, match="canary_evidence_ids"):
+        run_storyboard_pipeline(
+            game,
+            tmp_path / "analysis-subset",
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            profile_replay=profile,
+            analysis_replay=analysis,
+        )
+
+
+def test_schema_valid_dangling_story_references_reject_publication(tmp_path: Path) -> None:
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
+    evidence_ids = profile["source"]["scope_evidence_ids"]
+    assert isinstance(evidence_ids, list)
+    choices = analysis["choices"]
+    assert isinstance(choices, list)
+    arms = choices[0]["arms"]
+    assert isinstance(arms, list)
+    arms[0]["destination_id"] = "scene-missing-destination"
+    analysis["transitions"] = [
+        {
+            "id": "transition-missing-target",
+            "from_id": "scene-unfamiliar-entry",
+            "to_id": "scene-missing-transition",
+            "kind": "jump",
+            "evidence_ids": [evidence_ids[0]],
+            "confidence": "low",
+            "unresolved": "The named destination is not in the scene set.",
+        }
+    ]
+
+    result = run_storyboard_pipeline(
+        game,
+        tmp_path / "dangling-references",
+        source_path="canary.rpy",
+        label="unfamiliar_entry",
+        profile_replay=profile,
+        analysis_replay=analysis,
+    )
+
+    assert not result.validation_report.publishable
+    errors = result.validation_report.to_dict()["errors"]
+    assert isinstance(errors, list)
+    assert sum(item["code"] == "invalid_story_reference" for item in errors) >= 2
+    html = result.artifacts["index.html"].read_text(encoding="utf-8")
+    assert "invalid_story_reference" in html
+
+
+def test_output_publication_is_fresh_and_transactional(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
+    existing = tmp_path / "existing-output"
+    existing.mkdir()
+    with pytest.raises(StoryboardPipelineError, match="already exists"):
+        run_storyboard_pipeline(
+            game,
+            existing,
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            profile_replay=profile,
+            analysis_replay=analysis,
+        )
+
+    real_write_text = storyboard_pipeline._write_text
+    calls = 0
+
+    def fail_on_final_artifact(path: Path, content: str) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == len(ARTIFACT_FILENAMES):
+            raise StoryboardPipelineError("synthetic late write failure")
+        real_write_text(path, content)
+
+    monkeypatch.setattr(storyboard_pipeline, "_write_text", fail_on_final_artifact)
+    output = tmp_path / "late-output"
+    with pytest.raises(StoryboardPipelineError, match="synthetic late write failure"):
+        run_storyboard_pipeline(
+            game,
+            output,
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            profile_replay=profile,
+            analysis_replay=analysis,
+        )
+
+    assert not output.exists()
+    assert not list(tmp_path.glob(".late-output-*"))
 
 
 def test_cli_supports_json_replay_inputs_and_bounded_label(tmp_path: Path, capsys: Any) -> None:

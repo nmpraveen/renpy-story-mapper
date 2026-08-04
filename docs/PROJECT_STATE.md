@@ -5,8 +5,8 @@ Updated: 2026-08-04
 ## Active work
 
 - Active product direction: AI-first Ren'Py-game-to-readable-web-storyboard pipeline.
-- Active phase: Phase 01 canary review. The isolated implementation and a deterministically
-  publishable real-game canary exist; later phases are paused pending visual acceptance.
+- Active phase: Phase 01 canary review. The implementation has completed code review and release
+  hardening; later phases remain paused pending visual acceptance.
 - Active goal and task ledger: [`docs/storyboard-v2/GOAL.md`](storyboard-v2/GOAL.md).
 - Phase instructions: [`_storyboard_plan/02_PHASE_01_CANARY_PROMPT.md`](../_storyboard_plan/02_PHASE_01_CANARY_PROMPT.md).
 - Repository rules: [`AGENTS.md`](../AGENTS.md).
@@ -42,10 +42,18 @@ records, and no duplicate memberships. The two menu arms contain 17 and 33 branc
 The evidence, profile, and analysis files are linked by verified SHA-256 hashes of the exact emitted
 UTF-8 JSON bytes. The original `scripts.rpa` remained unchanged.
 
-Focused storyboard verification passes: 30 tests, Ruff, and strict mypy. Broad legacy tests were
-intentionally not run. Chrome connected, but its browser security policy rejected direct
-`file://` navigation to the generated page. Phase 01 therefore remains awaiting the user's visual
-inspection of `index.html`; no later phase may start before that acceptance.
+Code review hardened provider-output schema enforcement, complete source-scope echoes, semantic
+scene/choice/transition references, dynamic-evidence uncertainty, stable path-based IDs, fresh
+transactional artifact publication, read-only file-input boundaries, validation-error rendering,
+package exports, and CI shard registration. Focused storyboard verification passes: 40 tests, Ruff,
+strict mypy across 143 source files, the CI sharding contract, and wheel/sdist packaging with both
+schemas present. A full legacy regression run reached 1,852 passed and 15 expected skips; its only
+two failures were stale workflow-authority assertions, and the corrected workflow contract plus all
+focused storyboard tests now pass together (42 tests).
+
+Chrome connected, but its browser security policy rejected direct `file://` navigation to the
+generated page. Phase 01 therefore remains awaiting the user's visual inspection of `index.html`;
+no later phase may start before that acceptance.
 
 The required proof is:
 

@@ -50,11 +50,14 @@ add game-specific rules, polish the final UI, or start Phase 02.
 | Select one representative real-game canary section | Complete | `_6_2_WG_clean`, lines 218-381, recovered read-only from `v0.07_6-1_clean.rpyc` |
 | Build the isolated storyboard path and generic evidence index | Complete | `src/renpy_story_mapper/storyboard/`; 159 stable evidence records |
 | Generate AI profile/story analysis and deterministic validation | Complete | Publishable: 159/159, zero excluded, missing, or duplicated; byte-level SHA-256 provenance verified |
+| Review and harden the Phase 01 branch for a draft PR | Complete | 40 focused tests, Ruff, strict mypy, CI shard proof, package build, and stale workflow-contract repair |
 | Render and inspect the canary, then stop before Phase 02 | Blocked on visual acceptance | Five artifacts generated outside Git; Chrome policy blocked direct local-file navigation, so the user must open `index.html` |
 
 ## Current pause boundary
 
 The accepted artifacts are in
 `C:\Users\prave\Documents\RenPy Story Mapper Trials\Storyboard-V2-Phase01-20260804-accepted`.
-All deterministic Phase 01 checks have passed. Phase 02 and all later work are paused. The only
-remaining acceptance action is a human visual review of the directly openable `index.html` file.
+All deterministic Phase 01 checks and code-review fixes have passed. Phase 02 and all later work are
+paused. The remaining acceptance action is a human visual review of the directly openable
+`index.html` file; the branch may be reviewed through the requested draft PR without starting later
+phases.

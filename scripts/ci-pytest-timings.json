@@ -132,6 +132,11 @@
     "tests/test_story_map_v2_workflow_http_v2_contract.py": 1.119,
     "tests/test_story_map_v2_workflow_repository_adapter.py": 14.336,
     "tests/test_story_organization.py": 9.777,
+    "tests/test_storyboard_ai_client.py": 0.0001,
+    "tests/test_storyboard_evidence.py": 0.0001,
+    "tests/test_storyboard_pipeline.py": 0.0001,
+    "tests/test_storyboard_render.py": 0.0001,
+    "tests/test_storyboard_validation.py": 0.0001,
     "tests/test_validation_script.py": 25.771,
     "tests/test_workflow_contract.py": 0.002
   }

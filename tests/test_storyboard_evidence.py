@@ -126,3 +126,12 @@ def test_filesystem_ingestion_can_select_one_source_by_logical_path(tmp_path: Pa
     assert index.source is not None
     assert index.source.path == "game/chosen.rpy"
     assert [record.metadata["name"] for record in index.labels] == ["entry_point"]
+
+
+def test_stable_ids_use_case_insensitive_logical_paths_consistently() -> None:
+    mixed_case = build_evidence_index_from_text(SOURCE, path="game/Scene.rpy")
+    folded_case = build_evidence_index_from_text(SOURCE, path="GAME/scene.rpy")
+
+    assert [record.id for record in mixed_case.records] == [
+        record.id for record in folded_case.records
+    ]
