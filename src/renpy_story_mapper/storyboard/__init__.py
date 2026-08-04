@@ -17,8 +17,17 @@ from renpy_story_mapper.storyboard.model import (
     EvidenceRecord,
     EvidenceSelection,
 )
+from renpy_story_mapper.storyboard.pipeline import (
+    ARTIFACT_FILENAMES,
+    PipelineResult,
+    StoryboardPipelineError,
+    evidence_index_to_mapping,
+    run_phase01_pipeline,
+    run_storyboard_pipeline,
+)
 
 __all__ = [
+    "ARTIFACT_FILENAMES",
     "EVIDENCE_SCHEMA_VERSION",
     "EvidenceDiagnostic",
     "EvidenceIndex",
@@ -28,8 +37,13 @@ __all__ = [
     "EvidenceProvenance",
     "EvidenceRecord",
     "EvidenceSelection",
+    "PipelineResult",
     "SourceInput",
+    "StoryboardPipelineError",
     "build_evidence_index",
     "build_evidence_index_from_source",
     "build_evidence_index_from_text",
+    "evidence_index_to_mapping",
+    "run_phase01_pipeline",
+    "run_storyboard_pipeline",
 ]
