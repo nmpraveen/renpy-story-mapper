@@ -11,9 +11,14 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
+from renpy_story_mapper.storyboard.prompts import ANALYSIS_SCHEMA_ID
+
 VALIDATION_SCHEMA_VERSION = "storyboard-validation-v1"
 _CONFIDENCE_VALUES = frozenset({"high", "medium", "low"})
 _UNRESOLVED_KINDS = frozenset({"dynamic_jump", "dynamic_call", "python"})
+_TRANSITION_TERMINAL_KINDS = frozenset({"terminal", "ending", "ends"})
+_TRANSITION_LOOP_KINDS = frozenset({"loop"})
+_TRANSITION_UNRESOLVED_KINDS = frozenset({"unresolved"})
 _CITATION_KEYS = frozenset(
     {
         "evidence_id",
@@ -38,6 +43,10 @@ _CLAIM_EVIDENCE_KEYS = (
     "target_evidence_id",
     "target_evidence_ids",
     "condition_evidence_ids",
+    "destination_source_evidence_ids",
+    "destination_target_evidence_ids",
+    "rejoin_source_evidence_ids",
+    "rejoin_target_evidence_ids",
 )
 _LEGACY_MEMBERSHIP_FIELDS = frozenset(
     {"leaf_evidence_ids", "body_evidence_ids", "member_evidence_ids"}
@@ -170,6 +179,7 @@ def validate_phase01(
     if not analysis_value:
         issues.add("empty_story_analysis", "story analysis must not be empty")
 
+    _validate_canonical_analysis_contract(analysis_value, issues)
     _validate_membership_shape(profile_value, "profile", issues)
     _validate_membership_shape(analysis_value, "analysis", issues)
     _validate_revision(index, profile_value, analysis_value, issues)
@@ -209,6 +219,17 @@ def _require_mapping(value: object, label: str) -> JsonObject:
     if not isinstance(value, Mapping):
         raise TypeError(f"{label} must be a Mapping")
     return value
+
+
+def _validate_canonical_analysis_contract(value: JsonObject, issues: _Issues) -> None:
+    """Keep the public validator on the one canonical story-analysis contract."""
+
+    if value.get("schema") != ANALYSIS_SCHEMA_ID:
+        issues.add(
+            "non_canonical_analysis",
+            f"story analysis must declare schema {ANALYSIS_SCHEMA_ID!r}; "
+            "pre-canonical artifacts are not publishable",
+        )
 
 
 def _validate_membership_shape(value: JsonObject, owner: str, issues: _Issues) -> None:
@@ -785,14 +806,31 @@ def _validate_story_references(value: JsonObject, issues: _Issues) -> None:
     """Validate the strict Phase 01 scene/choice/transition object graph.
 
     Older validator fixtures use nested compatibility choices and intentionally have no top-level
-    ``choices`` or ``transitions`` collections.  The strict graph checks apply only when either
-    collection is present, which is always true for schema-bound pipeline responses.
+    ``choices`` or ``transitions`` collections.  The strict scene/choice/transition graph checks
+    apply only when either collection is present, while continuation scene references are always
+    checked when continuations are supplied.
     """
+
+    scenes = [item for item in _sequence(value.get("scenes")) if isinstance(item, Mapping)]
+    scene_ids = {
+        scene_id
+        for scene in scenes
+        if (scene_id := _text(scene.get("id"))) is not None
+    }
+    for ordinal, continuation in enumerate(
+        item for item in _sequence(value.get("continuations")) if isinstance(item, Mapping)
+    ):
+        continuation_id = _text(continuation.get("id")) or f"continuation-{ordinal}"
+        scene_id = _text(continuation.get("scene_id"))
+        if scene_id is not None and scene_id not in scene_ids:
+            issues.add(
+                "invalid_story_reference",
+                f"continuation {continuation_id!r} references unknown scene {scene_id!r}",
+            )
 
     if "choices" not in value and "transitions" not in value:
         return
 
-    scenes = [item for item in _sequence(value.get("scenes")) if isinstance(item, Mapping)]
     choices = [item for item in _sequence(value.get("choices")) if isinstance(item, Mapping)]
     transitions = [
         item for item in _sequence(value.get("transitions")) if isinstance(item, Mapping)
@@ -894,6 +932,15 @@ def _validate_story_references(value: JsonObject, issues: _Issues) -> None:
                     "invalid_story_reference",
                     f"transition {transition_id!r} {field} references unknown scene {target!r}",
                 )
+        if _text(transition.get("to_id")) is None and not _transition_has_explicit_outcome(
+            transition
+        ):
+            issues.add(
+                "missing_transition_destination",
+                f"transition {transition_id!r} has no destination; declare a terminal, loop, "
+                "or explicitly unresolved outcome",
+                evidence_ids=tuple(_text_ids_without_issues(transition.get("evidence_ids"))),
+            )
         if (
             _text(transition.get("to_id")) is not None
         ):
@@ -926,10 +973,15 @@ def _validate_scene_destination(
                 "invalid_story_reference",
                 f"choice arm {ordinal} {field} references unknown scene {target!r}",
             )
-    for field in (
+    binding_fields = (
         "source_evidence_ids",
         "target_evidence_ids",
-    ):
+        "destination_source_evidence_ids",
+        "destination_target_evidence_ids",
+        "rejoin_source_evidence_ids",
+        "rejoin_target_evidence_ids",
+    )
+    for field in binding_fields:
         for evidence_id in _text_ids_without_issues(arm.get(field)):
             if evidence_id not in view.records:
                 issues.add(
@@ -945,7 +997,26 @@ def _validate_scene_destination(
         )
         if target is not None
     ]
-    if destination_ids:
+    if len(destination_ids) > 1:
+        for prefix, target_scene_id in (
+            ("destination", _text(arm.get("destination_scene_id"))),
+            ("rejoin", _text(arm.get("rejoin_scene_id"))),
+        ):
+            source_ids = _text_ids_without_issues(
+                arm.get(f"{prefix}_source_evidence_ids")
+            )
+            target_ids = _text_ids_without_issues(
+                arm.get(f"{prefix}_target_evidence_ids")
+            )
+            if not source_ids or not target_ids:
+                issues.add(
+                    "missing_source_target_evidence",
+                    f"choice arm {ordinal} {prefix} target {target_scene_id!r} needs its "
+                    "own source_evidence_ids and target_evidence_ids",
+                    evidence_ids=tuple(_text_ids_without_issues(arm.get("evidence_ids"))),
+                    details={"target_scene_id": target_scene_id, "binding": prefix},
+                )
+    elif destination_ids:
         source_ids = _text_ids_without_issues(arm.get("source_evidence_ids"))
         target_ids = _text_ids_without_issues(arm.get("target_evidence_ids"))
         if not source_ids or not target_ids:
@@ -955,6 +1026,22 @@ def _validate_scene_destination(
                 "explicit source and target evidence",
                 evidence_ids=tuple(_text_ids_without_issues(arm.get("evidence_ids"))),
             )
+
+
+def _transition_has_explicit_outcome(transition: JsonObject) -> bool:
+    """Return whether a destinationless transition states why no target is present."""
+
+    kind = _text(transition.get("kind"))
+    normalized_kind = "" if kind is None else kind.casefold().replace("-", "_")
+    if normalized_kind in (
+        _TRANSITION_TERMINAL_KINDS
+        | _TRANSITION_LOOP_KINDS
+        | _TRANSITION_UNRESOLVED_KINDS
+    ):
+        return True
+    return _status_of(transition) in {"uncertain", "unresolved", "excluded"} and _has_text(
+        transition.get("uncertainty")
+    )
 
 
 def _validate_evidence_bindings(
@@ -1041,7 +1128,69 @@ def _validate_evidence_bindings(
                 )
                 if target is not None
             )
-            if target_ids and not target_scene_ids:
+            if len(target_scene_ids) > 1:
+                # An arm can describe two different edges.  Aggregate target evidence is not
+                # enough to establish either edge, so validate each target's binding separately.
+                for prefix, target_scene_id in (
+                    ("destination", _text(arm.get("destination_scene_id"))),
+                    ("rejoin", _text(arm.get("rejoin_scene_id"))),
+                ):
+                    bound_source_ids = _text_ids_without_issues(
+                        arm.get(f"{prefix}_source_evidence_ids")
+                    )
+                    bound_target_ids = _text_ids_without_issues(
+                        arm.get(f"{prefix}_target_evidence_ids")
+                    )
+                    if bound_source_ids:
+                        check_binding(
+                            bound_source_ids,
+                            arm_scope(arm),
+                            code="source_evidence_not_in_origin_arm",
+                            message=(
+                                f"choice arm {arm_id!r} cites {prefix} source evidence "
+                                "outside its actual origin arm"
+                            ),
+                            details={
+                                "origin_scene_id": origin_scene_id,
+                                "arm_id": arm_id,
+                                "binding": prefix,
+                            },
+                        )
+                    if bound_target_ids:
+                        check_binding(
+                            bound_target_ids,
+                            scene_scope(target_scene_id),
+                            code="target_evidence_not_in_destination_scene",
+                            message=(
+                                f"choice arm {arm_id!r} cites {prefix} target evidence "
+                                f"outside scene {target_scene_id!r}"
+                            ),
+                            details={
+                                "destination_scene_id": target_scene_id,
+                                "arm_id": arm_id,
+                                "binding": prefix,
+                            },
+                        )
+                # Preserve validation for optional aggregate fields, but never let them satisfy
+                # either target's required binding.
+                if target_ids:
+                    aggregate_target_scope: set[str] = set()
+                    for target_scene_id in target_scene_ids:
+                        aggregate_target_scope.update(scene_scope(target_scene_id))
+                    check_binding(
+                        target_ids,
+                        aggregate_target_scope,
+                        code="target_evidence_not_in_destination_scene",
+                        message=(
+                            f"choice arm {arm_id!r} cites aggregate target evidence outside "
+                            f"destination scene(s) {', '.join(target_scene_ids)!r}"
+                        ),
+                        details={
+                            "destination_scene_ids": list(target_scene_ids),
+                            "arm_id": arm_id,
+                        },
+                    )
+            elif target_ids and not target_scene_ids:
                 issues.add(
                     "target_evidence_without_destination",
                     f"choice arm {arm_id!r} declares target evidence without a destination "
@@ -1049,13 +1198,13 @@ def _validate_evidence_bindings(
                     evidence_ids=target_ids,
                     details={"arm_id": arm_id},
                 )
-            if target_ids and target_scene_ids:
-                target_scope: set[str] = set()
+            if len(target_scene_ids) <= 1 and target_ids and target_scene_ids:
+                single_target_scope: set[str] = set()
                 for target_scene_id in target_scene_ids:
-                    target_scope.update(scene_scope(target_scene_id))
+                    single_target_scope.update(scene_scope(target_scene_id))
                 check_binding(
                     target_ids,
-                    target_scope,
+                    single_target_scope,
                     code="target_evidence_not_in_destination_scene",
                     message=(
                         f"choice arm {arm_id!r} cites target evidence outside destination "
@@ -1317,12 +1466,22 @@ def _validate_coverage(value: JsonObject, view: _IndexView, issues: _Issues) -> 
                 branch_id=inferred_arm_id,
             )
 
+    declared_scene_ids: set[str] = set()
+    for raw_scene in scenes:
+        declared_scene_id = _text(raw_scene.get("id"))
+        if declared_scene_id is not None:
+            declared_scene_ids.add(declared_scene_id)
     for ordinal, raw in enumerate(_sequence(value.get("continuations"))):
         if not isinstance(raw, Mapping):
             issues.add("invalid_continuation", f"analysis continuation {ordinal} is not a mapping")
             continue
         continuation_id = _text(raw.get("id")) or f"continuation-{ordinal}"
         continuation_scene_id = _text(raw.get("scene_id"))
+        owned_scene_id = (
+            continuation_scene_id
+            if continuation_scene_id in declared_scene_ids
+            else None
+        )
         if "line_evidence_ids" in raw:
             for evidence_id in leaf_ids(
                 raw.get("line_evidence_ids"), f"continuation {continuation_id}.line_evidence_ids"
@@ -1331,7 +1490,7 @@ def _validate_coverage(value: JsonObject, view: _IndexView, issues: _Issues) -> 
                     evidence_id,
                     f"continuation:{continuation_id}",
                     bucket="continuation",
-                    scene_id=continuation_scene_id,
+                    scene_id=owned_scene_id,
                 )
 
     for ordinal, raw in enumerate(_sequence(value.get("unresolved"))):

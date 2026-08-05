@@ -14,6 +14,7 @@ from renpy_story_mapper.storyboard.evidence import (
 )
 from renpy_story_mapper.storyboard.model import redact_public_value
 from renpy_story_mapper.storyboard.pipeline import evidence_index_to_mapping
+from renpy_story_mapper.storyboard.render import render_storyboard_html
 from renpy_story_mapper.storyboard.validation import validate_phase01
 
 BRANCH_SOURCE = """label start:
@@ -585,6 +586,7 @@ def test_real_python_leaf_classification_requires_unresolved_status() -> None:
         }
     ]
     analysis = {
+        "schema": "storyboard-story-analysis-v1",
         "scenes": [
             {
                 "id": "scene-start",
@@ -1147,3 +1149,178 @@ def test_genericity_scan_uses_forbidden_corpus_and_ast_count_checks() -> None:
                 )
             ):
                 raise AssertionError(f"fixed count comparison in {path}:{node.lineno}")
+
+
+def test_dangling_continuation_is_rejected_and_its_lines_stay_visible() -> None:
+    evidence, profile, analysis = _two_scene_transition_inputs()
+    records = _records(evidence)
+    line_ids = {
+        int(item["facts"]["line_number"]): str(item["id"])
+        for item in records
+        if item["kind"] == "source_line" and isinstance(item.get("facts"), dict)
+    }
+    destination_scene = analysis["scenes"][1]
+    assert isinstance(destination_scene, dict)
+    destination_scene["line_evidence_ids"] = [line_ids[5], line_ids[6]]
+    continuation = {
+        "id": "continuation-destination",
+        "scene_id": "scene-destination",
+        "title": "Destination continuation",
+        "line_evidence_ids": [line_ids[7]],
+        "evidence_ids": [line_ids[7]],
+        "confidence": "medium",
+        "status": "resolved",
+        "uncertainty": None,
+        "rationale": "The continuation line remains in the destination scene.",
+    }
+    analysis["continuations"] = [continuation]
+
+    accepted = validate_phase01(evidence, profile, analysis)
+    assert accepted.publishable
+    per_scene = accepted.coverage["per_scene"]
+    assert isinstance(per_scene, list)
+    destination_report = next(
+        item for item in per_scene if item["scene_id"] == "scene-destination"
+    )
+    assert destination_report["covered"] == 3
+    assert line_ids[7] in destination_report["covered_line_evidence_ids"]
+
+    dangling = deepcopy(analysis)
+    dangling_continuation = dangling["continuations"][0]
+    assert isinstance(dangling_continuation, dict)
+    dangling_continuation["scene_id"] = "scene-missing"
+    rejected = validate_phase01(evidence, profile, dangling)
+    assert not rejected.publishable
+    assert any(issue.code == "invalid_story_reference" for issue in rejected.errors)
+
+    html = render_storyboard_html(evidence, profile, dangling, rejected.to_dict())
+    assert "Destination continuation" in html
+    assert "Unrelated target candidate" not in html.split("Destination continuation", 1)[1]
+    assert line_ids[7] in html
+
+
+def test_destinationless_resolved_jump_is_not_publishable_or_schema_valid() -> None:
+    evidence, profile, analysis = _two_scene_transition_inputs()
+    transition = analysis["transitions"][0]
+    assert isinstance(transition, dict)
+    transition["to_id"] = None
+
+    report = validate_phase01(evidence, profile, analysis)
+    assert not report.publishable
+    assert any(issue.code == "missing_transition_destination" for issue in report.errors)
+
+    schema_path = (
+        Path(__file__).parents[1]
+        / "src"
+        / "renpy_story_mapper"
+        / "storyboard"
+        / "schemas"
+        / "story-analysis.schema.json"
+    )
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    assert list(Draft202012Validator(schema).iter_errors(analysis))
+
+
+def test_explicit_canonical_schema_never_uses_legacy_alias_topology() -> None:
+    evidence = _evidence()
+    records = _records(evidence)
+    line_id = next(
+        str(item["id"]) for item in records if item["kind"] == "source_line"
+    )
+    analysis = {
+        "schema": "storyboard-story-analysis-v1",
+        "story_title": "Canonical object",
+        "scenes": [
+            {
+                "id": "scene-canonical",
+                "title": "Canonical scene",
+                "summary": "Canonical summary",
+                "line_evidence_ids": [line_id],
+                "menus": [
+                    {
+                        "title": "LEGACY MENU LEAK",
+                        "arms": [{"caption": "LEGACY ARM LEAK"}],
+                    }
+                ],
+                "branches": [{"title": "LEGACY BRANCH LEAK"}],
+            }
+        ],
+        "sections": [{"title": "LEGACY SECTION LEAK"}],
+    }
+
+    html = render_storyboard_html(evidence, {}, analysis, {})
+
+    assert "Canonical scene" in html
+    assert "LEGACY MENU LEAK" not in html
+    assert "LEGACY ARM LEAK" not in html
+    assert "LEGACY BRANCH LEAK" not in html
+    assert "LEGACY SECTION LEAK" not in html
+
+    malformed_canonical_html = render_storyboard_html(
+        evidence,
+        {},
+        {
+            "schema": "storyboard-story-analysis-v1",
+            "story_title": "Malformed canonical object",
+            "sections": [{"title": "LEGACY SECTION FALLBACK LEAK"}],
+        },
+        {},
+    )
+    assert "LEGACY SECTION FALLBACK LEAK" not in malformed_canonical_html
+
+
+def test_pre_canonical_analysis_cannot_return_publishable() -> None:
+    evidence = _evidence()
+    profile = _canonical_profile(evidence)
+    legacy = deepcopy(_branch_analysis(evidence))
+    legacy.pop("schema")
+    legacy["schema_version"] = "storyboard-analysis-v1"
+
+    report = validate_phase01(evidence, profile, legacy)
+
+    assert not report.publishable
+    assert any(issue.code == "non_canonical_analysis" for issue in report.errors)
+
+
+def test_dual_destination_and_rejoin_require_separate_target_bindings() -> None:
+    evidence, analysis = _menu_arm_destination_inputs()
+    profile = _canonical_profile(evidence)
+    records = _records(evidence)
+    line_ids = {
+        int(item["facts"]["line_number"]): str(item["id"])
+        for item in records
+        if item["kind"] == "source_line" and isinstance(item.get("facts"), dict)
+    }
+    arm = analysis["choices"][0]["arms"][0]
+    assert isinstance(arm, dict)
+    arm["rejoin_scene_id"] = "scene-start"
+    arm.update(
+        {
+            "destination_source_evidence_ids": [line_ids[4]],
+            "destination_target_evidence_ids": [line_ids[9]],
+            "rejoin_source_evidence_ids": [line_ids[4]],
+            "rejoin_target_evidence_ids": [line_ids[1]],
+        }
+    )
+    assert validate_phase01(evidence, profile, analysis).publishable
+
+    only_one_target = deepcopy(analysis)
+    dual_arm = only_one_target["choices"][0]["arms"][0]
+    assert isinstance(dual_arm, dict)
+    dual_arm.pop("rejoin_target_evidence_ids")
+    rejected = validate_phase01(evidence, profile, only_one_target)
+    assert not rejected.publishable
+    assert any(
+        issue.code == "missing_source_target_evidence" for issue in rejected.errors
+    )
+
+    schema_path = (
+        Path(__file__).parents[1]
+        / "src"
+        / "renpy_story_mapper"
+        / "storyboard"
+        / "schemas"
+        / "story-analysis.schema.json"
+    )
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    assert list(Draft202012Validator(schema).iter_errors(only_one_target))

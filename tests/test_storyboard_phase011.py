@@ -108,6 +108,7 @@ def _branch_inputs() -> tuple[dict[str, object], dict[str, object], dict[str, st
         }
     ]
     analysis: dict[str, object] = {
+        "schema": "storyboard-story-analysis-v1",
         "scenes": [scene],
         "choices": choices,
         "transitions": [],

@@ -12,6 +12,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from html import escape
 
+from renpy_story_mapper.storyboard.prompts import ANALYSIS_SCHEMA_ID
+
 __all__ = ["render_storyboard", "render_storyboard_html"]
 
 
@@ -65,6 +67,12 @@ class _RenderState:
             self.missing_evidence.append(identifier)
 
 
+def _is_canonical_analysis(analysis: Mapping[str, object]) -> bool:
+    """Use the explicit analysis discriminator before selecting renderer aliases."""
+
+    return analysis.get("schema") == ANALYSIS_SCHEMA_ID
+
+
 def render_storyboard_html(
     evidence: Mapping[str, object],
     profile: Mapping[str, object],
@@ -82,13 +90,15 @@ def render_storyboard_html(
     uncertainty rather than causing a fabricated story fact.
     """
 
-    canonical_graph = "choices" in analysis and "transitions" in analysis
+    canonical_graph = _is_canonical_analysis(analysis)
     evidence_records = _build_evidence_index(evidence, canonical=canonical_graph)
     state = _RenderState(evidence_records, [], set())
     title = _story_title(profile, analysis, canonical=canonical_graph)
-    scenes = _ordered_scenes(_records(analysis, ("scenes", "sections")))
+    scene_keys = ("scenes",) if canonical_graph else ("scenes", "sections")
+    scenes = _ordered_scenes(_records(analysis, scene_keys))
     scene_titles = _scene_titles(scenes, canonical=canonical_graph)
-    summary = _first_text(analysis, "summary", "overview", "description")
+    summary_keys = ("summary",) if canonical_graph else ("summary", "overview", "description")
+    summary = _first_text(analysis, *summary_keys)
 
     content: list[str] = [
         '<header class="story-header">',
@@ -152,6 +162,7 @@ def render_storyboard_html(
         continuation
         for continuation in _records(analysis, ("continuations",))
         if not _first_text(continuation, "scene_id")
+        or _first_text(continuation, "scene_id") not in scene_titles
     ]
     if top_level_continuations:
         content.append('<section class="continuations" aria-label="Shared continuations">')
@@ -412,7 +423,12 @@ def _render_scene(
     canonical_graph: bool,
 ) -> str:
     title = _scene_title(scene, scene_index, canonical=canonical_graph)
-    summary = _first_text(scene, "summary", "description", "overview")
+    summary_keys = (
+        ("summary",)
+        if canonical_graph
+        else ("summary", "description", "overview")
+    )
+    summary = _first_text(scene, *summary_keys)
     confidence = _first_text(scene, "confidence", "certainty")
     lines = _membership_evidence_ids(
         scene,
@@ -656,10 +672,24 @@ def _render_canonical_arm_metadata(
             evidence_title="Arm evidence",
         )
     )
-    for title, key in (
-        ("Source evidence", "source_evidence_ids"),
-        ("Target evidence", "target_evidence_ids"),
-    ):
+    has_destination_and_rejoin = all(
+        bool(_first_text(arm, key))
+        for key in ("destination_scene_id", "rejoin_scene_id")
+    )
+    binding_fields = (
+        (
+            ("Destination source evidence", "destination_source_evidence_ids"),
+            ("Destination target evidence", "destination_target_evidence_ids"),
+            ("Rejoin source evidence", "rejoin_source_evidence_ids"),
+            ("Rejoin target evidence", "rejoin_target_evidence_ids"),
+        )
+        if has_destination_and_rejoin
+        else (
+            ("Source evidence", "source_evidence_ids"),
+            ("Target evidence", "target_evidence_ids"),
+        )
+    )
+    for title, key in binding_fields:
         identifiers = _evidence_ids(arm, (key,))
         if identifiers:
             parts.append(_render_evidence_citations(title, identifiers, state))
@@ -815,12 +845,18 @@ def _render_continuation(
     *,
     canonical: bool = False,
 ) -> str:
+    title_keys = ("title",) if canonical else ("title", "name", "label")
     title = (
-        _first_text(continuation, "title", "name", "label")
+        _first_text(continuation, *title_keys)
         or f"Continuation {continuation_index + 1}"
     )
     parts = [f'<article class="branch"><h3 class="branch-title">{_escape(title)}</h3>']
-    summary = _first_text(continuation, "summary", "description", "overview")
+    summary_keys = (
+        ("summary",)
+        if canonical
+        else ("summary", "description", "overview")
+    )
+    summary = _first_text(continuation, *summary_keys)
     if summary:
         parts.append(f'<p class="summary">{_escape(summary)}</p>')
     identifiers = _membership_evidence_ids(
@@ -835,15 +871,24 @@ def _render_continuation(
     )
     if identifiers:
         parts.append(_render_exact_lines("Continuation lines", identifiers, state))
-    status = _first_text(continuation, "status")
-    uncertainty = _first_text(continuation, "uncertainty", "unresolved")
-    if status and status not in {"resolved", "none"}:
-        parts.append(
-            f'<div class="uncertainty"><span class="detail-label">Status:</span>'
-            f"{_escape(status)}</div>"
+    if canonical:
+        parts.extend(
+            _render_canonical_inference_metadata(
+                continuation,
+                state,
+                evidence_title="Continuation evidence",
+            )
         )
-    if uncertainty:
-        parts.append(f'<div class="uncertainty">{_escape(uncertainty)}</div>')
+    else:
+        status = _first_text(continuation, "status")
+        uncertainty = _first_text(continuation, "uncertainty", "unresolved")
+        if status and status not in {"resolved", "none"}:
+            parts.append(
+                f'<div class="uncertainty"><span class="detail-label">Status:</span>'
+                f"{_escape(status)}</div>"
+            )
+        if uncertainty:
+            parts.append(f'<div class="uncertainty">{_escape(uncertainty)}</div>')
     parts.append("</article>")
     return "\n".join(parts)
 

@@ -506,6 +506,11 @@ def test_canonical_membership_uses_only_line_ids_and_arm_metadata_is_emitted_onc
     continuation_html = html[continuation_start:continuation_end]
     assert "Shared continuation line" in continuation_html
     assert "Shared ending line" not in continuation_html
+    assert continuation_html.count("Confidence:</span>medium") == 1
+    assert continuation_html.count(
+        "Rationale:</span>The continuation is available after the selected route."
+    ) == 1
+    assert continuation_html.count("<summary>Continuation evidence</summary>") == 1
 
 
 def test_canonical_renderer_accepts_mapping_evidence_from_real_index() -> None:

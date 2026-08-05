@@ -48,6 +48,7 @@ def _base_objects() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
         "uncertainty": None,
     }
     analysis: dict[str, object] = {
+        "schema": "storyboard-story-analysis-v1",
         "schema_version": "storyboard-analysis-v1",
         "source_revision": "idx-canary-1",
         "scenes": [
