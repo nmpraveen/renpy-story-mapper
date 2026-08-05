@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from renpy_story_mapper.storyboard.prompts import PROFILE_SCHEMA_ID
 from renpy_story_mapper.storyboard.validation import validate_phase01
 
 
@@ -33,7 +34,7 @@ def _base_objects() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
         "menus": [{"id": "menu-main", "arm_ids": ["arm-left", "arm-right"]}],
     }
     profile: dict[str, object] = {
-        "schema_version": "storyboard-profile-v1",
+        "schema": PROFILE_SCHEMA_ID,
         "source_revision": "idx-canary-1",
         "claims": [
             {
@@ -146,6 +147,34 @@ def _base_objects() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
 
 def _error(report: Any, code: str) -> dict[str, object]:
     return next(item for item in report.to_dict()["errors"] if item["code"] == code)
+
+
+def test_missing_game_profile_schema_is_a_blocking_error() -> None:
+    evidence, profile, analysis = _base_objects()
+    profile.pop("schema")
+
+    report = validate_phase01(evidence, profile, analysis)
+
+    assert not report.publishable
+    assert [issue.code for issue in report.errors] == ["non_canonical_profile"]
+    assert _error(report, "non_canonical_profile")["message"] == (
+        f"game profile must declare schema {PROFILE_SCHEMA_ID!r}; "
+        "pre-canonical artifacts are not publishable"
+    )
+
+
+def test_wrong_or_legacy_game_profile_schema_is_a_blocking_error() -> None:
+    evidence, profile, analysis = _base_objects()
+    profile["schema"] = "storyboard-profile-v1"
+
+    report = validate_phase01(evidence, profile, analysis)
+
+    assert not report.publishable
+    assert [issue.code for issue in report.errors] == ["non_canonical_profile"]
+    assert _error(report, "non_canonical_profile")["message"] == (
+        f"game profile must declare schema {PROFILE_SCHEMA_ID!r}; "
+        "pre-canonical artifacts are not publishable"
+    )
 
 
 def test_fake_evidence_citation_is_rejected() -> None:

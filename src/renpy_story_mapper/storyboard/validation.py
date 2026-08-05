@@ -11,7 +11,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
-from renpy_story_mapper.storyboard.prompts import ANALYSIS_SCHEMA_ID
+from renpy_story_mapper.storyboard.prompts import ANALYSIS_SCHEMA_ID, PROFILE_SCHEMA_ID
 
 VALIDATION_SCHEMA_VERSION = "storyboard-validation-v1"
 _CONFIDENCE_VALUES = frozenset({"high", "medium", "low"})
@@ -179,6 +179,7 @@ def validate_phase01(
     if not analysis_value:
         issues.add("empty_story_analysis", "story analysis must not be empty")
 
+    _validate_canonical_profile_contract(profile_value, issues)
     _validate_canonical_analysis_contract(analysis_value, issues)
     _validate_membership_shape(profile_value, "profile", issues)
     _validate_membership_shape(analysis_value, "analysis", issues)
@@ -228,6 +229,17 @@ def _validate_canonical_analysis_contract(value: JsonObject, issues: _Issues) ->
         issues.add(
             "non_canonical_analysis",
             f"story analysis must declare schema {ANALYSIS_SCHEMA_ID!r}; "
+            "pre-canonical artifacts are not publishable",
+        )
+
+
+def _validate_canonical_profile_contract(value: JsonObject, issues: _Issues) -> None:
+    """Keep the public validator on the one canonical game-profile contract."""
+
+    if value.get("schema") != PROFILE_SCHEMA_ID:
+        issues.add(
+            "non_canonical_profile",
+            f"game profile must declare schema {PROFILE_SCHEMA_ID!r}; "
             "pre-canonical artifacts are not publishable",
         )
 

@@ -156,7 +156,12 @@ def test_line_window_closes_nested_parser_parents_and_keeps_actual_lines() -> No
 def test_branch_body_leaf_ownership_is_exact_once_and_reported_per_arm() -> None:
     evidence, analysis, _lines = _branch_inputs()
 
-    profile = {"claims": [], "status": "resolved", "uncertainty": None}
+    profile = {
+        "schema": "storyboard-game-profile-v1",
+        "claims": [],
+        "status": "resolved",
+        "uncertainty": None,
+    }
     report = validate_phase01(evidence, profile, analysis)
 
     assert report.publishable
@@ -188,6 +193,7 @@ def test_resolved_choice_consequence_and_custom_rationale_are_allowed_but_python
         "accountable_evidence_ids": ["custom", "python"],
     }
     profile = {
+        "schema": "storyboard-game-profile-v1",
         "claims": [
             {
                 "text": "The custom statement opens the route.",
@@ -255,7 +261,12 @@ def test_scene_order_and_semantic_destination_require_source_target_evidence() -
 
     report = validate_phase01(
         evidence,
-        {"claims": [], "status": "resolved", "uncertainty": None},
+        {
+            "schema": "storyboard-game-profile-v1",
+            "claims": [],
+            "status": "resolved",
+            "uncertainty": None,
+        },
         analysis,
     )
 
