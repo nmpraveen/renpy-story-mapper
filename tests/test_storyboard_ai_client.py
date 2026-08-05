@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from renpy_story_mapper.cli import _parser
 from renpy_story_mapper.storyboard.ai_client import (
     CodexCliJsonClient,
     ProcessSpec,
@@ -130,7 +131,11 @@ def test_command_is_direct_read_only_schema_bound_and_explicitly_fast(tmp_path: 
     assert command[command.index("--model") + 1] == "model-a"
     assert str(schema) in command
     assert 'model_reasoning_effort="high"' in command
-    assert "fast_mode=true" in command
+    assert ("--enable", "fast_mode") in tuple(zip(command, command[1:]))
+    assert all(
+        not (value == "-c" and command[index + 1].startswith("fast_mode="))
+        for index, value in enumerate(command[:-1])
+    )
     assert "--disable" in command
     assert "shell_tool" in command
     disabled = {
@@ -139,6 +144,56 @@ def test_command_is_direct_read_only_schema_bound_and_explicitly_fast(tmp_path: 
         if value == "--disable"
     }
     assert "fast_mode" not in disabled
+    assert command[-1] == "-"
+
+
+def test_no_fast_mode_cli_flag_builds_supported_disabled_feature_command(tmp_path: Path) -> None:
+    schema = tmp_path / "schema.json"
+    schema.write_text("{}", encoding="utf-8")
+
+    args = _parser().parse_args(
+        [
+            "storyboard",
+            "game.rpy",
+            "--output",
+            "output",
+            "--model",
+            "gpt-5.6-luna",
+            "--reasoning-effort",
+            "xhigh",
+            "--no-fast-mode",
+        ]
+    )
+    assert args.fast_mode is False
+
+    command = build_codex_command(
+        "C:/synthetic/codex.exe",
+        model=args.model,
+        reasoning_effort=args.reasoning_effort,
+        fast_mode=args.fast_mode,
+        schema_path=schema,
+    )
+    config_overrides = {
+        command[index + 1]
+        for index, value in enumerate(command[:-1])
+        if value == "-c"
+    }
+
+    assert command[0] == "C:/synthetic/codex.exe"
+    assert command[1:3] == ("exec", "--ephemeral")
+    assert "--sandbox" in command
+    assert command[command.index("--sandbox") + 1] == "read-only"
+    assert "--ignore-user-config" in command
+    assert "--ignore-rules" in command
+    assert "--strict-config" in command
+    assert ("--disable", "fast_mode") in tuple(zip(command, command[1:]))
+    assert "fast_mode=false" not in config_overrides
+    assert "features.fast_mode=false" not in config_overrides
+    assert 'model_reasoning_effort="xhigh"' in config_overrides
+    assert command[command.index("--model") + 1] == "gpt-5.6-luna"
+    assert "--json" in command
+    assert "--output-schema" in command
+    assert str(schema) in command
     assert command[-1] == "-"
 
 

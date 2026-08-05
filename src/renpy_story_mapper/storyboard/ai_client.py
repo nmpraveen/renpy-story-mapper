@@ -335,12 +335,11 @@ def build_codex_command(
     ]
     for feature in _DISABLED_CODEX_FEATURES:
         arguments.extend(("--disable", feature))
+    arguments.extend(("--enable" if fast_mode else "--disable", "fast_mode"))
     arguments.extend(
         (
             "-c",
             f'model_reasoning_effort="{reasoning_effort}"',
-            "-c",
-            f"fast_mode={'true' if fast_mode else 'false'}",
             "-c",
             'web_search="disabled"',
             "-c",
