@@ -6,6 +6,7 @@ from itertools import pairwise
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from renpy_story_mapper.cli import _parser
 from renpy_story_mapper.storyboard.ai_client import (
@@ -16,6 +17,7 @@ from renpy_story_mapper.storyboard.ai_client import (
     ProviderIdentityMismatchError,
     ProviderOutputError,
     ProviderPolicyViolationError,
+    ProviderRuntimeConfigurationError,
     ProviderTimeoutError,
     build_codex_command,
     derive_codex_provider_schema,
@@ -425,6 +427,224 @@ def test_provider_schema_flattens_composition_and_closes_real_object_fields() ->
     assert {"id", "title", "summary", "order", "line_evidence_ids"}.issubset(
         analysis_scene["properties"]
     )
+
+
+def test_bundled_transition_retains_anyof_and_rejects_resolved_null_target() -> None:
+    canonical = json.loads(schema_path("story-analysis").read_text(encoding="utf-8"))
+    provider = derive_codex_provider_schema(canonical)
+    transitions = provider["properties"]["transitions"]
+    assert isinstance(transitions, dict)
+    transition = transitions["items"]
+    assert isinstance(transition, dict)
+    alternatives = transition.get("anyOf")
+    assert isinstance(alternatives, list)
+    assert len(alternatives) == 3
+    assert isinstance(alternatives[0], dict)
+    assert len(alternatives[0]["properties"]) == len(transition["properties"])
+
+    valid = {
+        "evidence_ids": ["E1"],
+        "confidence": "high",
+        "status": "resolved",
+        "uncertainty": None,
+        "rationale": None,
+        "interpretation_rationale": None,
+        "id": "T1",
+        "from_id": "S1",
+        "to_id": "S2",
+        "kind": "jump",
+        "source_evidence_ids": [],
+        "target_evidence_ids": [],
+    }
+    invalid = {**valid, "to_id": None}
+    validator = Draft202012Validator(transition)
+    assert validator.is_valid(valid)
+    assert not validator.is_valid(invalid)
+
+    canonical_payload = {
+        "schema": ANALYSIS_SCHEMA_ID,
+        "source": {
+            "evidence_index_hash": "hash",
+            "profile_hash": "profile",
+            "canary_evidence_ids": ["E1"],
+        },
+        "scenes": [],
+        "choices": [],
+        "transitions": [invalid],
+        "claims": [],
+        "excluded_evidence_ids": [],
+        "unresolved": [],
+        "disagreements": [],
+        "status": "resolved",
+        "uncertainty": None,
+    }
+    assert not Draft202012Validator(canonical).is_valid(canonical_payload)
+
+
+@pytest.mark.parametrize(
+    "canonical",
+    [
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {
+                "child": {"$ref": "#/$defs/node"},
+            },
+            "$defs": {
+                "node": {
+                    "type": "object",
+                    "properties": {"child": {"$ref": "#/$defs/node"}},
+                }
+            },
+        },
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {"child": {"$ref": "#/$defs/missing"}},
+            "$defs": {},
+        },
+    ],
+)
+def test_provider_schema_rejects_recursive_or_missing_local_refs(
+    canonical: dict[str, object],
+) -> None:
+    original = json.loads(json.dumps(canonical))
+
+    with pytest.raises(ValueError, match="reference"):
+        derive_codex_provider_schema(canonical)
+
+    assert canonical == original
+
+
+@pytest.mark.parametrize(
+    "canonical",
+    [
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {"child": {"$ref": "#/$defs/missing"}},
+            "$defs": {},
+        },
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "allOf": [
+                {"type": "string", "minLength": 4},
+                {"type": "string", "maxLength": 2},
+            ],
+        },
+    ],
+)
+def test_schema_derivation_failure_is_isolated_before_provider_start(
+    tmp_path: Path, canonical: dict[str, object]
+) -> None:
+    schema = tmp_path / "invalid-provider-derivation.schema.json"
+    schema.write_text(json.dumps(canonical), encoding="utf-8")
+    process = FakeProcess(_jsonl({"ok": True}))
+    created: list[tuple[ProcessSpec, FakeProcess]] = []
+    client = _client(process, created)
+
+    with pytest.raises(ProviderRuntimeConfigurationError) as raised:
+        client.complete(
+            payload={"request": "derivation"},
+            schema_path=schema,
+            model="model-a",
+            reasoning_effort="high",
+            fast_mode=False,
+        )
+
+    assert raised.value.error_code == "provider_schema_derivation_failed"
+    assert raised.value.transmission.value == "not_transmitted"
+    assert created == []
+
+
+def test_compatible_scalar_allof_constraints_intersect_without_mutation() -> None:
+    canonical = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "allOf": [
+            {
+                "type": "object",
+                "properties": {
+                    "number": {"type": "number", "minimum": 0, "maximum": 10},
+                    "integer": {"type": "number"},
+                    "text": {"type": "string", "minLength": 1, "maxLength": 10},
+                    "array": {"type": "array", "minItems": 1, "maxItems": 5},
+                    "value": {
+                        "type": ["string", "null"],
+                        "enum": ["a", "b"],
+                    },
+                },
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "number": {"minimum": 1, "maximum": 9},
+                    "integer": {"type": "integer"},
+                    "text": {"minLength": 3, "maxLength": 8},
+                    "array": {"minItems": 2, "maxItems": 4},
+                    "value": {"type": "string", "const": "a"},
+                },
+            },
+        ],
+    }
+    original = json.loads(json.dumps(canonical))
+
+    provider = derive_codex_provider_schema(canonical)
+
+    assert canonical == original
+    properties = provider["properties"]
+    assert isinstance(properties, dict)
+    assert properties["number"] == {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 9,
+    }
+    assert properties["integer"] == {"type": "integer"}
+    assert properties["text"] == {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 8,
+    }
+    assert properties["array"] == {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 4,
+    }
+    assert properties["value"] == {
+        "type": "string",
+        "enum": ["a", "b"],
+        "const": "a",
+    }
+
+
+@pytest.mark.parametrize(
+    "canonical",
+    [
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "allOf": [{"type": "string"}, {"type": "integer"}],
+        },
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "allOf": [{"const": "a"}, {"const": "b"}],
+        },
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "allOf": [{"const": True}, {"const": 1}],
+        },
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "allOf": [
+                {"type": "string", "minLength": 4},
+                {"type": "string", "maxLength": 2},
+            ],
+        },
+    ],
+)
+def test_genuinely_conflicting_scalar_allof_is_deterministic(
+    canonical: dict[str, object],
+) -> None:
+    with pytest.raises(ValueError):
+        derive_codex_provider_schema(canonical)
 
 
 def test_runtime_model_mismatch_is_sanitized() -> None:
