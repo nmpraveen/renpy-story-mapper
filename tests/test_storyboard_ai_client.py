@@ -9,6 +9,7 @@ import pytest
 
 from renpy_story_mapper.cli import _parser
 from renpy_story_mapper.storyboard.ai_client import (
+    CODEX_UNSUPPORTED_SCHEMA_KEYWORDS,
     CodexCliJsonClient,
     ProcessSpec,
     ProviderCancelledError,
@@ -17,6 +18,7 @@ from renpy_story_mapper.storyboard.ai_client import (
     ProviderPolicyViolationError,
     ProviderTimeoutError,
     build_codex_command,
+    derive_codex_provider_schema,
 )
 from renpy_story_mapper.storyboard.prompts import (
     ANALYSIS_SCHEMA_ID,
@@ -226,6 +228,203 @@ def test_complete_sends_canonical_json_and_verifies_runtime_metadata(tmp_path: P
     assert spec.shell is False
     assert not spec.cwd.exists()
     assert process.inputs == [b'{"a":"exact","z":2}']
+
+
+def test_provider_schema_copy_is_recursive_non_mutating_and_explicit() -> None:
+    canonical = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "uniqueItems": True,
+        "properties": {
+            "nested": {
+                "type": "array",
+                "uniqueItems": True,
+                "items": {"uniqueItems": True},
+            }
+        },
+        "allOf": [{"$defs": {"deep": {"uniqueItems": True}}}],
+    }
+    original = json.loads(json.dumps(canonical))
+
+    provider = derive_codex_provider_schema(canonical)
+
+    assert canonical == original
+    assert frozenset({"uniqueItems", "unevaluatedProperties", "allOf", "if"}) == (
+        CODEX_UNSUPPORTED_SCHEMA_KEYWORDS
+    )
+    assert "uniqueItems" not in json.dumps(provider)
+    assert provider["properties"] == {
+        "nested": {"type": "array", "items": {}}
+    }
+    assert provider["type"] == "object"
+    assert provider["additionalProperties"] is False
+    assert "allOf" not in provider
+
+
+def test_complete_materializes_provider_schema_without_mutating_canonical_input() -> None:
+    schema = schema_path("game-profile").resolve()
+    canonical_bytes = schema.read_bytes()
+    profile = {
+        "schema": PROFILE_SCHEMA_ID,
+        "source": {"evidence_index_hash": "probe", "scope_evidence_ids": ["E1"]},
+        "entry_points": [],
+        "characters": [],
+        "variables": [],
+        "custom_constructs": [],
+        "conventions": [],
+        "ending_patterns": [],
+        "unresolved": [],
+        "status": "resolved",
+        "uncertainty": None,
+    }
+    process = FakeProcess(_jsonl(profile, fast_mode=False))
+    created: list[tuple[ProcessSpec, FakeProcess]] = []
+    observed_provider_schema: dict[str, object] = {}
+    observed_schema_path: Path | None = None
+
+    def factory(spec: ProcessSpec) -> FakeProcess:
+        nonlocal observed_schema_path
+        observed_schema_path = Path(spec.command[spec.command.index("--output-schema") + 1])
+        observed_provider_schema.update(
+            json.loads(observed_schema_path.read_text(encoding="utf-8"))
+        )
+        created.append((spec, process))
+        return process
+
+    client = CodexCliJsonClient(
+        executable="codex",
+        process_factory=factory,
+        executable_resolver=lambda _command: "C:/synthetic/codex.exe",
+        timeout_seconds=1.0,
+    )
+
+    assert client.complete(
+        payload={"request": "profile"},
+        schema_path=schema,
+        model="model-a",
+        reasoning_effort="high",
+        fast_mode=False,
+    ) == profile
+
+    assert created
+    assert observed_schema_path is not None
+    assert observed_schema_path != schema
+    assert not observed_schema_path.exists()
+    assert "uniqueItems" not in json.dumps(observed_provider_schema)
+    assert schema.read_bytes() == canonical_bytes
+
+
+@pytest.mark.parametrize(
+    ("kind", "payload"),
+    [
+        (
+            "game-profile",
+            {
+                "schema": PROFILE_SCHEMA_ID,
+                "source": {
+                    "evidence_index_hash": "probe",
+                    "scope_evidence_ids": ["E1", "E1"],
+                },
+                "entry_points": [],
+                "characters": [],
+                "variables": [],
+                "custom_constructs": [],
+                "conventions": [],
+                "ending_patterns": [],
+                "unresolved": [],
+                "status": "resolved",
+                "uncertainty": None,
+            },
+        ),
+        (
+            "story-analysis",
+            {
+                "schema": ANALYSIS_SCHEMA_ID,
+                "source": {
+                    "evidence_index_hash": "probe",
+                    "profile_hash": "probe",
+                    "canary_evidence_ids": ["E1"],
+                },
+                "scenes": [],
+                "choices": [],
+                "transitions": [],
+                "claims": [],
+                "excluded_evidence_ids": ["E1", "E1"],
+                "unresolved": [],
+                "disagreements": [],
+                "status": "resolved",
+                "uncertainty": None,
+            },
+        ),
+    ],
+)
+def test_canonical_validation_still_rejects_duplicate_ids_after_provider_relaxation(
+    kind: str, payload: dict[str, object]
+) -> None:
+    process = FakeProcess(_jsonl(payload))
+    created: list[tuple[ProcessSpec, FakeProcess]] = []
+    client = _client(process, created)
+
+    with pytest.raises(ProviderOutputError) as raised:
+        client.complete(
+            payload={"request": kind},
+            schema_path=schema_path(kind),
+            model="model-a",
+            reasoning_effort="high",
+            fast_mode=False,
+        )
+
+    assert raised.value.error_code == "schema_mismatch"
+    assert raised.value.transmission.value == "transmitted"
+
+
+def test_bundled_canonical_schemas_retain_unique_items_constraints() -> None:
+    for kind in ("game-profile", "story-analysis"):
+        canonical = json.loads(schema_path(kind).read_text(encoding="utf-8"))
+        serialized = json.dumps(canonical)
+        assert serialized.count('"uniqueItems"') > 0
+        assert derive_codex_provider_schema(canonical) != canonical
+
+
+def test_provider_schema_flattens_composition_and_closes_real_object_fields() -> None:
+    def assert_provider_objects(value: object) -> None:
+        if isinstance(value, dict):
+            if value.get("type") == "object":
+                properties = value.get("properties")
+                required = value.get("required")
+                assert isinstance(properties, dict)
+                assert isinstance(required, list)
+                assert set(required) == set(properties)
+                assert value.get("additionalProperties") is False
+            for child in value.values():
+                assert_provider_objects(child)
+        elif isinstance(value, list):
+            for child in value:
+                assert_provider_objects(child)
+
+    profile = derive_codex_provider_schema(
+        json.loads(schema_path("game-profile").read_text(encoding="utf-8"))
+    )
+    analysis = derive_codex_provider_schema(
+        json.loads(schema_path("story-analysis").read_text(encoding="utf-8"))
+    )
+
+    assert_provider_objects(profile)
+    assert_provider_objects(analysis)
+    assert "$defs" not in profile
+    assert "$defs" not in analysis
+    assert profile["properties"]["schema"]["type"] == "string"
+    assert analysis["properties"]["schema"]["type"] == "string"
+
+    profile_character = profile["properties"]["characters"]["items"]
+    assert isinstance(profile_character, dict)
+    assert {"id", "names", "description", "evidence_ids", "confidence"}.issubset(
+        profile_character["properties"]
+    )
+    analysis_scene = analysis["properties"]["scenes"]["items"]
+    assert isinstance(analysis_scene, dict)
+    assert {"id", "title", "summary", "order", "line_evidence_ids"}.issubset(
+        analysis_scene["properties"]
+    )
 
 
 def test_runtime_model_mismatch_is_sanitized() -> None:

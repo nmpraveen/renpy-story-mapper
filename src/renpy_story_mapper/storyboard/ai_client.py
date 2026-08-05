@@ -30,6 +30,36 @@ _REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
 _MAXIMUM_DEFAULT_INPUT_BYTES = 2_000_000
 _MAXIMUM_DEFAULT_OUTPUT_BYTES = 2_000_000
 
+# The canonical storyboard schemas remain Draft 2020-12 contracts.  This set is only for the
+# schema document sent to the installed Codex CLI.  Bounded probes against codex-cli 0.146.0
+# concretely rejected ``uniqueItems`` first, then ``unevaluatedProperties``, then ``allOf``, and
+# then ``if``, all before a model response could be produced.  The same provider probes also
+# require explicit schema ``type``, object ``additionalProperties: false``, and every property to
+# appear in ``required``; the small normalization below supplies those provider-only structural
+# facts while retaining every canonical output field.
+CODEX_UNSUPPORTED_SCHEMA_KEYWORDS = frozenset(
+    {"uniqueItems", "unevaluatedProperties", "allOf", "if"}
+)
+_CODEX_SCHEMA_MAP_KEYS = frozenset(
+    {"$defs", "definitions", "dependentSchemas", "patternProperties", "properties"}
+)
+_CODEX_SCHEMA_LIST_KEYS = frozenset({"anyOf", "oneOf", "prefixItems"})
+_CODEX_SCHEMA_SINGLE_KEYS = frozenset(
+    {
+        "additionalItems",
+        "additionalProperties",
+        "contains",
+        "contentSchema",
+        "items",
+        "not",
+        "propertyNames",
+        "then",
+        "else",
+        "unevaluatedItems",
+        "unevaluatedProperties",
+    }
+)
+
 _DISABLED_CODEX_FEATURES = (
     "plugins",
     "apps",
@@ -218,7 +248,9 @@ def _validate_reasoning_effort(reasoning_effort: str) -> None:
         raise ValueError("reasoning_effort must be one of low, medium, high, or xhigh")
 
 
-def _load_schema_validator(schema_path: Path) -> tuple[Path, Draft202012Validator]:
+def _load_schema_validator(
+    schema_path: Path,
+) -> tuple[Path, dict[str, object], Draft202012Validator]:
     resolved = schema_path.resolve()
     if not resolved.is_absolute() or not resolved.is_file():
         raise ValueError("schema_path must be an existing absolute file")
@@ -232,11 +264,234 @@ def _load_schema_validator(schema_path: Path) -> tuple[Path, Draft202012Validato
         Draft202012Validator.check_schema(schema)
     except SchemaError:
         raise ValueError("schema_path must contain a valid JSON schema") from None
-    return resolved, Draft202012Validator(schema)
+    return resolved, schema, Draft202012Validator(schema)
+
+
+def derive_codex_provider_schema(canonical_schema: Mapping[str, object]) -> dict[str, object]:
+    """Derive the installed Codex CLI shape without changing the canonical schema."""
+
+    provider = _flatten_codex_schema_node(canonical_schema, canonical_schema)
+    return cast(dict[str, object], provider)
+
+
+def _flatten_codex_schema_node(
+    value: object,
+    root: Mapping[str, object],
+    reference_stack: tuple[str, ...] = (),
+) -> object:
+    if isinstance(value, Mapping):
+        reference = value.get("$ref")
+        if isinstance(reference, str) and reference.startswith("#/$defs/"):
+            target = _resolve_codex_definition(root, reference)
+            if target is not None and reference not in reference_stack:
+                resolved = _flatten_codex_schema_node(
+                    target, root, (*reference_stack, reference)
+                )
+                siblings = {
+                    key: child for key, child in value.items() if key != "$ref"
+                }
+                if siblings and isinstance(resolved, Mapping):
+                    return _merge_codex_schema_objects(
+                        resolved,
+                        _flatten_codex_schema_object(siblings, root, reference_stack),
+                    )
+                return resolved
+        return _flatten_codex_schema_object(value, root, reference_stack)
+    if isinstance(value, list):
+        return [
+            _flatten_codex_schema_node(child, root, reference_stack) for child in value
+        ]
+    return value
+
+
+def _flatten_codex_schema_object(
+    value: Mapping[str, object],
+    root: Mapping[str, object],
+    reference_stack: tuple[str, ...],
+) -> dict[str, object]:
+    derived: dict[str, object] = {}
+    for key, child in value.items():
+        if key in {"$defs", "definitions"}:
+            continue
+        if key == "allOf":
+            if isinstance(child, list):
+                for branch in child:
+                    if _is_codex_conditional_contract(branch, root):
+                        continue
+                    flattened = _flatten_codex_schema_node(branch, root, reference_stack)
+                    if isinstance(flattened, Mapping):
+                        derived = _merge_codex_schema_objects(derived, flattened)
+            continue
+        if key in {"if", "then", "else"} or key in CODEX_UNSUPPORTED_SCHEMA_KEYWORDS:
+            continue
+        if key in _CODEX_SCHEMA_MAP_KEYS and isinstance(child, Mapping):
+            derived[key] = {
+                name: _flatten_codex_schema_node(schema, root, reference_stack)
+                for name, schema in child.items()
+            }
+            continue
+        if key in _CODEX_SCHEMA_LIST_KEYS and isinstance(child, list):
+            derived[key] = [
+                _flatten_codex_schema_node(schema, root, reference_stack)
+                for schema in child
+            ]
+            continue
+        if key in _CODEX_SCHEMA_SINGLE_KEYS:
+            derived[key] = _flatten_codex_schema_node(child, root, reference_stack)
+            continue
+        derived[key] = _copy_codex_json(child)
+
+    if "type" not in derived and {"properties", "required"}.intersection(derived):
+        derived["type"] = "object"
+    if "type" not in derived and "const" in derived:
+        derived["type"] = _codex_json_type(derived["const"])
+    properties = derived.get("properties")
+    if derived.get("type") == "object" and isinstance(properties, Mapping):
+        if "additionalProperties" not in derived:
+            derived["additionalProperties"] = False
+        required = derived.get("required")
+        current_required = required if isinstance(required, list) else []
+        derived["required"] = _merge_codex_required(
+            current_required, list(properties.keys())
+        )
+    return derived
+
+
+def _codex_json_type(value: object) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "array"
+    return "object"
+
+
+def _resolve_codex_definition(
+    root: Mapping[str, object], reference: str
+) -> Mapping[str, object] | bool | None:
+    name = reference.removeprefix("#/$defs/")
+    definitions = root.get("$defs")
+    if not isinstance(definitions, Mapping):
+        return None
+    target = definitions.get(name)
+    if isinstance(target, (Mapping, bool)):
+        return target
+    return None
+
+
+def _is_codex_conditional_contract(
+    value: object,
+    root: Mapping[str, object],
+    reference_stack: tuple[str, ...] = (),
+) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    if any(key in value for key in ("if", "then", "else")):
+        return True
+    reference = value.get("$ref")
+    if isinstance(reference, str) and reference.startswith("#/$defs/"):
+        if reference in reference_stack:
+            return False
+        target = _resolve_codex_definition(root, reference)
+        return _is_codex_conditional_contract(
+            target, root, (*reference_stack, reference)
+        )
+    branches = value.get("allOf")
+    return isinstance(branches, list) and any(
+        _is_codex_conditional_contract(branch, root, reference_stack)
+        for branch in branches
+    )
+
+
+def _merge_codex_schema_objects(
+    left: Mapping[str, object], right: Mapping[str, object]
+) -> dict[str, object]:
+    merged: dict[str, object] = dict(left)
+    for key, value in right.items():
+        if key not in merged:
+            merged[key] = value
+            continue
+        existing = merged[key]
+        if key == "properties" and isinstance(existing, Mapping) and isinstance(value, Mapping):
+            merged[key] = _merge_codex_properties(existing, value)
+        elif key == "required" and isinstance(existing, list) and isinstance(value, list):
+            merged[key] = _merge_codex_required(existing, value)
+        elif existing == value:
+            continue
+        elif key == "additionalProperties" and (existing is False or value is False):
+            merged[key] = False
+        else:
+            raise ValueError("canonical schema composition contains conflicting provider fields")
+    return merged
+
+
+def _merge_codex_properties(
+    left: Mapping[str, object], right: Mapping[str, object]
+) -> dict[str, object]:
+    merged: dict[str, object] = dict(left)
+    for name, value in right.items():
+        if name not in merged:
+            merged[name] = value
+            continue
+        existing = merged[name]
+        if isinstance(existing, Mapping) and isinstance(value, Mapping):
+            merged[name] = _merge_codex_schema_objects(existing, value)
+        elif existing != value:
+            raise ValueError("canonical schema composition contains conflicting properties")
+    return merged
+
+
+def _merge_codex_required(left: list[object], right: list[object]) -> list[object]:
+    result: list[object] = []
+    for item in [*left, *right]:
+        if item not in result:
+            result.append(item)
+    return result
+
+
+def _copy_codex_json(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _copy_codex_json(child) for key, child in value.items()}
+    if isinstance(value, list):
+        return [_copy_codex_json(child) for child in value]
+    return value
+
+
+def _materialize_codex_provider_schema(
+    schema: Mapping[str, object], directory: Path
+) -> Path:
+    """Write only the derived provider schema into the already isolated temporary directory."""
+
+    path = directory / "codex-output-schema.json"
+    try:
+        path.write_text(
+            json.dumps(
+                dict(schema),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ),
+            encoding="utf-8",
+        )
+    except (OSError, TypeError, ValueError):
+        raise ProviderRuntimeConfigurationError(
+            "provider_schema_materialization_failed",
+            "The provider output schema could not be prepared.",
+            transmission=TransmissionDisposition.NOT_TRANSMITTED,
+        ) from None
+    return path
 
 
 def _validate_schema_path(schema_path: Path) -> Path:
-    resolved, _validator = _load_schema_validator(schema_path)
+    resolved, _schema, _validator = _load_schema_validator(schema_path)
     return resolved
 
 
@@ -412,7 +667,8 @@ class CodexCliJsonClient:
         _validate_reasoning_effort(reasoning_effort)
         if not isinstance(fast_mode, bool):
             raise ValueError("fast_mode must be a boolean")
-        resolved_schema, response_validator = _load_schema_validator(schema_path)
+        _resolved_schema, canonical_schema, response_validator = _load_schema_validator(schema_path)
+        provider_schema = derive_codex_provider_schema(canonical_schema)
         request = _serialize_payload(payload)
         if len(request) > self._maximum_input_bytes:
             raise ProviderLimitError(
@@ -440,17 +696,21 @@ class CodexCliJsonClient:
                 transmission=TransmissionDisposition.NOT_TRANSMITTED,
             )
         self._resolved_executable = executable
-        command = build_codex_command(
-            executable,
-            model=model,
-            reasoning_effort=reasoning_effort,
-            fast_mode=fast_mode,
-            schema_path=resolved_schema,
-        )
         process: Process | None = None
         try:
             with tempfile.TemporaryDirectory(prefix="renpy-storyboard-ai-") as directory:
-                spec = ProcessSpec(command=command, cwd=Path(directory).resolve())
+                isolated_directory = Path(directory).resolve()
+                provider_schema_path = _materialize_codex_provider_schema(
+                    provider_schema, isolated_directory
+                )
+                command = build_codex_command(
+                    executable,
+                    model=model,
+                    reasoning_effort=reasoning_effort,
+                    fast_mode=fast_mode,
+                    schema_path=provider_schema_path,
+                )
+                spec = ProcessSpec(command=command, cwd=isolated_directory)
                 try:
                     process = self._process_factory(spec)
                 except Exception:
