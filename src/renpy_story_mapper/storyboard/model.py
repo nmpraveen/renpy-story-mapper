@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from pathlib import PurePosixPath
 
 from renpy_story_mapper.ingestion.contracts import SourceProvenance
 from renpy_story_mapper.model import SourceSpan
@@ -68,7 +67,7 @@ class EvidenceProvenance:
             options=dict(provenance.options),
             cache_hit=provenance.cache_hit,
             complete=provenance.complete,
-            warnings=provenance.warnings,
+            warnings=tuple(_redact_message(warning) for warning in provenance.warnings),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -83,10 +82,10 @@ class EvidenceProvenance:
             "tool_version": self.tool_version,
             "tool_commit": self.tool_commit,
             "tool_bundle_sha256": self.tool_bundle_sha256,
-            "options": _redact_mapping(self.options),
+            "options": _redact_value(self.options, preserve_exact_text=True),
             "cache_hit": self.cache_hit,
             "complete": self.complete,
-            "warnings": list(self.warnings),
+            "warnings": [_redact_message(warning) for warning in self.warnings],
         }
 
 
@@ -178,8 +177,8 @@ class EvidenceRecord:
             "text": self.text,
             "source": self.source.to_dict(),
             "source_text": self.text,
-            "facts": dict(self.metadata),
-            "metadata": dict(self.metadata),
+            "facts": _redact_value(self.metadata, preserve_exact_text=True),
+            "metadata": _redact_value(self.metadata, preserve_exact_text=True),
             "accountable": self.is_leaf,
             "role": "leaf" if self.is_leaf else "annotation",
         }
@@ -262,10 +261,29 @@ class EvidenceIndex:
         annotation_ids = [
             record.id for record in self.records if record.kind is not EvidenceKind.SOURCE_LINE
         ]
+        selection = self.selection.to_dict()
+        selection_issue = next(
+            (
+                diagnostic
+                for diagnostic in self.diagnostics
+                if diagnostic.code
+                in {
+                    "label_not_found",
+                    "source_not_found",
+                    "source_selection_required",
+                    "source_selection_ambiguous",
+                }
+            ),
+            None,
+        )
+        selection["status"] = "unresolved" if selection_issue is not None else "resolved"
+        selection["uncertainty"] = (
+            None if selection_issue is None else _redact_message(selection_issue.message)
+        )
         return {
             "schema_version": f"storyboard-evidence-v{self.schema_version}",
             "source": None if self.source is None else self.source.to_dict(),
-            "selection": self.selection.to_dict(),
+            "selection": selection,
             "records": record_values,
             "ledger": [records_by_id[record.id] for record in source_line_records],
             "annotations": [records_by_id[identifier] for identifier in annotation_ids],
@@ -282,39 +300,8 @@ class EvidenceIndex:
         }
 
 
-def _public_path(value: str) -> str:
-    """Return a stable logical path without exposing a local machine path."""
-
-    normalized = str(value).replace("\\", "/")
-    absolute = bool(re.match(r"^[A-Za-z]:/", normalized)) or normalized.startswith("/")
-    parts = [part for part in PurePosixPath(normalized).parts if part not in {"", ".", ".."}]
-    if not parts:
-        return "source"
-    if absolute:
-        return f"source/{parts[-1]}"
-    return "/".join(parts)
-
-
-def _public_span(span: SourceSpan) -> dict[str, object]:
-    value = span.to_dict()
-    value["path"] = _public_path(span.path)
-    return value
-
-
-def _redact_message(value: str) -> str:
-    normalized = value.replace("\\", "/")
-    parts = normalized.split()
-    redacted: list[str] = []
-    for part in parts:
-        if re.match(r"^[A-Za-z]:/", part) or part.startswith("/"):
-            redacted.append(f"source/{PurePosixPath(part).name}")
-        else:
-            redacted.append(part)
-    return " ".join(redacted)
-
-
-def _redact_mapping(value: Mapping[str, object]) -> dict[str, object]:
-    path_keys = {
+_PATH_KEYS = frozenset(
+    {
         "path",
         "locator",
         "source_path",
@@ -326,20 +313,118 @@ def _redact_mapping(value: Mapping[str, object]) -> dict[str, object]:
         "output_directory",
         "cwd",
     }
-    result: dict[str, object] = {}
-    for raw_key, child in value.items():
-        key = str(raw_key)
-        if key.casefold() in path_keys and isinstance(child, str):
-            result[key] = _public_path(child)
-        elif isinstance(child, Mapping):
-            result[key] = _redact_mapping(child)
-        elif isinstance(child, list):
-            result[key] = [
-                _redact_mapping(item) if isinstance(item, Mapping) else item for item in child
-            ]
-        else:
-            result[key] = child
-    return result
+)
+_MESSAGE_KEYS = frozenset(
+    {
+        "warning",
+        "warnings",
+        "message",
+        "error",
+        "errors",
+        "diagnostic",
+        "diagnostics",
+        "detail",
+        "details",
+    }
+)
+_EXACT_TEXT_KEYS = frozenset({"text", "source_text", "parser_text", "dialogue_text"})
+_ABSOLUTE_PATH_TOKEN = re.compile(
+    r"(?i)(?<![A-Za-z0-9+.\-:/])(?:file://)?(?:[A-Za-z]:[\\/]|\\\\|//|/)[^\s\"'<>]+"
+)
+
+
+def _is_absolute_path(value: str) -> bool:
+    normalized = value.replace("\\", "/")
+    if normalized.casefold().startswith("file://"):
+        normalized = normalized[7:]
+    return bool(re.match(r"^[A-Za-z]:/", normalized)) or normalized.startswith("/")
+
+
+def _absolute_basename(value: str) -> str:
+    normalized = value.replace("\\", "/")
+    if normalized.casefold().startswith("file://"):
+        normalized = normalized[7:]
+    normalized = normalized.rstrip("/")
+    name = normalized.rsplit("/", 1)[-1]
+    return name or "source"
+
+
+def _public_path(value: str) -> str:
+    """Return a public path while preserving relative identity."""
+
+    normalized = str(value).replace("\\", "/").strip()
+    if not normalized:
+        return "source"
+    if _is_absolute_path(normalized):
+        return f"source/{_absolute_basename(normalized)}"
+    # Do not resolve or discard ``..``: relative paths can be stable logical identities.
+    return normalized
+
+
+def _public_span(span: SourceSpan) -> dict[str, object]:
+    value = span.to_dict()
+    value["path"] = _public_path(span.path)
+    return value
+
+
+def _redact_message(value: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        token = match.group(0)
+        trailing = ""
+        while token and token[-1] in ",.;!?)]}>":
+            trailing = token[-1] + trailing
+            token = token[:-1]
+        return f"source/{_absolute_basename(token)}{trailing}"
+
+    return _ABSOLUTE_PATH_TOKEN.sub(replace, value)
+
+
+def _redact_mapping(value: Mapping[str, object]) -> dict[str, object]:
+    redacted = _redact_value(value, preserve_exact_text=True)
+    return redacted if isinstance(redacted, dict) else {}
+
+
+def _redact_value(
+    value: object,
+    *,
+    preserve_exact_text: bool = False,
+    key: str | None = None,
+) -> object:
+    """Recursively redact local paths in public/AI data without changing source text."""
+
+    normalized_key = key.casefold() if key is not None else None
+    if isinstance(value, Mapping):
+        return {
+            str(raw_key): _redact_value(
+                child,
+                preserve_exact_text=preserve_exact_text,
+                key=str(raw_key),
+            )
+            for raw_key, child in value.items()
+        }
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [
+            _redact_value(child, preserve_exact_text=preserve_exact_text, key=key)
+            for child in value
+        ]
+    if isinstance(value, str):
+        if normalized_key in _PATH_KEYS:
+            return _public_path(value)
+        if preserve_exact_text and normalized_key in _EXACT_TEXT_KEYS:
+            return value
+        if (
+            normalized_key in _MESSAGE_KEYS
+            or _is_absolute_path(value)
+            or _ABSOLUTE_PATH_TOKEN.search(value)
+        ):
+            return _redact_message(value)
+    return value
+
+
+def redact_public_value(value: object, *, preserve_exact_text: bool = False) -> object:
+    """Return recursively redacted JSON-compatible data for public or AI artifacts."""
+
+    return _redact_value(value, preserve_exact_text=preserve_exact_text)
 
 
 def _record_order(record: Mapping[str, object]) -> tuple[object, ...]:

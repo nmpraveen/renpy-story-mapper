@@ -3,7 +3,7 @@
   "$id": "storyboard-story-analysis-v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "source", "scenes", "choices", "transitions", "claims", "excluded_evidence_ids", "unresolved", "disagreements"],
+  "required": ["schema", "source", "scenes", "choices", "transitions", "claims", "excluded_evidence_ids", "unresolved", "disagreements", "status", "uncertainty"],
   "properties": {
     "schema": {"const": "storyboard-story-analysis-v1"},
     "title": {"$ref": "#/$defs/text"},
@@ -22,13 +22,12 @@
     "unresolved": {"type": "array", "items": {"$ref": "#/$defs/unresolved"}},
     "disagreements": {"type": "array", "items": {"$ref": "#/$defs/disagreement"}}
   },
+  "allOf": [{"$ref": "#/$defs/status_contract"}],
   "$defs": {
     "text": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "enum": ["resolved", "uncertain", "unresolved", "excluded"]},
     "evidence_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/text"}},
     "line_evidence_ids": {"type": "array", "minItems": 0, "uniqueItems": true, "items": {"$ref": "#/$defs/text"}},
-    "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-    "status": {"type": "string", "enum": ["resolved", "uncertain", "unresolved", "excluded"]},
-    "uncertainty": {"type": ["string", "null"]},
     "source": {
       "type": "object",
       "additionalProperties": false,
@@ -39,223 +38,173 @@
         "canary_evidence_ids": {"$ref": "#/$defs/evidence_ids"}
       }
     },
-    "claim_fields": {
+    "status_contract": {
+      "if": {"properties": {"status": {"enum": ["uncertain", "unresolved", "excluded"]}}, "required": ["status"]},
+      "then": {"properties": {"uncertainty": {"type": "string", "minLength": 1}}},
+      "else": {"properties": {"uncertainty": {"type": "null"}}}
+    },
+    "inference_fields": {
       "type": "object",
+      "required": ["evidence_ids", "confidence", "status", "uncertainty"],
       "properties": {
         "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-        "confidence": {"$ref": "#/$defs/confidence"},
+        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
         "status": {"$ref": "#/$defs/status"},
-        "uncertainty": {"$ref": "#/$defs/uncertainty"},
-        "unresolved": {"type": "string"},
+        "uncertainty": {"type": ["string", "null"]},
         "rationale": {"type": ["string", "null"]},
         "interpretation_rationale": {"type": ["string", "null"]}
       }
     },
     "scene": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "title", "summary", "order", "evidence_ids", "confidence"],
-      "properties": {
-        "id": {"$ref": "#/$defs/text"},
-        "title": {"$ref": "#/$defs/text"},
-        "summary": {"$ref": "#/$defs/text"},
-        "order": {"type": "integer", "minimum": 0},
-        "line_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "leaf_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "body_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "member_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "choice_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/text"}},
-        "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-        "confidence": {"$ref": "#/$defs/confidence"},
-        "status": {"$ref": "#/$defs/status"},
-        "uncertainty": {"$ref": "#/$defs/uncertainty"},
-        "unresolved": {"type": "string"},
-        "rationale": {"type": ["string", "null"]},
-        "interpretation_rationale": {"type": ["string", "null"]},
-        "choices": {"type": "array", "items": {"type": "object"}},
-        "branches": {"type": "array", "items": {"type": "object"}}
-      }
+      "allOf": [
+        {"$ref": "#/$defs/inference_fields"},
+        {"type": "object", "required": ["id", "title", "summary", "order"], "properties": {
+          "id": {"$ref": "#/$defs/text"}, "title": {"$ref": "#/$defs/text"}, "summary": {"$ref": "#/$defs/text"}, "order": {"type": "integer", "minimum": 0},
+          "line_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "leaf_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "body_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "member_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "choice_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/text"}}
+        }},
+        {"$ref": "#/$defs/status_contract"}
+      ],
+      "unevaluatedProperties": false
     },
     "consequence": {
-      "oneOf": [
-        {"type": "string"},
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["text", "evidence_ids", "confidence"],
-          "properties": {
-            "text": {"$ref": "#/$defs/text"},
-            "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-            "confidence": {"$ref": "#/$defs/confidence"},
-            "status": {"$ref": "#/$defs/status"},
-            "uncertainty": {"$ref": "#/$defs/uncertainty"},
-            "unresolved": {"type": "string"},
-            "rationale": {"type": ["string", "null"]}
-          }
-        }
-      ]
+      "allOf": [
+        {"$ref": "#/$defs/inference_fields"},
+        {"type": "object", "required": ["text"], "properties": {"text": {"$ref": "#/$defs/text"}}},
+        {"$ref": "#/$defs/status_contract"}
+      ],
+      "unevaluatedProperties": false
     },
     "arm": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "caption", "consequence", "evidence_ids", "confidence"],
-      "properties": {
-        "id": {"$ref": "#/$defs/text"},
-        "caption": {"$ref": "#/$defs/text"},
-        "condition": {"type": ["string", "null"]},
-        "condition_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "line_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "leaf_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "body_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "member_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "source_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "target_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "consequence": {"$ref": "#/$defs/consequence"},
-        "destination_id": {"type": ["string", "null"]},
-        "destination_scene_id": {"type": ["string", "null"]},
-        "destination_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "rejoin_id": {"type": ["string", "null"]},
-        "rejoin_scene_id": {"type": ["string", "null"]},
-        "rejoin_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "destination": {"type": "object"},
-        "rejoin": {"type": ["string", "object", "null"]},
-        "terminal": {"type": "string", "enum": ["none", "ending", "loop", "unresolved"]},
-        "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-        "confidence": {"$ref": "#/$defs/confidence"},
-        "status": {"$ref": "#/$defs/status"},
-        "uncertainty": {"$ref": "#/$defs/uncertainty"},
-        "unresolved": {"type": "string"},
-        "rationale": {"type": ["string", "null"]},
-        "interpretation_rationale": {"type": ["string", "null"]}
-      }
+      "allOf": [
+        {"$ref": "#/$defs/inference_fields"},
+        {"type": "object", "required": ["id", "caption", "consequence"], "properties": {
+          "id": {"$ref": "#/$defs/text"}, "caption": {"$ref": "#/$defs/text"}, "condition": {"type": ["string", "null"]}, "condition_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "line_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "leaf_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "body_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "member_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "source_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "target_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "consequence": {"$ref": "#/$defs/consequence"}, "destination_scene_id": {"type": ["string", "null"]}, "rejoin_scene_id": {"type": ["string", "null"]}, "terminal": {"type": "string", "enum": ["none", "ending", "loop", "unresolved"]}
+        }},
+        {"$ref": "#/$defs/status_contract"},
+        {"$ref": "#/$defs/concrete_destination_contract"}
+      ],
+      "unevaluatedProperties": false
     },
     "choice": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "scene_id", "caption", "condition", "arms", "evidence_ids", "confidence"],
-      "properties": {
-        "id": {"$ref": "#/$defs/text"},
-        "scene_id": {"$ref": "#/$defs/text"},
-        "caption": {"$ref": "#/$defs/text"},
-        "condition": {"type": ["string", "null"]},
-        "condition_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "menu_evidence_id": {"$ref": "#/$defs/text"},
-        "arms": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/arm"}},
-        "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-        "source_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "confidence": {"$ref": "#/$defs/confidence"},
-        "status": {"$ref": "#/$defs/status"},
-        "uncertainty": {"$ref": "#/$defs/uncertainty"},
-        "unresolved": {"type": "string"},
-        "rationale": {"type": ["string", "null"]},
-        "interpretation_rationale": {"type": ["string", "null"]}
-      }
+      "allOf": [
+        {"$ref": "#/$defs/inference_fields"},
+        {"type": "object", "required": ["id", "scene_id", "caption", "condition", "arms"], "properties": {
+          "id": {"$ref": "#/$defs/text"}, "scene_id": {"$ref": "#/$defs/text"}, "caption": {"$ref": "#/$defs/text"}, "condition": {"type": ["string", "null"]}, "condition_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "menu_evidence_id": {"$ref": "#/$defs/text"}, "arms": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/arm"}}, "source_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}
+        }},
+        {"$ref": "#/$defs/status_contract"}
+      ],
+      "unevaluatedProperties": false
     },
     "transition": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "from_id", "to_id", "kind", "evidence_ids", "confidence"],
-      "properties": {
-        "id": {"$ref": "#/$defs/text"},
-        "from_id": {"$ref": "#/$defs/text"},
-        "to_id": {"type": ["string", "null"]},
-        "source_scene_id": {"type": ["string", "null"]},
-        "destination_scene_id": {"type": ["string", "null"]},
-        "source_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "target_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "kind": {"type": "string"},
-        "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-        "confidence": {"$ref": "#/$defs/confidence"},
-        "status": {"$ref": "#/$defs/status"},
-        "uncertainty": {"$ref": "#/$defs/uncertainty"},
-        "unresolved": {"type": "string"},
-        "rationale": {"type": ["string", "null"]}
-      }
+      "allOf": [
+        {"$ref": "#/$defs/inference_fields"},
+        {"type": "object", "required": ["id", "from_id", "to_id", "kind"], "properties": {
+          "id": {"$ref": "#/$defs/text"}, "from_id": {"$ref": "#/$defs/text"}, "to_id": {"type": ["string", "null"]}, "kind": {"$ref": "#/$defs/text"}, "source_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "target_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}
+        }},
+        {"$ref": "#/$defs/status_contract"},
+        {"$ref": "#/$defs/concrete_transition_contract"}
+      ],
+      "unevaluatedProperties": false
     },
     "continuation": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "evidence_ids", "confidence"],
-      "properties": {
-        "id": {"$ref": "#/$defs/text"},
-        "scene_id": {"type": ["string", "null"]},
-        "title": {"type": "string"},
-        "line_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "leaf_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "body_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "member_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-        "confidence": {"$ref": "#/$defs/confidence"},
-        "status": {"$ref": "#/$defs/status"},
-        "uncertainty": {"$ref": "#/$defs/uncertainty"},
-        "unresolved": {"type": "string"}
-      }
+      "allOf": [
+        {"$ref": "#/$defs/inference_fields"},
+        {
+          "type": "object",
+          "required": ["id"],
+          "properties": {
+            "id": {"$ref": "#/$defs/text"},
+            "scene_id": {"type": ["string", "null"]},
+            "title": {"$ref": "#/$defs/text"},
+            "line_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
+            "leaf_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
+            "body_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
+            "member_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}
+          }
+        },
+        {"$ref": "#/$defs/status_contract"}
+      ],
+      "unevaluatedProperties": false
     },
     "claim": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "text", "evidence_ids", "confidence"],
-      "properties": {
-        "id": {"$ref": "#/$defs/text"},
-        "text": {"$ref": "#/$defs/text"},
-        "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-        "confidence": {"$ref": "#/$defs/confidence"},
-        "status": {"$ref": "#/$defs/status"},
-        "uncertainty": {"$ref": "#/$defs/uncertainty"},
-        "unresolved": {"type": "string"},
-        "rationale": {"type": ["string", "null"]},
-        "interpretation_rationale": {"type": ["string", "null"]}
-      }
+      "allOf": [
+        {"$ref": "#/$defs/inference_fields"},
+        {
+          "type": "object",
+          "required": ["id", "text"],
+          "properties": {
+            "id": {"$ref": "#/$defs/text"},
+            "text": {"$ref": "#/$defs/text"},
+            "interpretation_rationale": {"type": ["string", "null"]}
+          }
+        },
+        {"$ref": "#/$defs/status_contract"}
+      ],
+      "unevaluatedProperties": false
     },
     "unresolved": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "topic", "description", "evidence_ids", "confidence"],
-      "properties": {
-        "id": {"$ref": "#/$defs/text"},
-        "topic": {"$ref": "#/$defs/text"},
-        "description": {"$ref": "#/$defs/text"},
-        "line_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-        "confidence": {"$ref": "#/$defs/confidence"},
-        "status": {"$ref": "#/$defs/status"},
-        "uncertainty": {"$ref": "#/$defs/uncertainty"},
-        "unresolved": {"type": "string"},
-        "owns_evidence": {"type": "boolean"}
-      }
+      "allOf": [
+        {"$ref": "#/$defs/inference_fields"},
+        {
+          "type": "object",
+          "required": ["id", "topic", "description"],
+          "properties": {
+            "id": {"$ref": "#/$defs/text"},
+            "topic": {"$ref": "#/$defs/text"},
+            "description": {"$ref": "#/$defs/text"},
+            "line_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
+            "owns_evidence": {"type": "boolean"}
+          }
+        },
+        {"$ref": "#/$defs/status_contract"}
+      ],
+      "unevaluatedProperties": false
     },
     "exclusion": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["evidence_id", "reason", "confidence"],
-      "properties": {
-        "evidence_id": {"$ref": "#/$defs/text"},
-        "line_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-        "reason": {"$ref": "#/$defs/text"},
-        "confidence": {"$ref": "#/$defs/confidence"},
-        "status": {"$ref": "#/$defs/status"},
-        "uncertainty": {"$ref": "#/$defs/text"},
-        "unresolved": {"type": "string"}
-      }
+      "allOf": [
+        {"$ref": "#/$defs/inference_fields"},
+        {
+          "type": "object",
+          "required": ["evidence_id", "reason"],
+          "properties": {
+            "evidence_id": {"$ref": "#/$defs/text"},
+            "line_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
+            "reason": {"$ref": "#/$defs/text"}
+          }
+        },
+        {"$ref": "#/$defs/status_contract"}
+      ],
+      "unevaluatedProperties": false
     },
     "disagreement": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "topic", "ai_statement", "deterministic_evidence_ids", "confidence", "resolution"],
-      "properties": {
-        "id": {"$ref": "#/$defs/text"},
-        "topic": {"$ref": "#/$defs/text"},
-        "ai_statement": {"$ref": "#/$defs/text"},
-        "deterministic_evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-        "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-        "parser": {"type": "string"},
-        "ai": {"type": "string"},
-        "confidence": {"$ref": "#/$defs/confidence"},
-        "resolution": {"type": "string", "enum": ["unresolved", "deterministic", "ai", "needs_review"]},
-        "status": {"$ref": "#/$defs/status"},
-        "uncertainty": {"$ref": "#/$defs/uncertainty"},
-        "unresolved": {"type": "string"}
-      }
+      "allOf": [
+        {"$ref": "#/$defs/inference_fields"},
+        {
+          "type": "object",
+          "required": ["id", "topic", "ai_statement", "deterministic_evidence_ids", "resolution"],
+          "properties": {
+            "id": {"$ref": "#/$defs/text"},
+            "topic": {"$ref": "#/$defs/text"},
+            "ai_statement": {"$ref": "#/$defs/text"},
+            "deterministic_evidence_ids": {"$ref": "#/$defs/evidence_ids"},
+            "resolution": {"type": "string", "enum": ["unresolved", "deterministic", "ai", "needs_review"]},
+            "parser": {"type": "string"},
+            "ai": {"type": "string"}
+          }
+        },
+        {"$ref": "#/$defs/status_contract"}
+      ],
+      "unevaluatedProperties": false
+    },
+    "concrete_destination_contract": {
+      "allOf": [
+        {"if": {"required": ["destination_scene_id"], "properties": {"destination_scene_id": {"type": "string"}}}, "then": {"required": ["source_evidence_ids", "target_evidence_ids"], "properties": {"source_evidence_ids": {"minItems": 1}, "target_evidence_ids": {"minItems": 1}}}},
+        {"if": {"required": ["rejoin_scene_id"], "properties": {"rejoin_scene_id": {"type": "string"}}}, "then": {"required": ["source_evidence_ids", "target_evidence_ids"], "properties": {"source_evidence_ids": {"minItems": 1}, "target_evidence_ids": {"minItems": 1}}}}
+      ]
+    },
+    "concrete_transition_contract": {
+      "if": {"required": ["to_id"], "properties": {"to_id": {"type": "string"}}},
+      "then": {"required": ["source_evidence_ids", "target_evidence_ids"], "properties": {"source_evidence_ids": {"minItems": 1}, "target_evidence_ids": {"minItems": 1}}}
     }
   }
 }

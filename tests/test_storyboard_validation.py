@@ -40,9 +40,12 @@ def _base_objects() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
                 "text": "The canary has a named start label.",
                 "evidence_ids": ["label-start"],
                 "confidence": "high",
-                "unresolved": False,
+                "status": "resolved",
+                "uncertainty": None,
             }
         ],
+        "status": "resolved",
+        "uncertainty": None,
     }
     analysis: dict[str, object] = {
         "schema_version": "storyboard-analysis-v1",
@@ -50,6 +53,9 @@ def _base_objects() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
         "scenes": [
             {
                 "id": "scene-start",
+                "title": "Start",
+                "summary": "The canary start scene.",
+                "order": 0,
                 "member_evidence_ids": [
                     "label-start",
                     "line-intro",
@@ -62,44 +68,75 @@ def _base_objects() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
                     "line-right",
                 ],
                 "lines": [{"evidence_id": "line-intro"}],
-                "choices": [
+                "evidence_ids": ["label-start"],
+                "confidence": "high",
+                "status": "resolved",
+                "uncertainty": None,
+            }
+        ],
+        "choices": [
+            {
+                "id": "choice-left",
+                "scene_id": "scene-start",
+                "caption": "Left",
+                "condition": None,
+                "arms": [
                     {
-                        "menu_evidence_id": "menu-main",
-                        "arm_evidence_id": "arm-left",
+                        "id": "arm-left-story",
+                        "caption": "Left",
                         "consequence": {
                             "text": "The left route continues.",
                             "evidence_ids": ["arm-left", "label-left"],
                             "confidence": "medium",
-                            "unresolved": False,
+                            "status": "resolved",
+                            "uncertainty": None,
                         },
-                        "destination": {
-                            "kind": "label",
-                            "target_evidence_id": "label-left",
-                            "evidence_ids": ["arm-left", "label-left"],
-                            "confidence": "high",
-                            "unresolved": False,
-                        },
+                        "evidence_ids": ["arm-left"],
+                        "confidence": "high",
+                        "status": "resolved",
+                        "uncertainty": None,
                     },
+                ],
+                "evidence_ids": ["menu-main"],
+                "confidence": "high",
+                "status": "resolved",
+                "uncertainty": None,
+            },
+            {
+                "id": "choice-right",
+                "scene_id": "scene-start",
+                "caption": "Right",
+                "condition": None,
+                "arms": [
                     {
-                        "menu_evidence_id": "menu-main",
-                        "arm_evidence_id": "arm-right",
+                        "id": "arm-right-story",
+                        "caption": "Right",
                         "consequence": {
                             "text": "The right route continues.",
                             "evidence_ids": ["arm-right", "label-right"],
                             "confidence": "medium",
-                            "unresolved": False,
+                            "status": "resolved",
+                            "uncertainty": None,
                         },
-                        "destination": {
-                            "kind": "label",
-                            "target_evidence_id": "label-right",
-                            "evidence_ids": ["arm-right", "label-right"],
-                            "confidence": "high",
-                            "unresolved": False,
-                        },
+                        "evidence_ids": ["arm-right"],
+                        "confidence": "high",
+                        "status": "resolved",
+                        "uncertainty": None,
                     },
                 ],
-            }
+                "evidence_ids": ["menu-main"],
+                "confidence": "high",
+                "status": "resolved",
+                "uncertainty": None,
+            },
         ],
+        "transitions": [],
+        "claims": [],
+        "excluded_evidence_ids": [],
+        "unresolved": [],
+        "disagreements": [],
+        "status": "resolved",
+        "uncertainty": None,
     }
     return evidence, profile, analysis
 
@@ -115,7 +152,8 @@ def test_fake_evidence_citation_is_rejected() -> None:
             "text": "This citation is not in the index.",
             "evidence_ids": ["ev-fake"],
             "confidence": "low",
-            "unresolved": False,
+            "status": "resolved",
+            "uncertainty": None,
         }
     ]
 
@@ -141,7 +179,7 @@ def test_omitted_choice_arm_is_reported_with_exact_id_and_source_span() -> None:
     scene["member_evidence_ids"] = [
         item for item in scene["member_evidence_ids"] if item != "arm-right"
     ]
-    scene["choices"] = [scene["choices"][0]]
+    reduced["choices"] = [reduced["choices"][0]]
 
     report = validate_phase01(evidence, profile, reduced)
 
@@ -159,10 +197,10 @@ def test_duplicate_membership_and_coverage_totals_are_reported() -> None:
     analysis["exclusions"] = [{
         "evidence_id": "line-intro",
         "reason": "incorrectly excluded",
-        "unresolved": True,
         "uncertainty": "The line is still present in the scene.",
         "evidence_ids": ["line-intro"],
         "confidence": "low",
+        "status": "unresolved",
     }]
 
     report = validate_phase01(evidence, profile, analysis)
@@ -189,18 +227,14 @@ def test_dynamic_behavior_and_missing_uncertainty_are_not_publishable() -> None:
     scene = analysis["scenes"][0]
     assert isinstance(scene, dict)
     scene["member_evidence_ids"].append("jump-dynamic")
-    scene["choices"][0]["destination"] = {
-        "kind": "label",
-        "target_evidence_id": "jump-dynamic",
-        "evidence_ids": ["jump-dynamic"],
-        "confidence": "high",
-        "unresolved": False,
-    }
     analysis["unresolved"] = [
         {
+            "id": "dynamic-uncertainty",
+            "topic": "runtime jump",
+            "description": "The computed jump target is unresolved.",
             "evidence_ids": ["jump-dynamic"],
             "confidence": "low",
-            "unresolved": True,
+            "status": "unresolved",
         }
     ]
 
@@ -223,7 +257,7 @@ def test_parser_ai_disagreements_remain_visible_as_warnings() -> None:
             "ai": "The route may be dynamic.",
             "resolution": "unresolved",
             "confidence": "low",
-            "unresolved": True,
+            "status": "unresolved",
             "uncertainty": "The custom helper may alter the target.",
         }
     ]
@@ -266,7 +300,8 @@ def test_dynamic_evidence_in_any_inference_object_is_not_a_resolved_fact() -> No
             "meaning": "This construct always redirects the route.",
             "evidence_ids": ["custom-dynamic"],
             "confidence": "high",
-            "unresolved": False,
+            "status": "resolved",
+            "uncertainty": None,
         }
     ]
 

@@ -90,7 +90,22 @@ def _schema_replays(
         "conventions": [],
         "ending_patterns": [],
         "unresolved": [],
+        "status": "resolved",
+        "uncertainty": None,
     }
+    source_lines = {
+        int(item["facts"]["line_number"]): item["id"]
+        for item in records
+        if item["kind"] == "source_line" and isinstance(item.get("facts"), dict)
+    }
+    condition = next(
+        item
+        for item in records
+        if item["kind"] == "condition"
+        and isinstance(item.get("facts"), dict)
+        and item["facts"].get("condition_type") == "if_branch"
+    )
+    condition_id = str(condition["id"])
     analysis: dict[str, object] = {
         "schema": "storyboard-story-analysis-v1",
         "source": {
@@ -105,14 +120,15 @@ def _schema_replays(
                 "summary": "The static analysis preserves exact source and both arms.",
                 "order": 0,
                 "line_evidence_ids": [
-                    item["id"]
-                    for item in records
-                    if item["kind"] in {"dialogue", "narration"}
+                    source_lines[line]
+                    for line in (1, 2, 3, 6)
+                    if line in source_lines
                 ],
-                "choice_ids": ["choice-main"],
-                "evidence_ids": ids,
+                "choice_ids": ["choice-main", "choice-condition"],
+                "evidence_ids": [ids[0]],
                 "confidence": "medium",
-                "unresolved": "Custom and embedded Python behavior remains unresolved.",
+                "status": "unresolved",
+                "uncertainty": "The assignment and runtime condition are not statically closed.",
             }
         ],
         "choices": [
@@ -125,20 +141,61 @@ def _schema_replays(
                     {
                         "id": f"arm-{ordinal}",
                         "caption": f"Arm {ordinal + 1}",
-                        "line_evidence_ids": [arm_id],
-                        "consequence": f"Arm {ordinal + 1} continues.",
-                        "destination_id": None,
-                        "rejoin_id": None,
+                        "line_evidence_ids": [
+                            source_lines[line]
+                            for line in ((7, 8) if ordinal == 0 else (9, 10))
+                            if line in source_lines
+                        ],
+                        "consequence": {
+                            "text": f"Arm {ordinal + 1} continues.",
+                            "evidence_ids": [arm_id],
+                            "confidence": "low",
+                            "status": "uncertain",
+                            "uncertainty": "The target is not established by this canary.",
+                        },
+                        "destination_scene_id": None,
+                        "rejoin_scene_id": None,
                         "terminal": "unresolved",
                         "evidence_ids": [arm_id],
                         "confidence": "low",
-                        "unresolved": "The target is not established by this canary.",
+                        "status": "uncertain",
+                        "uncertainty": "The target is not established by this canary.",
                     }
                     for ordinal, arm_id in enumerate(arm_ids)
                 ],
                 "evidence_ids": [menu["id"]],
                 "confidence": "medium",
-                "unresolved": "none",
+                "status": "resolved",
+                "uncertainty": None,
+            },
+            {
+                "id": "choice-condition",
+                "scene_id": "scene-unfamiliar-entry",
+                "caption": "Conditional line",
+                "condition": "strange_counter > 0",
+                "arms": [
+                    {
+                        "id": "arm-condition",
+                        "caption": "Condition holds",
+                        "condition": "strange_counter > 0",
+                        "line_evidence_ids": [source_lines[4], source_lines[5]],
+                        "consequence": {
+                            "text": "The conditional line is shown.",
+                            "evidence_ids": [condition_id],
+                            "confidence": "medium",
+                            "status": "resolved",
+                            "uncertainty": None,
+                        },
+                        "evidence_ids": [condition_id],
+                        "confidence": "medium",
+                        "status": "resolved",
+                        "uncertainty": None,
+                    }
+                ],
+                "evidence_ids": [condition_id],
+                "confidence": "medium",
+                "status": "resolved",
+                "uncertainty": None,
             }
         ],
         "transitions": [],
@@ -146,6 +203,8 @@ def _schema_replays(
         "excluded_evidence_ids": [],
         "unresolved": [],
         "disagreements": [],
+        "status": "resolved",
+        "uncertainty": None,
     }
     return profile, analysis
 
@@ -433,7 +492,9 @@ def test_schema_valid_dangling_story_references_reject_publication(tmp_path: Pat
     assert isinstance(choices, list)
     arms = choices[0]["arms"]
     assert isinstance(arms, list)
-    arms[0]["destination_id"] = "scene-missing-destination"
+    arms[0]["destination_scene_id"] = "scene-missing-destination"
+    arms[0]["source_evidence_ids"] = [evidence_ids[0]]
+    arms[0]["target_evidence_ids"] = [evidence_ids[-1]]
     analysis["transitions"] = [
         {
             "id": "transition-missing-target",
@@ -441,8 +502,11 @@ def test_schema_valid_dangling_story_references_reject_publication(tmp_path: Pat
             "to_id": "scene-missing-transition",
             "kind": "jump",
             "evidence_ids": [evidence_ids[0]],
+            "source_evidence_ids": [evidence_ids[0]],
+            "target_evidence_ids": [evidence_ids[-1]],
             "confidence": "low",
-            "unresolved": "The named destination is not in the scene set.",
+            "status": "uncertain",
+            "uncertainty": "The named destination is not in the scene set.",
         }
     ]
 

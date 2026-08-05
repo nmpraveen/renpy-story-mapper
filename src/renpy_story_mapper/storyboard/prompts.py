@@ -30,7 +30,8 @@ def build_game_profile_request(
         "authority": (
             "Evidence IDs and source text are authoritative. You may interpret unfamiliar "
             "syntax, but do not present an uncertain dynamic behavior as a fact. Preserve a "
-            "confidence level and separate status/uncertainty text for each inference. Embedded "
+            "confidence level and required status/uncertainty fields for each inference object; "
+            "do not emit an unresolved string substitute. Embedded "
             "Python and runtime-computed behavior are unresolved by default. Custom or unknown "
             "constructs may be interpreted when the cited evidence supports the interpretation and "
             "the response supplies a rationale."
@@ -69,9 +70,13 @@ def build_story_analysis_request(
             "Use the game profile for interpretation, but keep every structural or semantic "
             "claim bound to exact evidence IDs. Do not invent or relocate source lines, choice "
             "arms, conditions, effects, destinations, rejoins, loops, or endings. If parser "
-            "and interpretation disagree, record the disagreement explicitly. Use status "
-            "separately from uncertainty text; line lists may be empty when a scene or arm has "
-            "no direct lines."
+            "and interpretation disagree, record the disagreement explicitly. Every scene, "
+            "choice, arm, consequence object, transition, continuation, claim, unresolved item, "
+            "exclusion, and disagreement must have status plus nullable uncertainty; never use a "
+            "legacy unresolved string. Keep choices and transitions at the top level only. Use "
+            "semantic destination_scene_id/rejoin_scene_id fields, and when a concrete destination "
+            "is present include both source_evidence_ids and target_evidence_ids. Line lists may "
+            "be empty when a scene or arm has no direct lines."
         ),
         "security": (
             "Use only the structured profile and evidence in this request; do not use tools, "

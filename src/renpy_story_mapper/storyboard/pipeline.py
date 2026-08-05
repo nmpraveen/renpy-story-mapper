@@ -28,7 +28,7 @@ from renpy_story_mapper.storyboard.ai_client import (
     StoryboardJsonClient,
 )
 from renpy_story_mapper.storyboard.evidence import build_evidence_index
-from renpy_story_mapper.storyboard.model import EvidenceIndex
+from renpy_story_mapper.storyboard.model import EvidenceIndex, redact_public_value
 from renpy_story_mapper.storyboard.prompts import (
     build_game_profile_request,
     build_story_analysis_request,
@@ -145,7 +145,7 @@ def run_storyboard_pipeline(
         raise StoryboardPipelineError("supported game input changed during evidence extraction")
 
     evidence = evidence_index_to_mapping(evidence_object)
-    raw_evidence = _copy_json_mapping(evidence)
+    raw_evidence = _copy_json_mapping(evidence, preserve_exact_text=True)
     if not evidence_object.records:
         diagnostics = raw_evidence.get("diagnostics", [])
         raise StoryboardPipelineError(
@@ -295,7 +295,7 @@ def run_phase01_pipeline(
 def evidence_index_to_mapping(index: EvidenceIndex) -> dict[str, object]:
     """Return the one canonical JSON contract used by every storyboard phase."""
 
-    return _copy_json_mapping(index.to_dict())
+    return _copy_json_mapping(index.to_dict(), preserve_exact_text=True)
 
 
 def _load_or_request_profile(
@@ -517,26 +517,15 @@ def _sequence(value: object) -> tuple[object, ...]:
     return ()
 
 
-def _copy_json_mapping(value: object) -> dict[str, object]:
-    copied = _copy_json(value)
+def _copy_json_mapping(value: object, *, preserve_exact_text: bool = False) -> dict[str, object]:
+    copied = _copy_json(value, preserve_exact_text=preserve_exact_text)
     if not isinstance(copied, dict):
         raise StoryboardPipelineError("storyboard JSON value must be an object")
     return copied
 
 
-def _copy_json(value: object) -> object:
-    if isinstance(value, Mapping):
-        copied: dict[str, object] = {}
-        for raw_key, item in value.items():
-            key = str(raw_key)
-            if key.casefold() in _PATH_KEYS and isinstance(item, str):
-                copied[key] = _public_path(item)
-            else:
-                copied[key] = _copy_json(item)
-        return copied
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return [_copy_json(item) for item in value]
-    return value
+def _copy_json(value: object, *, preserve_exact_text: bool = False) -> object:
+    return redact_public_value(value, preserve_exact_text=preserve_exact_text)
 
 
 def _text(value: object) -> str | None:
@@ -561,32 +550,6 @@ def _ids(value: object) -> list[str]:
             result.extend(_ids(item))
         return result
     return []
-
-
-_PATH_KEYS = frozenset(
-    {
-        "path",
-        "locator",
-        "source_path",
-        "relative_path",
-        "file",
-        "filename",
-        "input_path",
-        "output_path",
-        "output_directory",
-        "cwd",
-    }
-)
-
-
-def _public_path(value: str) -> str:
-    normalized = value.replace("\\", "/").strip()
-    parts = [part for part in normalized.split("/") if part not in {"", ".", ".."}]
-    if not parts:
-        return "source"
-    if normalized.startswith("/") or (len(normalized) >= 3 and normalized[1:3] == ":/"):
-        return f"source/{parts[-1]}"
-    return "/".join(parts)
 
 
 def _sha256_json(value: object) -> str:

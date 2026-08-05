@@ -58,15 +58,22 @@ def _branch_inputs() -> tuple[dict[str, object], dict[str, object], dict[str, st
             "scene_id": "scene-start",
             "caption": "Choose a route",
             "condition": None,
+            "menu_evidence_id": str(menu["id"]),
             "arms": [
                 {
                     "id": "arm-left",
                     "caption": "Left",
                     "condition": None,
                     "line_evidence_ids": [lines["4"], lines["5"]],
-                    "consequence": "The left line follows.",
-                    "destination_id": None,
-                    "rejoin_id": None,
+                    "consequence": {
+                        "text": "The left line follows.",
+                        "evidence_ids": [arm_ids["left"]],
+                        "confidence": "high",
+                        "status": "resolved",
+                        "uncertainty": None,
+                    },
+                    "destination_scene_id": None,
+                    "rejoin_scene_id": None,
                     "terminal": "none",
                     "evidence_ids": [arm_ids["left"]],
                     "confidence": "high",
@@ -78,9 +85,15 @@ def _branch_inputs() -> tuple[dict[str, object], dict[str, object], dict[str, st
                     "caption": "Right",
                     "condition": "gate",
                     "line_evidence_ids": [lines["6"], lines["7"]],
-                    "consequence": "The right line follows when gate is true.",
-                    "destination_id": None,
-                    "rejoin_id": None,
+                    "consequence": {
+                        "text": "The right line follows when gate is true.",
+                        "evidence_ids": [arm_ids["right"]],
+                        "confidence": "high",
+                        "status": "resolved",
+                        "uncertainty": None,
+                    },
+                    "destination_scene_id": None,
+                    "rejoin_scene_id": None,
                     "terminal": "none",
                     "evidence_ids": [arm_ids["right"]],
                     "confidence": "high",
@@ -102,6 +115,8 @@ def _branch_inputs() -> tuple[dict[str, object], dict[str, object], dict[str, st
         "excluded_evidence_ids": [],
         "unresolved": [],
         "disagreements": [],
+        "status": "resolved",
+        "uncertainty": None,
     }
     return evidence, analysis, lines
 
@@ -140,7 +155,8 @@ def test_line_window_closes_nested_parser_parents_and_keeps_actual_lines() -> No
 def test_branch_body_leaf_ownership_is_exact_once_and_reported_per_arm() -> None:
     evidence, analysis, _lines = _branch_inputs()
 
-    report = validate_phase01(evidence, {"claims": []}, analysis)
+    profile = {"claims": [], "status": "resolved", "uncertainty": None}
+    report = validate_phase01(evidence, profile, analysis)
 
     assert report.publishable
     coverage = report.to_dict()["coverage"]
@@ -157,7 +173,7 @@ def test_branch_body_leaf_ownership_is_exact_once_and_reported_per_arm() -> None
     scene = analysis["scenes"][0]
     assert isinstance(scene, dict)
     scene["leaf_evidence_ids"].append(analysis["choices"][0]["arms"][0]["line_evidence_ids"][0])
-    rejected = validate_phase01(evidence, {"claims": []}, analysis)
+    rejected = validate_phase01(evidence, profile, analysis)
     assert not rejected.publishable
     assert any(item.code == "duplicate_membership" for item in rejected.errors)
 
@@ -179,7 +195,9 @@ def test_resolved_choice_consequence_and_custom_rationale_are_allowed_but_python
                 "status": "resolved",
                 "rationale": "The same source block is followed by the cited route line.",
             }
-        ]
+        ],
+        "status": "resolved",
+        "uncertainty": None,
     }
     analysis = {
         "scenes": [
@@ -187,6 +205,9 @@ def test_resolved_choice_consequence_and_custom_rationale_are_allowed_but_python
                 "id": "scene",
                 "evidence_ids": ["custom", "python"],
                 "member_evidence_ids": ["custom", "python"],
+                "confidence": "medium",
+                "status": "unresolved",
+                "uncertainty": "The embedded Python behavior is not statically closed.",
             }
         ],
         "claims": [
@@ -196,8 +217,11 @@ def test_resolved_choice_consequence_and_custom_rationale_are_allowed_but_python
                 "evidence_ids": ["python"],
                 "confidence": "high",
                 "status": "resolved",
+                "uncertainty": None,
             }
         ],
+        "status": "unresolved",
+        "uncertainty": "The embedded Python behavior is not statically closed.",
     }
 
     report = validate_phase01(evidence, profile, analysis)
@@ -220,6 +244,7 @@ def test_scene_order_and_semantic_destination_require_source_target_evidence() -
         "evidence_ids": [lines["8"]],
         "confidence": "high",
         "status": "resolved",
+        "uncertainty": None,
     })
     choice = analysis["choices"][0]
     assert isinstance(choice, dict)
@@ -227,7 +252,11 @@ def test_scene_order_and_semantic_destination_require_source_target_evidence() -
     arm["destination_scene_id"] = "scene-next"
     arm["status"] = "resolved"
 
-    report = validate_phase01(evidence, {"claims": []}, analysis)
+    report = validate_phase01(
+        evidence,
+        {"claims": [], "status": "resolved", "uncertainty": None},
+        analysis,
+    )
 
     codes = {item.code for item in report.errors}
     assert "duplicate_scene_order" in codes
@@ -320,7 +349,13 @@ def test_canonical_analysis_schema_accepts_empty_lines_and_semantic_destinations
                         "source_evidence_ids": ["line-1"],
                         "target_evidence_ids": ["line-1"],
                         "evidence_ids": ["line-1"],
-                        "consequence": "The next scene may follow.",
+                        "consequence": {
+                            "text": "The next scene may follow.",
+                            "evidence_ids": ["line-1"],
+                            "confidence": "medium",
+                            "status": "uncertain",
+                            "uncertainty": "The gate is runtime-computed.",
+                        },
                         "confidence": "medium",
                         "status": "uncertain",
                         "uncertainty": "The gate is runtime-computed.",
@@ -337,6 +372,8 @@ def test_canonical_analysis_schema_accepts_empty_lines_and_semantic_destinations
         "excluded_evidence_ids": [],
         "unresolved": [],
         "disagreements": [],
+        "status": "uncertain",
+        "uncertainty": "The choice depends on runtime state.",
     }
     errors = list(Draft202012Validator(schema).iter_errors(analysis))
     assert errors == []

@@ -83,7 +83,7 @@ def test_python_custom_and_unknown_constructs_are_retained_without_execution() -
 
 def test_source_label_and_line_selection_failures_are_diagnostics() -> None:
     missing_label = build_evidence_index_from_text(SOURCE, label="not_present")
-    assert missing_label.records == ()
+    assert missing_label.records
     assert {diagnostic.code for diagnostic in missing_label.diagnostics} == {"label_not_found"}
 
     selected = build_evidence_index_from_text(

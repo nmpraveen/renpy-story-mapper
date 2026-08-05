@@ -1,0 +1,15 @@
+{
+  "forbidden_tokens": [
+    "msdenvers",
+    "resort",
+    "sadie",
+    "terrance",
+    "v0.07",
+    "_6_2_wg_clean"
+  ],
+  "forbidden_count_literals": [
+    159,
+    215,
+    260
+  ]
+}

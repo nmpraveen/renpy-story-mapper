@@ -334,13 +334,13 @@ def _index_selected_source(
                     "no_labels", "selected source contains no statically parsed labels"
                 )
             )
-        if selection.label is not None:
-            selected_ledger = []
-        else:
-            selected_ledger, line_diagnostics = _select_ledger_lines(
-                ledger, selection.start_line, selection.end_line
-            )
-            diagnostics.extend(line_diagnostics)
+        # A missing label is a semantic selection failure, not permission to erase the raw
+        # source scope. Preserve the requested line window (or the bounded source ledger) so a
+        # later repair can inspect the evidence without accidentally publishing it.
+        selected_ledger, line_diagnostics = _select_ledger_lines(
+            ledger, selection.start_line, selection.end_line
+        )
+        diagnostics.extend(line_diagnostics)
         return EvidenceIndex(
             EVIDENCE_SCHEMA_VERSION,
             origin,
@@ -372,6 +372,7 @@ def _index_selected_source(
     )
     diagnostics.extend(ledger_diagnostics)
     records.extend(selected_ledger)
+    records = _propagate_semantic_classifications(records)
     records.sort(key=_record_sort_key)
     return EvidenceIndex(
         EVIDENCE_SCHEMA_VERSION,
@@ -633,6 +634,78 @@ class _Collector:
 
 def _parent_metadata(parent_id: str | None) -> dict[str, object]:
     return {} if parent_id is None else {"parent_id": parent_id}
+
+
+def _propagate_semantic_classifications(
+    records: Sequence[EvidenceRecord],
+) -> list[EvidenceRecord]:
+    """Copy overlapping parser semantics onto the physical source-line leaves.
+
+    The canonical leaf is the exact physical line, so an AI citation to that leaf must retain
+    the parser's overlapping Python/custom/unknown/dynamic classification. Structural annotations
+    remain separately citeable; this projection only adds their safety facts to the leaf.
+    """
+
+    annotations = [record for record in records if record.kind is not EvidenceKind.SOURCE_LINE]
+    result: list[EvidenceRecord] = []
+    for leaf in records:
+        if not leaf.is_leaf:
+            result.append(leaf)
+            continue
+        semantic_kinds: set[str] = set()
+        annotation_ids: list[str] = []
+        dynamic = False
+        leaf_span = leaf.source.span
+        for annotation in annotations:
+            annotation_span = annotation.source.span
+            if annotation_span.path.casefold() != leaf_span.path.casefold():
+                continue
+            if (
+                annotation_span.end_line < leaf_span.start_line
+                or annotation_span.start_line > leaf_span.end_line
+            ):
+                continue
+            kinds, is_dynamic = _semantic_classification(annotation)
+            if not kinds:
+                continue
+            semantic_kinds.update(kinds)
+            annotation_ids.append(annotation.id)
+            dynamic = dynamic or is_dynamic
+        if not semantic_kinds:
+            result.append(leaf)
+            continue
+        metadata = dict(leaf.metadata)
+        metadata["semantic_kinds"] = sorted(semantic_kinds)
+        metadata["semantic_annotation_ids"] = sorted(set(annotation_ids))
+        metadata["semantic_dynamic"] = dynamic
+        result.append(
+            EvidenceRecord(
+                leaf.id,
+                leaf.kind,
+                leaf.text,
+                leaf.source,
+                metadata,
+            )
+        )
+    return result
+
+
+def _semantic_classification(record: EvidenceRecord) -> tuple[set[str], bool]:
+    facts = record.metadata
+    if record.kind is EvidenceKind.PYTHON:
+        return {"python"}, True
+    if record.kind is EvidenceKind.CUSTOM:
+        return {"custom"}, False
+    if record.kind is EvidenceKind.UNKNOWN:
+        return {"unknown"}, False
+    if record.kind in {EvidenceKind.JUMP, EvidenceKind.CALL}:
+        target = facts.get("target")
+        expression = facts.get("expression")
+        if target is None and isinstance(expression, str) and expression.strip():
+            return {"runtime_dynamic"}, True
+    if record.kind is EvidenceKind.ASSIGNMENT and facts.get("assignment_type") == "inline_python":
+        return {"python"}, True
+    return set(), False
 
 
 def _source_line_records(

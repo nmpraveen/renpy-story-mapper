@@ -13,7 +13,6 @@ from dataclasses import dataclass
 
 VALIDATION_SCHEMA_VERSION = "storyboard-validation-v1"
 _CONFIDENCE_VALUES = frozenset({"high", "medium", "low"})
-_DESTINATION_KINDS = frozenset({"label", "rejoin", "loop", "terminal", "unresolved"})
 _UNRESOLVED_KINDS = frozenset({"dynamic_jump", "dynamic_call", "python"})
 _CITATION_KEYS = frozenset(
     {
@@ -34,14 +33,18 @@ _CITATION_KEYS = frozenset(
 )
 _MEMBERSHIP_KEYS = frozenset({"member_evidence_ids", "line_evidence_ids", "choice_evidence_ids"})
 _CLAIM_EVIDENCE_KEYS = (
+    "evidence_id",
     "evidence_ids",
     "line_evidence_ids",
     "leaf_evidence_ids",
     "body_evidence_ids",
     "member_evidence_ids",
     "source_evidence_ids",
+    "target_evidence_id",
+    "target_evidence_ids",
     "condition_evidence_ids",
 )
+_STATUS_VALUES = frozenset({"resolved", "uncertain", "unresolved", "excluded"})
 
 JsonObject = Mapping[str, object]
 
@@ -142,6 +145,9 @@ class _IndexView:
     leaf_ids: frozenset[str]
     annotation_ids: frozenset[str]
     dynamic_ids: frozenset[str]
+    expected_branch_by_leaf: Mapping[str, str]
+    expected_leaves_by_branch: Mapping[str, frozenset[str]]
+    selection_unresolved: bool
 
 
 def validate_phase01(
@@ -169,8 +175,8 @@ def validate_phase01(
     _validate_revision(index, profile_value, analysis_value, issues)
     _validate_citations(profile_value, "profile", view, issues)
     _validate_citations(analysis_value, "analysis", view, issues)
-    _validate_claims(profile_value, "profile", view, issues)
-    _validate_claims(analysis_value, "analysis", view, issues)
+    _validate_semantic_inference_objects(profile_value, "profile", view, issues)
+    _validate_semantic_inference_objects(analysis_value, "analysis", view, issues)
     _validate_story_references(analysis_value, issues)
     _validate_analysis(analysis_value, view, issues)
     _validate_menu_coverage(analysis_value, view, issues)
@@ -324,7 +330,222 @@ def _index_view(index: JsonObject, issues: _Issues) -> _IndexView:
     dynamic_ids = frozenset(
         record_id for record_id, record in records.items() if _is_dynamic_record(record)
     )
-    return _IndexView(records, menus, leaf_ids, leaf_ids, annotation_ids, dynamic_ids)
+    expected_branch_by_leaf, expected_leaves_by_branch = _derive_expected_leaf_ownership(
+        records, leaf_ids, issues
+    )
+    selection_unresolved = False
+    for raw_diagnostic in _sequence(index.get("diagnostics")):
+        if not isinstance(raw_diagnostic, Mapping):
+            continue
+        if _text(raw_diagnostic.get("code")) in {
+            "label_not_found",
+            "source_not_found",
+            "source_selection_required",
+            "source_selection_ambiguous",
+        }:
+            selection_unresolved = True
+            issues.add(
+                "unresolved_selection",
+                _text(raw_diagnostic.get("message"))
+                or "the requested evidence selection could not be resolved",
+            )
+    selection = index.get("selection")
+    if isinstance(selection, Mapping) and _text(selection.get("status")) == "unresolved":
+        selection_unresolved = True
+        issues.add(
+            "unresolved_selection",
+            _text(selection.get("uncertainty"))
+            or "the requested evidence selection could not be resolved",
+        )
+    return _IndexView(
+        records,
+        menus,
+        leaf_ids,
+        leaf_ids,
+        annotation_ids,
+        dynamic_ids,
+        expected_branch_by_leaf,
+        expected_leaves_by_branch,
+        selection_unresolved,
+    )
+
+
+def _derive_expected_leaf_ownership(
+    records: Mapping[str, JsonObject],
+    leaf_ids: frozenset[str],
+    issues: _Issues,
+) -> tuple[dict[str, str], dict[str, frozenset[str]]]:
+    """Derive branch ownership from parser annotations and physical source containment."""
+
+    parent_by_id: dict[str, str] = {}
+    for record_id, record in records.items():
+        parent_id = _text(_facts(record).get("parent_id"))
+        if parent_id is None:
+            continue
+        parent_by_id[record_id] = parent_id
+        if parent_id not in records:
+            # The ordinary index pass reports the dangling reference. Keep this diagnostic
+            # specific to the ownership walk as well only when the chain is actually needed.
+            continue
+
+    def chain(record_id: str) -> tuple[str, ...]:
+        result: list[str] = []
+        seen: set[str] = set()
+        current: str | None = record_id
+        while current is not None:
+            if current in seen:
+                issues.add(
+                    "cyclic_parent_id",
+                    f"evidence parent chain cycles at {current!r}",
+                    evidence_ids=tuple(result),
+                    source=_source(records.get(current)),
+                )
+                break
+            seen.add(current)
+            result.append(current)
+            current = parent_by_id.get(current)
+            if current is not None and current not in records:
+                break
+        return tuple(result)
+
+    annotations = [
+        (record_id, record)
+        for record_id, record in records.items()
+        if record_id not in leaf_ids
+    ]
+    expected: dict[str, str] = {}
+    branch_leaves: dict[str, set[str]] = defaultdict(set)
+    for leaf_id in leaf_ids:
+        leaf = records.get(leaf_id)
+        if leaf is None:
+            continue
+        leaf_source = _source(leaf)
+        leaf_span = _span_mapping(leaf_source)
+        if leaf_span is None:
+            continue
+        candidates: list[tuple[int, int, str]] = []
+        for record_id, annotation in annotations:
+            annotation_span = _span_mapping(_source(annotation))
+            if annotation_span is None or not _spans_overlap(leaf_span, annotation_span):
+                continue
+            branch_id = _branch_id_for_chain(chain(record_id), records)
+            if branch_id is None:
+                continue
+            # Prefer the narrowest physical annotation, then the deepest structural chain. This
+            # handles an opaque block that contains its body as well as same-line arm/condition
+            # annotations without guessing from dialogue text or labels.
+            width = _span_width(annotation_span)
+            candidates.append((width, -len(chain(record_id)), branch_id))
+        if not candidates:
+            continue
+        _width, _depth, branch_id = min(candidates)
+        expected[leaf_id] = branch_id
+        branch_leaves[branch_id].add(leaf_id)
+    return expected, {
+        branch_id: frozenset(leaf_ids_for_branch)
+        for branch_id, leaf_ids_for_branch in branch_leaves.items()
+    }
+
+
+def _branch_id_for_chain(
+    chain: Sequence[str], records: Mapping[str, JsonObject]
+) -> str | None:
+    for record_id in chain:
+        record = records.get(record_id)
+        if record is None:
+            continue
+        kind = _text(record.get("kind"))
+        if kind == "choice_arm":
+            return record_id
+        if kind == "condition":
+            facts = _facts(record)
+            condition_type = _text(facts.get("condition_type"))
+            if condition_type in {"if_branch", "else_branch"}:
+                # A menu-arm condition is nested below its choice_arm; the chain walk reaches
+                # the choice arm first and therefore keeps the menu arm as the owner.
+                if not any(
+                    _text(_facts(records[parent_id]).get("condition_type")) == "menu_arm"
+                    or _text(records[parent_id].get("kind")) == "choice_arm"
+                    for parent_id in chain
+                    if parent_id in records
+                ):
+                    return record_id
+                return next(
+                    (
+                        parent_id
+                        for parent_id in chain
+                        if _text(records[parent_id].get("kind")) == "choice_arm"
+                    ),
+                    record_id,
+                )
+    return None
+
+
+def _source_span(source: Mapping[str, object] | None) -> Mapping[str, object] | None:
+    if source is None:
+        return None
+    span = source.get("span")
+    return span if isinstance(span, Mapping) else source
+
+
+def _span_mapping(source: Mapping[str, object] | None) -> Mapping[str, object] | None:
+    span = _source_span(source)
+    if span is None:
+        return None
+    start = span.get("start")
+    end = span.get("end")
+    if not isinstance(start, Mapping) or not isinstance(end, Mapping):
+        return None
+    if not isinstance(start.get("line"), int) or not isinstance(end.get("line"), int):
+        return None
+    return span
+
+
+def _spans_overlap(left: Mapping[str, object], right: Mapping[str, object]) -> bool:
+    left_path = _text(left.get("path"))
+    right_path = _text(right.get("path"))
+    if (
+        left_path is not None
+        and right_path is not None
+        and left_path.casefold() != right_path.casefold()
+    ):
+        return False
+    left_start = left.get("start")
+    left_end = left.get("end")
+    right_start = right.get("start")
+    right_end = right.get("end")
+    if not all(
+        isinstance(value, Mapping) for value in (left_start, left_end, right_start, right_end)
+    ):
+        return False
+    assert isinstance(left_start, Mapping)
+    assert isinstance(left_end, Mapping)
+    assert isinstance(right_start, Mapping)
+    assert isinstance(right_end, Mapping)
+    left_start_line = left_start.get("line")
+    left_end_line = left_end.get("line")
+    right_start_line = right_start.get("line")
+    right_end_line = right_end.get("line")
+    return (
+        isinstance(left_start_line, int)
+        and isinstance(left_end_line, int)
+        and isinstance(right_start_line, int)
+        and isinstance(right_end_line, int)
+        and left_start_line <= right_end_line
+        and right_start_line <= left_end_line
+    )
+
+
+def _span_width(span: Mapping[str, object]) -> int:
+    start = span.get("start")
+    end = span.get("end")
+    if not isinstance(start, Mapping) or not isinstance(end, Mapping):
+        return 1_000_000
+    start_line = start.get("line")
+    end_line = end.get("line")
+    if not isinstance(start_line, int) or not isinstance(end_line, int):
+        return 1_000_000
+    return max(0, end_line - start_line)
 
 
 def _validate_revision(
@@ -380,14 +601,17 @@ def _validate_analysis(value: JsonObject, view: _IndexView, issues: _Issues) -> 
     for choice_index, (scene, choice, arm, menu_id, arm_id) in enumerate(
         _choice_rows(value, view)
     ):
-        if menu_id is None or arm_id is None:
+        conditional_arm = arm_id is not None and _is_conditional_branch_record(
+            view.records.get(arm_id, {})
+        )
+        if arm_id is None or (menu_id is None and not conditional_arm):
             issues.add(
                 "invalid_choice_reference",
                 f"choice {choice_index} lacks menu and arm IDs",
                 evidence_ids=tuple(item for item in (menu_id, arm_id) if item is not None),
             )
             continue
-        if menu_id not in view.menus:
+        if menu_id is not None and menu_id not in view.menus:
             issues.add(
                 "invalid_choice_reference",
                 f"choice references unknown menu {menu_id!r}",
@@ -401,9 +625,29 @@ def _validate_analysis(value: JsonObject, view: _IndexView, issues: _Issues) -> 
                 evidence_ids=(arm_id,),
                 source=_source(view.records.get(arm_id)),
             )
-        destination = arm.get("destination")
-        if destination is not None:
-            _validate_destination(destination, arm, view, issues, choice_index, 0)
+        for legacy_field in ("menu_id", "arm_id", "arm_evidence_id"):
+            if legacy_field in choice or legacy_field in arm:
+                issues.add(
+                    "legacy_choice_shape",
+                    f"choice {choice_index} uses legacy field {legacy_field!r}; "
+                    "use canonical evidence_ids",
+                    evidence_ids=_choice_evidence(choice),
+                )
+        for legacy_field in (
+            "destination",
+            "rejoin",
+            "destination_id",
+            "rejoin_id",
+            "destination_evidence_ids",
+            "rejoin_evidence_ids",
+        ):
+            if legacy_field in arm:
+                issues.add(
+                    "legacy_destination_shape",
+                    f"choice arm {choice_index} uses legacy field {legacy_field!r}; "
+                    "use semantic scene IDs",
+                    evidence_ids=_choice_evidence(choice),
+                )
         _validate_scene_destination(arm, value, view, issues, choice_index)
         if scene is not None:
             scene_id = _text(scene.get("id"))
@@ -411,7 +655,7 @@ def _validate_analysis(value: JsonObject, view: _IndexView, issues: _Issues) -> 
                 issues.add(
                     "invalid_story_reference",
                     f"choice {choice_index} is assigned to a different scene",
-                    evidence_ids=(menu_id, arm_id),
+                    evidence_ids=tuple(item for item in (menu_id, arm_id) if item is not None),
                 )
 
 
@@ -459,43 +703,44 @@ def _choice_rows(
                 yield scene, choice, arm, menu_id, _choice_arm_id(arm, view)
         else:
             yield scene, choice, choice, menu_id, _choice_arm_id(choice, view)
-    for scene in scenes:
-        for nested_choice in _sequence(scene.get("choices")):
-            if not isinstance(nested_choice, Mapping):
-                continue
-            menu_id = _choice_menu_id(nested_choice, view)
-            arms = [
-                item
-                for item in _sequence(nested_choice.get("arms"))
-                if isinstance(item, Mapping)
-            ]
-            if arms:
-                for arm in arms:
-                    yield scene, nested_choice, arm, menu_id, _choice_arm_id(arm, view)
-            else:
-                yield (
-                    scene,
-                    nested_choice,
-                    nested_choice,
-                    menu_id,
-                    _choice_arm_id(nested_choice, view),
-                )
 
 
 def _choice_menu_id(choice: JsonObject, view: _IndexView) -> str | None:
-    explicit = _text(choice.get("menu_evidence_id", choice.get("menu_id")))
+    explicit = _text(choice.get("menu_evidence_id"))
     if explicit is not None:
         return explicit
     return _first_kind(_text_ids_without_issues(choice.get("evidence_ids")), view.records, "menu")
 
 
 def _choice_arm_id(arm: JsonObject, view: _IndexView) -> str | None:
-    explicit = _text(arm.get("arm_evidence_id", arm.get("arm_id")))
-    if explicit is not None and explicit in view.records:
+    explicit = None
+    if (
+        explicit is not None
+        and explicit in view.records
+        and _is_branch_record(view.records[explicit])
+    ):
         return explicit
-    return _first_kind(
-        _text_ids_without_issues(arm.get("evidence_ids")), view.records, "choice_arm"
-    )
+    for kind in ("choice_arm", "condition"):
+        found = _first_kind(_text_ids_without_issues(arm.get("evidence_ids")), view.records, kind)
+        if found is not None and _is_branch_record(view.records[found]):
+            return found
+    return None
+
+
+def _is_branch_record(record: JsonObject) -> bool:
+    kind = _text(record.get("kind"))
+    if kind == "choice_arm":
+        return True
+    if kind != "condition":
+        return False
+    condition_type = _text(_facts(record).get("condition_type"))
+    return condition_type in {"if_branch", "else_branch"}
+
+
+def _is_conditional_branch_record(record: JsonObject) -> bool:
+    return _text(record.get("kind")) == "condition" and _text(
+        _facts(record).get("condition_type")
+    ) in {"if_branch", "else_branch"}
 
 
 def _text_ids_without_issues(value: object) -> list[str]:
@@ -602,12 +847,7 @@ def _validate_story_references(value: JsonObject, issues: _Issues) -> None:
             if not isinstance(arm, Mapping):
                 continue
             arm_id = _text(arm.get("id"))
-            for field in (
-                "destination_id",
-                "destination_scene_id",
-                "rejoin_id",
-                "rejoin_scene_id",
-            ):
+            for field in ("destination_scene_id", "rejoin_scene_id"):
                 target = _text(arm.get(field))
                 if target is not None and target not in scene_ids:
                     issues.add(
@@ -615,30 +855,16 @@ def _validate_story_references(value: JsonObject, issues: _Issues) -> None:
                         f"arm {arm_id!r} {field} references unknown scene {target!r}",
                     )
 
-    for scene in scenes:
-        for nested_choice in _sequence(scene.get("choices")):
-            if not isinstance(nested_choice, Mapping):
-                continue
-            for arm in _sequence(nested_choice.get("arms")):
-                if not isinstance(arm, Mapping):
-                    continue
-                arm_id = _text(arm.get("id"))
-                for field in (
-                    "destination_id",
-                    "destination_scene_id",
-                    "rejoin_id",
-                    "rejoin_scene_id",
-                ):
-                    target = _text(arm.get(field))
-                    if target is not None and target not in scene_ids:
-                        issues.add(
-                            "invalid_story_reference",
-                            f"arm {arm_id!r} {field} references unknown scene {target!r}",
-                        )
-
     for transition in transitions:
         transition_id = _text(transition.get("id"))
-        for field in ("from_id", "to_id", "source_scene_id", "destination_scene_id"):
+        for legacy_field in ("source_scene_id", "destination_scene_id"):
+            if legacy_field in transition:
+                issues.add(
+                    "legacy_transition_shape",
+                    f"transition {transition_id!r} uses legacy field {legacy_field!r}; "
+                    "use from_id/to_id",
+                )
+        for field in ("from_id", "to_id"):
             target = _text(transition.get(field))
             if field == "to_id" and target is None:
                 continue
@@ -649,7 +875,6 @@ def _validate_story_references(value: JsonObject, issues: _Issues) -> None:
                 )
         if (
             _text(transition.get("to_id")) is not None
-            or _text(transition.get("destination_scene_id")) is not None
         ):
             source_ids = _text_ids_without_issues(transition.get("source_evidence_ids"))
             target_ids = _text_ids_without_issues(transition.get("target_evidence_ids"))
@@ -673,7 +898,7 @@ def _validate_scene_destination(
         for scene in _sequence(analysis.get("scenes"))
         if isinstance(scene, Mapping) and _text(scene.get("id")) is not None
     }
-    for field in ("destination_scene_id", "destination_id", "rejoin_scene_id", "rejoin_id"):
+    for field in ("destination_scene_id", "rejoin_scene_id"):
         target = _text(arm.get(field))
         if target is not None and target not in scenes:
             issues.add(
@@ -683,8 +908,6 @@ def _validate_scene_destination(
     for field in (
         "source_evidence_ids",
         "target_evidence_ids",
-        "destination_evidence_ids",
-        "rejoin_evidence_ids",
     ):
         for evidence_id in _text_ids_without_issues(arm.get(field)):
             if evidence_id not in view.records:
@@ -693,17 +916,22 @@ def _validate_scene_destination(
                     f"choice arm {ordinal} {field} references unknown evidence {evidence_id!r}",
                     evidence_ids=(evidence_id,),
                 )
-    destination_id = _text(arm.get("destination_scene_id"))
-    if destination_id is not None:
-        source_ids = _text_ids_without_issues(arm.get("source_evidence_ids"))
-        target_ids = _text_ids_without_issues(
-            arm.get("target_evidence_ids", arm.get("destination_evidence_ids"))
+    destination_ids = [
+        target
+        for target in (
+            _text(arm.get("destination_scene_id")),
+            _text(arm.get("rejoin_scene_id")),
         )
+        if target is not None
+    ]
+    if destination_ids:
+        source_ids = _text_ids_without_issues(arm.get("source_evidence_ids"))
+        target_ids = _text_ids_without_issues(arm.get("target_evidence_ids"))
         if not source_ids or not target_ids:
             issues.add(
                 "missing_source_target_evidence",
-                    f"choice arm {ordinal} destination {destination_id!r} needs explicit source "
-                    "and target evidence",
+                f"choice arm {ordinal} concrete destination {destination_ids[0]!r} needs "
+                "explicit source and target evidence",
                 evidence_ids=tuple(_text_ids_without_issues(arm.get("evidence_ids"))),
             )
 
@@ -717,65 +945,6 @@ def _register_scene_membership(
     if evidence_id not in scene_members:
         scene_members.add(evidence_id)
         membership[evidence_id].append(owner)
-
-
-def _validate_destination(
-    destination: object,
-    choice: JsonObject,
-    view: _IndexView,
-    issues: _Issues,
-    scene_index: int,
-    choice_index: int,
-) -> None:
-    prefix = f"scene {scene_index} choice {choice_index} destination"
-    if not isinstance(destination, Mapping):
-        issues.add("invalid_destination", f"{prefix} must be a mapping")
-        return
-    kind = _text(destination.get("kind"))
-    if kind not in _DESTINATION_KINDS:
-        issues.add("invalid_destination", f"{prefix} has unsupported kind {kind!r}")
-        return
-    target_id = _text(destination.get("target_evidence_id", destination.get("target_id")))
-    if kind == "unresolved":
-        if destination.get("unresolved") is not True:
-            issues.add(
-                "dynamic_behavior_as_fact",
-                f"{prefix} must set unresolved=true",
-                evidence_ids=_choice_evidence(choice),
-            )
-        if not _has_text(destination.get("uncertainty")):
-            issues.add("missing_uncertainty", f"{prefix} requires uncertainty text")
-        if target_id is not None:
-            issues.add(
-                "invalid_destination",
-                f"{prefix} cannot assert a concrete target while unresolved",
-                evidence_ids=(target_id,),
-            )
-        return
-    if destination.get("unresolved") is True:
-        issues.add("invalid_destination", f"{prefix} marks a concrete destination unresolved")
-    if target_id is None or target_id not in view.records:
-        issues.add(
-            "invalid_destination",
-            f"{prefix} requires an indexed target_evidence_id",
-            evidence_ids=tuple(item for item in (target_id,) if item is not None),
-        )
-        return
-    target = view.records[target_id]
-    if target_id in view.dynamic_ids:
-        issues.add(
-            "dynamic_behavior_as_fact",
-            f"{prefix} promotes dynamic evidence {target_id!r} to a concrete destination",
-            evidence_ids=(target_id,),
-            source=_source(target),
-        )
-    if not _destination_target_kind_allowed(kind, _text(target.get("kind"))):
-        issues.add(
-            "invalid_destination",
-            f"{prefix} target {target_id!r} is not valid for {kind!r}",
-            evidence_ids=(target_id,),
-            source=_source(target),
-        )
 
 
 def _validate_menu_coverage(value: JsonObject, view: _IndexView, issues: _Issues) -> None:
@@ -827,6 +996,7 @@ def _validate_coverage(value: JsonObject, view: _IndexView, issues: _Issues) -> 
     duplicate_membership_ids: set[str] = set()
     scene_leaves: dict[str, set[str]] = defaultdict(set)
     arm_leaves: dict[str, set[str]] = defaultdict(set)
+    ownership_violation = False
     scenes = [item for item in _sequence(value.get("scenes")) if isinstance(item, Mapping)]
 
     def own(
@@ -836,7 +1006,9 @@ def _validate_coverage(value: JsonObject, view: _IndexView, issues: _Issues) -> 
         bucket: str,
         scene_id: str | None = None,
         arm_id: str | None = None,
+        branch_id: str | None = None,
     ) -> None:
+        nonlocal ownership_violation
         if evidence_id not in view.records:
             issues.add(
                 "unknown_evidence_id",
@@ -847,9 +1019,45 @@ def _validate_coverage(value: JsonObject, view: _IndexView, issues: _Issues) -> 
         # Structural parser records can be cited by a story object but cannot own a source leaf.
         if evidence_id not in view.leaf_ids:
             return
+        enforce_parser_ownership = any(
+            _text(record.get("kind")) == "source_line" for record in view.records.values()
+        )
+        expected_branch = view.expected_branch_by_leaf.get(evidence_id)
+        if enforce_parser_ownership and bucket == "arm":
+            if expected_branch is None:
+                ownership_violation = True
+                issues.add(
+                    "shared_leaf_in_arm",
+                    f"shared source leaf {evidence_id!r} is assigned to a branch arm",
+                    evidence_ids=(evidence_id,),
+                    source=_source(view.records.get(evidence_id)),
+                )
+            elif branch_id != expected_branch:
+                ownership_violation = True
+                issues.add(
+                    "cross_arm_ownership",
+                    f"source leaf {evidence_id!r} belongs to {expected_branch!r}, "
+                    f"not {branch_id!r}",
+                    evidence_ids=(
+                        evidence_id,
+                        expected_branch,
+                        *(tuple() if branch_id is None else (branch_id,)),
+                    ),
+                    source=_source(view.records.get(evidence_id)),
+                    details={"expected_branch_id": expected_branch, "actual_branch_id": branch_id},
+                )
+        elif enforce_parser_ownership and expected_branch is not None:
+            ownership_violation = True
+            issues.add(
+                "arm_leaf_in_shared_scene",
+                f"branch-owned source leaf {evidence_id!r} is outside its expected arm",
+                evidence_ids=(evidence_id, expected_branch),
+                source=_source(view.records.get(evidence_id)),
+                details={"expected_branch_id": expected_branch, "actual_bucket": bucket},
+            )
         target = exclusions if bucket == "excluded" else membership
         target[evidence_id].append(owner)
-        if scene_id is not None:
+        if scene_id is not None and bucket in {"scene", "continuation"}:
             scene_leaves[scene_id].add(evidence_id)
         if arm_id is not None:
             arm_leaves[arm_id].add(evidence_id)
@@ -907,6 +1115,7 @@ def _validate_coverage(value: JsonObject, view: _IndexView, issues: _Issues) -> 
                         bucket="arm",
                         scene_id=scene_id,
                         arm_id=arm_id,
+                        branch_id=_choice_arm_id(arm, view),
                     )
 
     # Top-level canonical choices own arm body leaves independently of the shared scene body.
@@ -935,6 +1144,7 @@ def _validate_coverage(value: JsonObject, view: _IndexView, issues: _Issues) -> 
                 bucket="arm",
                 scene_id=choice_scene_id,
                 arm_id=choice_arm_id,
+                branch_id=inferred_arm_id,
             )
 
     for ordinal, raw in enumerate(_sequence(value.get("continuations"))):
@@ -1038,29 +1248,89 @@ def _validate_coverage(value: JsonObject, view: _IndexView, issues: _Issues) -> 
     for scene in scenes:
         scene_id = _text(scene.get("id")) or "scene"
         owned = sorted(scene_leaves.get(scene_id, set()))
+        branch_owned = sorted(
+            evidence_id for evidence_id in owned if evidence_id in view.expected_branch_by_leaf
+        )
+        if branch_owned:
+            issues.add(
+                "scene_contains_branch_leaves",
+                f"scene {scene_id!r} launders branch-owned leaves through its shared body",
+                evidence_ids=tuple(branch_owned),
+                details={"branch_leaf_evidence_ids": branch_owned},
+            )
         scene_report.append(
             {
                 "scene_id": scene_id,
                 "leaf_evidence_ids": owned,
                 "covered": len(owned),
-                "complete": bool(owned) or not view.leaf_ids,
+                "branch_leaf_evidence_ids": branch_owned,
+                "complete": not branch_owned and (bool(owned) or not view.leaf_ids),
             }
         )
     arm_report = []
+    observed_branches: set[str] = set()
     for _scene, _choice, arm, _menu, arm_evidence_id in _choice_rows(value, view):
         arm_id = _text(arm.get("id")) or arm_evidence_id or "arm"
         owned = sorted(arm_leaves.get(arm_id, set()))
+        expected = sorted(view.expected_leaves_by_branch.get(arm_evidence_id or "", frozenset()))
+        if arm_evidence_id is not None:
+            observed_branches.add(arm_evidence_id)
+        missing = sorted(set(expected) - set(owned))
+        unexpected = sorted(set(owned) - set(expected))
+        if missing or unexpected:
+            issues.add(
+                "incomplete_arm_coverage",
+                f"arm {arm_id!r} does not match its parser-derived leaf set",
+                evidence_ids=tuple(
+                    dict.fromkeys(
+                        [*missing, *unexpected, *([arm_evidence_id] if arm_evidence_id else [])]
+                    )
+                ),
+                details={
+                    "expected_leaf_evidence_ids": expected,
+                    "actual_leaf_evidence_ids": owned,
+                    "missing_leaf_evidence_ids": missing,
+                    "unexpected_leaf_evidence_ids": unexpected,
+                },
+            )
         arm_report.append(
             {
                 "arm_id": arm_id,
+                "arm_evidence_id": arm_evidence_id,
+                "expected_leaf_evidence_ids": expected,
                 "leaf_evidence_ids": owned,
+                "expected": len(expected),
+                "actual": len(owned),
                 "covered": len(owned),
-                "complete": bool(owned) or not view.leaf_ids,
+                "missing_leaf_evidence_ids": missing,
+                "unexpected_leaf_evidence_ids": unexpected,
+                "complete": not expected or (not missing and not unexpected),
             }
         )
 
+    for branch_id, expected_branch_leaves in sorted(view.expected_leaves_by_branch.items()):
+        if branch_id not in observed_branches:
+            issues.add(
+                "missing_branch_ownership",
+                f"analysis has no arm owner for parser branch {branch_id!r}",
+                evidence_ids=(branch_id, *sorted(expected_branch_leaves)),
+                source=_source(view.records.get(branch_id)),
+                details={"expected_leaf_evidence_ids": sorted(expected_branch_leaves)},
+            )
+
     duplicate_count = len(duplicate_membership_ids)
-    complete = bool(view.leaf_ids) and not unaccounted and not duplicate_count
+    incomplete_arms = sum(
+        1
+        for item in arm_report
+        if isinstance(item, Mapping) and item.get("complete") is False
+    )
+    complete = (
+        bool(view.leaf_ids)
+        and not unaccounted
+        and not duplicate_count
+        and not incomplete_arms
+        and not ownership_violation
+    )
     coverage: dict[str, object] = {
         "expected": len(view.leaf_ids),
         "covered": len(covered),
@@ -1072,6 +1342,7 @@ def _validate_coverage(value: JsonObject, view: _IndexView, issues: _Issues) -> 
     if any(_text(record.get("kind")) == "source_line" for record in view.records.values()):
         coverage.update(
             {
+                "incomplete_arms": incomplete_arms,
                 "per_scene": scene_report,
                 "per_arm": arm_report,
                 "scenes": scene_report,
@@ -1144,6 +1415,89 @@ def _unresolved_items(
     return tuple(result)
 
 
+def _validate_semantic_inference_objects(
+    value: JsonObject,
+    owner: str,
+    view: _IndexView,
+    issues: _Issues,
+) -> None:
+    """Validate the status contract on every canonical semantic inference object."""
+
+    collections = (
+        (
+            "entry_points",
+            "characters",
+            "variables",
+            "custom_constructs",
+            "conventions",
+            "ending_patterns",
+            "unresolved",
+        )
+        if owner == "profile"
+        else (
+            "scenes",
+            "choices",
+            "transitions",
+            "continuations",
+            "claims",
+            "unresolved",
+            "exclusions",
+            "disagreements",
+        )
+    )
+    for collection_name in collections:
+        raw_collection = value.get(collection_name)
+        if collection_name == "unresolved" and isinstance(raw_collection, str):
+            issues.add(
+                "legacy_unresolved_field",
+                f"{owner}.unresolved must be an array of canonical inference objects, not a string",
+            )
+        for ordinal, raw in enumerate(_sequence(raw_collection)):
+            if not isinstance(raw, Mapping):
+                issues.add(
+                    "invalid_inference_object",
+                    f"{owner}.{collection_name}[{ordinal}] must be a mapping",
+                )
+                continue
+            label = f"{owner}.{collection_name}[{ordinal}]"
+            _validate_claim_metadata(raw, label, view, issues)
+            if collection_name == "choices":
+                for arm_ordinal, arm in enumerate(_sequence(raw.get("arms"))):
+                    if isinstance(arm, Mapping):
+                        _validate_claim_metadata(
+                            arm,
+                            f"{label}.arms[{arm_ordinal}]",
+                            view,
+                            issues,
+                        )
+                        consequence = arm.get("consequence")
+                        if isinstance(consequence, Mapping):
+                            _validate_claim_metadata(
+                                consequence,
+                                f"{label}.arms[{arm_ordinal}].consequence",
+                                view,
+                                issues,
+                            )
+            if collection_name == "scenes":
+                for nested_key in ("choices", "branches", "transitions"):
+                    if nested_key in raw:
+                        issues.add(
+                            "nested_story_objects",
+                            f"{owner}.scenes[{ordinal}] contains nested {nested_key}; "
+                            "choices and transitions must be top-level",
+                        )
+    # The document-level status describes the confidence of the profile/analysis as a whole.
+    _validate_claim_metadata(
+        value,
+        owner,
+        view,
+        issues,
+        require_evidence=False,
+        require_confidence=False,
+        reject_legacy_unresolved=False,
+    )
+
+
 def _claim_fields(
     value: object, path: tuple[str, ...] = ()
 ) -> Iterable[tuple[tuple[str, ...], JsonObject]]:
@@ -1188,48 +1542,62 @@ def _validate_claim_metadata(
     issues: _Issues,
     *,
     require_evidence: bool = True,
+    require_confidence: bool = True,
+    reject_legacy_unresolved: bool = True,
 ) -> None:
     evidence_ids = _claim_evidence_ids(claim, issues, label)
     if require_evidence and not evidence_ids:
         issues.add("missing_evidence", f"{label} must cite at least one evidence ID")
+    if reject_legacy_unresolved and "unresolved" in claim:
+        issues.add(
+            "legacy_unresolved_field",
+            f"{label} must use status and uncertainty; legacy unresolved is not accepted",
+            evidence_ids=evidence_ids,
+        )
     confidence = _text(claim.get("confidence"))
-    if confidence is None:
+    if confidence is None and require_confidence:
         issues.add("missing_confidence", f"{label} must declare confidence")
-    elif confidence not in _CONFIDENCE_VALUES:
+    elif confidence is not None and confidence not in _CONFIDENCE_VALUES:
         issues.add("invalid_confidence", f"{label} has unsupported confidence {confidence!r}")
     status = _status_of(claim)
     if status is None:
         issues.add(
-            "invalid_status",
+            "missing_status" if "status" not in claim else "invalid_status",
             f"{label} must declare status as resolved, uncertain, unresolved, or excluded",
         )
         unresolved = False
     else:
         unresolved = status in {"uncertain", "unresolved", "excluded"}
-    unresolved_value = claim.get("unresolved")
-    unresolved_text = unresolved_value if isinstance(unresolved_value, str) else None
-    if unresolved and not _has_text(claim.get("uncertainty"), unresolved_text):
+    if "uncertainty" not in claim:
+        issues.add("missing_uncertainty", f"{label} must declare uncertainty text or null")
+    uncertainty = claim.get("uncertainty")
+    if uncertainty is not None and not isinstance(uncertainty, str):
+        issues.add("invalid_uncertainty", f"{label} uncertainty must be text or null")
+    if unresolved and not _has_text(uncertainty):
         issues.add("missing_uncertainty", f"{label} requires uncertainty text when unresolved")
     if (
         not unresolved
-        and claim.get("uncertainty") is not None
-        and not _has_text(claim.get("uncertainty"))
+        and isinstance(uncertainty, str)
+        and not _has_text(uncertainty)
     ):
         issues.add("invalid_uncertainty", f"{label} has empty uncertainty text")
     dynamic_evidence_ids = tuple(
         evidence_id for evidence_id in evidence_ids if evidence_id in view.dynamic_ids
     )
-    if dynamic_evidence_ids and not unresolved:
+    if dynamic_evidence_ids and status != "unresolved":
         issues.add(
             "dynamic_behavior_as_fact",
-            f"{label} uses dynamic evidence as a resolved fact",
+            f"{label} must be status=unresolved when it cites Python or runtime-computed evidence",
             evidence_ids=dynamic_evidence_ids,
         )
     custom_evidence_ids = tuple(
         evidence_id
         for evidence_id in evidence_ids
         if evidence_id in view.records
-        and _text(view.records[evidence_id].get("kind")) in {"custom", "unknown"}
+        and (
+            _text(view.records[evidence_id].get("kind")) in {"custom", "unknown"}
+            or _has_semantic_kind(view.records[evidence_id], {"custom", "unknown"})
+        )
     )
     if custom_evidence_ids and not unresolved and not _has_text(
         claim.get("rationale"), claim.get("interpretation_rationale"), claim.get("reason")
@@ -1250,22 +1618,19 @@ def _status_of(claim: JsonObject) -> str | None:
     raw_status = claim.get("status")
     if isinstance(raw_status, str) and raw_status.strip():
         normalized = raw_status.strip().casefold()
-        return (
-            normalized
-            if normalized in {"resolved", "uncertain", "unresolved", "excluded"}
-            else None
-        )
-    raw_unresolved = claim.get("unresolved")
-    if isinstance(raw_unresolved, bool):
-        return "unresolved" if raw_unresolved else "resolved"
-    if isinstance(raw_unresolved, str):
-        normalized = " ".join(raw_unresolved.casefold().split())
-        return (
-            "resolved"
-            if normalized in {"", "none", "no", "resolved", "not unresolved", "n/a", "na"}
-            else "unresolved"
-        )
+        return normalized if normalized in _STATUS_VALUES else None
     return None
+
+
+def _has_semantic_kind(record: JsonObject, wanted: set[str]) -> bool:
+    facts = record.get("facts")
+    facts_value: JsonObject = facts if isinstance(facts, Mapping) else record
+    semantic_kinds = facts_value.get("semantic_kinds")
+    if not isinstance(semantic_kinds, Sequence) or isinstance(
+        semantic_kinds, (str, bytes, bytearray)
+    ):
+        return False
+    return any(isinstance(item, str) and item in wanted for item in semantic_kinds)
 
 
 def _is_unresolved(value: JsonObject) -> bool:
@@ -1343,24 +1708,24 @@ def _choice_evidence(choice: JsonObject) -> tuple[str, ...]:
     )
 
 
-def _destination_target_kind_allowed(destination_kind: str, target_kind: str | None) -> bool:
-    if target_kind is None:
-        return False
-    if destination_kind == "label":
-        return target_kind in {"label", "scene", "entry_point"}
-    if destination_kind in {"rejoin", "loop"}:
-        return target_kind in {"label", "scene", "merge", "rejoin"}
-    if destination_kind == "terminal":
-        return target_kind in {"label", "scene", "terminal", "ending", "return"}
-    return False
-
-
 def _is_dynamic_record(record: JsonObject) -> bool:
     kind = _text(record.get("kind"))
     if kind in _UNRESOLVED_KINDS:
         return True
     facts = record.get("facts")
     facts_value: JsonObject = facts if isinstance(facts, Mapping) else record
+    semantic_kinds = facts_value.get("semantic_kinds")
+    if (
+        isinstance(semantic_kinds, Sequence)
+        and not isinstance(semantic_kinds, (str, bytes, bytearray))
+        and any(
+            isinstance(item, str) and item in {"python", "runtime_dynamic"}
+            for item in semantic_kinds
+        )
+    ):
+        return True
+    if facts_value.get("semantic_dynamic") is True:
+        return True
     if facts_value.get("dynamic") is True or facts_value.get("dynamic_target") is True:
         return True
     if facts_value.get("unresolved") is True:
