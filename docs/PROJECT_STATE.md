@@ -49,7 +49,7 @@ branch-owned records.
 The evidence, profile, and analysis files are linked by verified SHA-256 hashes of the exact emitted
 UTF-8 JSON bytes. The original `scripts.rpa` remained unchanged.
 
-The Phase 01.1 focused verification passes: 60 `test_storyboard*.py` tests, Ruff, strict mypy, and
+The Phase 01.1 focused verification passes: 68 `test_storyboard*.py` tests, Ruff, strict mypy, and
 Draft 2020-12 checks for both storyboard schemas. It includes parser-failure ledger recovery,
 branch ownership, dynamic status semantics, schema acceptance, scene ordering, nested span closure,
 canonical renderer topology, path redaction, and the known-game/fixed-count scan. No real cloud
