@@ -15,6 +15,7 @@ from renpy_story_mapper.storyboard.ai_client import (
     ProcessSpec,
     ProviderCancelledError,
     ProviderIdentityMismatchError,
+    ProviderLimitError,
     ProviderOutputError,
     ProviderPolicyViolationError,
     ProviderRuntimeConfigurationError,
@@ -108,6 +109,7 @@ def _client(
     created: list[tuple[ProcessSpec, FakeProcess]],
     *,
     timeout_seconds: float = 1.0,
+    maximum_input_tokens: int = 200_000,
 ) -> CodexCliJsonClient:
     def factory(spec: ProcessSpec) -> FakeProcess:
         created.append((spec, process))
@@ -118,6 +120,7 @@ def _client(
         process_factory=factory,
         executable_resolver=lambda _command: "C:/synthetic/codex.exe",
         timeout_seconds=timeout_seconds,
+        maximum_input_tokens=maximum_input_tokens,
     )
 
 
@@ -207,6 +210,41 @@ def test_no_fast_mode_cli_flag_builds_supported_disabled_feature_command(tmp_pat
     assert "--output-schema" in command
     assert str(schema) in command
     assert command[-1] == "-"
+
+
+def test_max_reasoning_cli_flag_is_supported() -> None:
+    args = _parser().parse_args(
+        [
+            "storyboard",
+            "game.rpy",
+            "--output",
+            "output",
+            "--reasoning-effort",
+            "max",
+        ]
+    )
+    assert args.reasoning_effort == "max"
+
+
+def test_input_token_ceiling_rejects_before_starting_codex(tmp_path: Path) -> None:
+    schema = tmp_path / "schema.json"
+    schema.write_text("{}", encoding="utf-8")
+    process = FakeProcess(_jsonl({"ok": True}))
+    created: list[tuple[ProcessSpec, FakeProcess]] = []
+    client = _client(process, created, maximum_input_tokens=1)
+
+    with pytest.raises(ProviderLimitError) as failure:
+        client.complete(
+            payload={"input": "exact source evidence"},
+            schema_path=schema,
+            model="gpt-5.6-luna",
+            reasoning_effort="max",
+            fast_mode=False,
+        )
+
+    assert failure.value.error_code == "input_token_limit"
+    assert failure.value.transmission == "not_transmitted"
+    assert created == []
 
 
 def test_complete_sends_canonical_json_and_verifies_runtime_metadata(tmp_path: Path) -> None:

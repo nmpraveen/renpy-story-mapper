@@ -364,7 +364,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     storyboard_parser.add_argument(
         "--reasoning-effort",
-        choices=("low", "medium", "high", "xhigh"),
+        choices=("low", "medium", "high", "xhigh", "max"),
         default="high",
     )
     fast_group = storyboard_parser.add_mutually_exclusive_group()

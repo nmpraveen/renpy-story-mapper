@@ -30,7 +30,10 @@ def build_game_profile_request(
         ),
         "authority": (
             "Evidence IDs and source text are authoritative. You may interpret unfamiliar "
-            "syntax, but do not present an uncertain dynamic behavior as a fact. Preserve a "
+            "syntax. The compact evidence_index records collection contains every ledger leaf "
+            "and annotation exactly once; role identifies which kind, source_text is the exact "
+            "text, and shared source provenance is stored once at the evidence-index level. "
+            "Do not present an uncertain dynamic behavior as a fact. Preserve a "
             "confidence level and required status/uncertainty fields for each inference object; "
             "status=resolved requires uncertainty=null. status in uncertain, unresolved, or "
             "excluded requires a non-empty uncertainty string. Do not emit an unresolved string "
@@ -76,7 +79,10 @@ def build_story_analysis_request(
         ),
         "authority": (
             "Use the game profile for interpretation, but keep every structural or semantic "
-            "claim bound to exact evidence IDs. Do not invent or relocate source lines, choice "
+            "claim bound to exact evidence IDs. The compact evidence_index records collection "
+            "contains every ledger leaf and annotation exactly once; role identifies which kind, "
+            "source_text is exact, and shared source provenance is stored at the index level. "
+            "Do not invent or relocate source lines, choice "
             "arms, conditions, effects, destinations, rejoins, loops, or endings. If parser "
             "and interpretation disagree, record the disagreement explicitly. Every scene, "
             "choice, arm, consequence object, transition, continuation, claim, unresolved item, "

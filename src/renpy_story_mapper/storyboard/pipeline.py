@@ -157,6 +157,7 @@ def run_storyboard_pipeline(
             f"(diagnostics: {_describe_diagnostics(diagnostics)})"
         )
     evidence_hash = _sha256_artifact_json(raw_evidence)
+    ai_evidence = _project_evidence_for_ai(raw_evidence)
     if (
         selected_label is None
         and selected_start is None
@@ -182,7 +183,7 @@ def run_storyboard_pipeline(
         provider = _new_provider()
     profile = _load_or_request_profile(
         selected_profile_replay,
-        raw_evidence,
+        ai_evidence,
         canary_ids,
         provider=provider,
         evidence_hash=evidence_hash,
@@ -207,7 +208,7 @@ def run_storyboard_pipeline(
     profile_hash = _sha256_artifact_json(profile)
     analysis = _load_or_request_analysis(
         selected_analysis_replay,
-        raw_evidence,
+        ai_evidence,
         profile,
         canary_ids,
         provider=provider,
@@ -301,6 +302,40 @@ def evidence_index_to_mapping(index: EvidenceIndex) -> dict[str, object]:
     """Return the one canonical JSON contract used by every storyboard phase."""
 
     return _copy_json_mapping(index.to_dict(), preserve_exact_text=True)
+
+
+def _project_evidence_for_ai(evidence: Mapping[str, object]) -> dict[str, object]:
+    """Remove only redundant evidence encodings from the private AI request.
+
+    Canonical evidence remains untouched and is still written and validated in full. The records
+    collection already contains every ledger leaf and annotation, so the parallel collections and
+    their precomputed ID lists add no information for the model.
+    """
+
+    projected = _copy_json_mapping(evidence, preserve_exact_text=True)
+    for duplicate_key in (
+        "annotations",
+        "ledger",
+        "leaf_evidence_ids",
+        "annotation_evidence_ids",
+        "accountable_evidence_ids",
+    ):
+        projected.pop(duplicate_key, None)
+
+    top_source = projected.get("source")
+    has_shared_provenance = isinstance(top_source, Mapping) and "provenance" in top_source
+    records = projected.get("records")
+    if not isinstance(records, list):
+        raise StoryboardPipelineError("canonical evidence records are unavailable for AI analysis")
+    for record in records:
+        if not isinstance(record, dict):
+            raise StoryboardPipelineError("canonical evidence contains a malformed record")
+        if record.get("text") == record.get("source_text"):
+            record.pop("text", None)
+        source = record.get("source")
+        if has_shared_provenance and isinstance(source, dict):
+            source.pop("provenance", None)
+    return projected
 
 
 def _load_or_request_profile(

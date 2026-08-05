@@ -19,9 +19,11 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from fractions import Fraction
+from functools import lru_cache
 from pathlib import Path
 from typing import Protocol, cast
 
+import tiktoken
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 from jsonschema.exceptions import SchemaError, ValidationError  # type: ignore[import-untyped]
 
@@ -29,9 +31,11 @@ _POLL_SECONDS = 0.05
 _CANCEL_GRACE_SECONDS = 0.5
 _KILL_GRACE_SECONDS = 0.1
 _MAX_MODEL_LENGTH = 200
-_REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
+_REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
 _MAXIMUM_DEFAULT_INPUT_BYTES = 2_000_000
 _MAXIMUM_DEFAULT_OUTPUT_BYTES = 2_000_000
+CODEX_MAXIMUM_INPUT_TOKENS = 200_000
+_CODEX_INPUT_ENCODING = "o200k_base"
 
 # The canonical storyboard schemas remain Draft 2020-12 contracts.  This set is only for the
 # schema document sent to the installed Codex CLI.  Bounded probes against codex-cli 0.146.0
@@ -336,7 +340,7 @@ def _validate_model(model: str) -> None:
 
 def _validate_reasoning_effort(reasoning_effort: str) -> None:
     if reasoning_effort not in _REASONING_EFFORTS:
-        raise ValueError("reasoning_effort must be one of low, medium, high, or xhigh")
+        raise ValueError("reasoning_effort must be one of low, medium, high, xhigh, or max")
 
 
 def _load_schema_validator(
@@ -1796,6 +1800,21 @@ def _serialize_codex_schema_json(value: object) -> str:
     raise TypeError("schema contains a non-JSON value")
 
 
+@lru_cache(maxsize=1)
+def _codex_input_encoding() -> tiktoken.Encoding:
+    return tiktoken.get_encoding(_CODEX_INPUT_ENCODING)
+
+
+def _count_codex_input_tokens(request: bytes, provider_schema_json: str) -> int:
+    """Count every product-owned token sent before Codex adds its private overhead."""
+
+    encoding = _codex_input_encoding()
+    request_text = request.decode("utf-8")
+    return len(encoding.encode(request_text, disallowed_special=())) + len(
+        encoding.encode(provider_schema_json, disallowed_special=())
+    )
+
+
 def _materialize_codex_provider_schema(
     schema: Mapping[str, object], directory: Path
 ) -> Path:
@@ -1948,17 +1967,21 @@ class CodexCliJsonClient:
         timeout_seconds: float = 300.0,
         maximum_input_bytes: int = _MAXIMUM_DEFAULT_INPUT_BYTES,
         maximum_output_bytes: int = _MAXIMUM_DEFAULT_OUTPUT_BYTES,
+        maximum_input_tokens: int = CODEX_MAXIMUM_INPUT_TOKENS,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         if maximum_input_bytes <= 0 or maximum_output_bytes <= 0:
             raise ValueError("provider byte limits must be positive")
+        if maximum_input_tokens <= 0:
+            raise ValueError("provider token limit must be positive")
         self._executable = executable
         self._process_factory = process_factory
         self._executable_resolver = executable_resolver
         self._timeout_seconds = timeout_seconds
         self._maximum_input_bytes = maximum_input_bytes
         self._maximum_output_bytes = maximum_output_bytes
+        self._maximum_input_tokens = maximum_input_tokens
         self._cancel_generation = 0
         self._active: Process | None = None
         self._lock = threading.Lock()
@@ -2007,6 +2030,13 @@ class CodexCliJsonClient:
             raise ProviderLimitError(
                 "input_limit",
                 "The storyboard AI request exceeds its input limit.",
+                transmission=TransmissionDisposition.NOT_TRANSMITTED,
+            )
+        provider_schema_json = _serialize_codex_schema_json(dict(provider_schema))
+        if _count_codex_input_tokens(request, provider_schema_json) > self._maximum_input_tokens:
+            raise ProviderLimitError(
+                "input_token_limit",
+                "The storyboard AI request exceeds its configured input-token limit.",
                 transmission=TransmissionDisposition.NOT_TRANSMITTED,
             )
         with self._lock:

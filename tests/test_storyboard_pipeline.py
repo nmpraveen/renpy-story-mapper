@@ -690,7 +690,7 @@ def test_cli_returns_two_for_rejected_validation_and_keeps_artifacts(
 
 
 def test_pipeline_makes_one_profile_and_one_analysis_provider_call(tmp_path: Path) -> None:
-    game, _raw_evidence, evidence = _source_and_evidence(tmp_path)
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
 
     class FakeClient:
         def __init__(self) -> None:
@@ -704,9 +704,32 @@ def test_pipeline_makes_one_profile_and_one_analysis_provider_call(tmp_path: Pat
             assert isinstance(payload, dict)
             request_input = payload["input"]
             assert isinstance(request_input, dict)
-            raw_evidence = request_input["evidence_index"]
-            assert isinstance(raw_evidence, dict)
-            assert raw_evidence == _raw_evidence
+            ai_evidence = request_input["evidence_index"]
+            assert isinstance(ai_evidence, dict)
+            assert not {
+                "annotations",
+                "ledger",
+                "leaf_evidence_ids",
+                "annotation_evidence_ids",
+                "accountable_evidence_ids",
+            } & ai_evidence.keys()
+            assert ai_evidence["source"] == raw_evidence["source"]
+            ai_records = ai_evidence["records"]
+            canonical_records = raw_evidence["records"]
+            assert isinstance(ai_records, list)
+            assert isinstance(canonical_records, list)
+            assert [item["id"] for item in ai_records] == [
+                item["id"] for item in canonical_records
+            ]
+            for compact, canonical in zip(ai_records, canonical_records, strict=True):
+                assert compact["source_text"] == canonical["source_text"]
+                assert compact["facts"] == canonical["facts"]
+                assert compact["metadata"] == canonical["metadata"]
+                assert compact["role"] == canonical["role"]
+                assert "text" not in compact
+                assert compact["source"]["path"] == canonical["source"]["path"]
+                assert compact["source"]["span"] == canonical["source"]["span"]
+                assert "provenance" not in compact["source"]
             required_provenance = payload["required_provenance"]
             assert isinstance(required_provenance, dict)
             assert required_provenance["evidence_index_hash"] == _artifact_hash(raw_evidence)
@@ -729,6 +752,7 @@ def test_pipeline_makes_one_profile_and_one_analysis_provider_call(tmp_path: Pat
 
     assert client.calls == ["game-profile.schema.json", "story-analysis.schema.json"]
     assert result.validation_report.publishable
+    assert result.evidence_index == raw_evidence
 
 
 def test_pipeline_binds_complete_source_receipts_to_provider_results(tmp_path: Path) -> None:
