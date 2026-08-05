@@ -8,14 +8,17 @@ returns one schema-bound JSON object.  It never reads the game directory or invo
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
 import subprocess
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from fractions import Fraction
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -87,6 +90,17 @@ _CODEX_JSON_TYPE_ORDER = (
     "string",
     "integer",
     "number",
+)
+_CODEX_OBJECT_INTERSECTION_KEYS = frozenset(
+    {
+        "additionalProperties",
+        "maxProperties",
+        "minProperties",
+        "patternProperties",
+        "properties",
+        "propertyNames",
+        "required",
+    }
 )
 
 _DISABLED_CODEX_FEATURES = (
@@ -304,6 +318,7 @@ def derive_codex_provider_schema(canonical_schema: Mapping[str, object]) -> dict
     """Derive the installed Codex CLI shape without changing the canonical schema."""
 
     provider = _flatten_codex_schema_node(canonical_schema, canonical_schema)
+    provider = _finalize_codex_provider_schema(provider)
     if not isinstance(provider, dict):
         raise _CodexSchemaDerivationError(
             "canonical schema composition does not produce an object schema"
@@ -398,26 +413,10 @@ def _flatten_codex_schema_object(
             continue
         derived[key] = _copy_codex_json(child)
 
-    if "type" not in derived and {"properties", "required"}.intersection(derived):
+    if "type" not in derived and _CODEX_OBJECT_INTERSECTION_KEYS.intersection(derived):
         derived["type"] = "object"
     if "type" not in derived and "const" in derived:
         derived["type"] = _codex_json_type(derived["const"])
-    properties = derived.get("properties")
-    if derived.get("type") == "object" and isinstance(properties, Mapping):
-        if "additionalProperties" not in derived:
-            derived["additionalProperties"] = False
-        required = derived.get("required")
-        current_required = required if isinstance(required, list) else []
-        derived["required"] = _merge_codex_required(
-            current_required, list(properties.keys())
-        )
-        for composition_key in ("anyOf", "oneOf"):
-            branches = derived.get(composition_key)
-            if isinstance(branches, list):
-                derived[composition_key] = [
-                    _close_codex_object_composition_branch(branch, properties)
-                    for branch in branches
-                ]
     _validate_codex_scalar_constraints(derived)
     return derived
 
@@ -476,50 +475,179 @@ def _contains_codex_reference(value: object) -> bool:
 def _merge_codex_schema_objects(
     left: Mapping[str, object], right: Mapping[str, object]
 ) -> dict[str, object]:
-    merged: dict[str, object] = dict(left)
-    for key, value in right.items():
-        if key not in merged:
-            merged[key] = value
-            continue
-        existing = merged[key]
-        if key == "properties" and isinstance(existing, Mapping) and isinstance(value, Mapping):
-            merged[key] = _merge_codex_properties(existing, value)
-        elif key == "required" and isinstance(existing, list) and isinstance(value, list):
-            merged[key] = _merge_codex_required(existing, value)
-        elif key == "type":
-            merged[key] = _merge_codex_types(existing, value)
-        elif key == "enum" and isinstance(existing, list) and isinstance(value, list):
-            intersection = [
-                _copy_codex_json(item)
-                for item in existing
-                if any(_codex_json_equal(item, candidate) for candidate in value)
-            ]
-            if not intersection:
+    shape_keys = {"additionalProperties", "properties", "required"}
+    merged: dict[str, object] = {}
+    for source in (left, right):
+        for key, value in source.items():
+            if key in shape_keys:
+                continue
+            if key not in merged:
+                merged[key] = _copy_codex_json(value)
+                continue
+            existing = merged[key]
+            if key == "type":
+                merged[key] = _merge_codex_types(existing, value)
+            elif key == "enum" and isinstance(existing, list) and isinstance(value, list):
+                intersection = [
+                    _copy_codex_json(item)
+                    for item in existing
+                    if any(_codex_json_equal(item, candidate) for candidate in value)
+                ]
+                if not intersection:
+                    raise _CodexSchemaDerivationError(
+                        "canonical schema composition contains conflicting enum constraints"
+                    )
+                merged[key] = intersection
+            elif key == "const":
+                if not _codex_json_equal(existing, value):
+                    raise _CodexSchemaDerivationError(
+                        "canonical schema composition contains conflicting const constraints"
+                    )
+                merged[key] = _copy_codex_json(existing)
+            elif key in _CODEX_BOUND_MAX_KEYS:
+                merged[key] = _merge_codex_bound(key, existing, value, take_max=True)
+            elif key in _CODEX_BOUND_MIN_KEYS:
+                merged[key] = _merge_codex_bound(key, existing, value, take_max=False)
+            elif key == "multipleOf":
+                merged[key] = _merge_codex_multiple_of(existing, value)
+            elif key in {"additionalItems", "items"}:
+                merged[key] = _merge_codex_schema_values(existing, value)
+            elif _codex_json_equal(existing, value):
+                continue
+            else:
                 raise _CodexSchemaDerivationError(
-                    "canonical schema composition contains conflicting enum constraints"
+                    "canonical schema composition contains conflicting provider fields"
                 )
-            merged[key] = intersection
-        elif key == "const":
-            if not _codex_json_equal(existing, value):
-                raise _CodexSchemaDerivationError(
-                    "canonical schema composition contains conflicting const constraints"
-                )
-            merged[key] = _copy_codex_json(existing)
-        elif key in _CODEX_BOUND_MAX_KEYS:
-            merged[key] = _merge_codex_bound(key, existing, value, take_max=True)
-        elif key in _CODEX_BOUND_MIN_KEYS:
-            merged[key] = _merge_codex_bound(key, existing, value, take_max=False)
-        elif key in {"additionalProperties", "additionalItems", "items"}:
-            merged[key] = _merge_codex_schema_values(existing, value)
-        elif existing == value:
-            continue
-        elif key == "additionalProperties" and (existing is False or value is False):
-            merged[key] = False
-        else:
-            raise _CodexSchemaDerivationError(
-                "canonical schema composition contains conflicting provider fields"
-            )
+
+    if _codex_schema_may_be_object(left) or _codex_schema_may_be_object(right):
+        merged = _merge_codex_object_shape(merged, left, right)
     _validate_codex_scalar_constraints(merged)
+    return merged
+
+
+def _codex_schema_may_be_object(schema: Mapping[str, object]) -> bool:
+    if "type" in schema:
+        type_atoms = _codex_type_atoms(schema["type"])
+        return type_atoms is not None and "object" in type_atoms
+    return bool(_CODEX_OBJECT_INTERSECTION_KEYS.intersection(schema))
+
+
+def _codex_object_properties(schema: Mapping[str, object]) -> Mapping[str, object]:
+    value = schema.get("properties")
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise _CodexSchemaDerivationError(
+            "canonical schema composition contains invalid object properties"
+        )
+    return value
+
+
+def _codex_object_required(schema: Mapping[str, object]) -> list[str]:
+    value = schema.get("required")
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise _CodexSchemaDerivationError(
+            "canonical schema composition contains invalid object required fields"
+        )
+    return list(cast(list[str], value))
+
+
+def _codex_object_additional(schema: Mapping[str, object]) -> object:
+    value = schema.get("additionalProperties", True)
+    if value is True or value is False or isinstance(value, Mapping):
+        return value
+    raise _CodexSchemaDerivationError(
+        "canonical schema composition contains invalid additionalProperties"
+    )
+
+
+def _merge_codex_object_shape(
+    merged: dict[str, object],
+    left: Mapping[str, object],
+    right: Mapping[str, object],
+) -> dict[str, object]:
+    left_properties = _codex_object_properties(left)
+    right_properties = _codex_object_properties(right)
+    left_required = _codex_object_required(left)
+    right_required = _codex_object_required(right)
+    required = _merge_codex_required(left_required, right_required)
+    left_additional = _codex_object_additional(left)
+    right_additional = _codex_object_additional(right)
+    left_closed = left_additional is False
+    right_closed = right_additional is False
+
+    candidate_names: list[str] = []
+    for name in [
+        *left_properties.keys(),
+        *right_properties.keys(),
+        *left_required,
+        *right_required,
+    ]:
+        if name not in candidate_names:
+            candidate_names.append(name)
+
+    properties: dict[str, object] = {}
+    required_set = set(required)
+    for name in candidate_names:
+        if left_closed and name not in left_properties:
+            continue
+        if right_closed and name not in right_properties:
+            continue
+        constraints: list[object] = []
+        if name in left_properties:
+            constraints.append(left_properties[name])
+        elif isinstance(left_additional, Mapping):
+            constraints.append(left_additional)
+        if name in right_properties:
+            constraints.append(right_properties[name])
+        elif isinstance(right_additional, Mapping):
+            constraints.append(right_additional)
+        property_schema: object = {}
+        try:
+            for constraint in constraints:
+                property_schema = _merge_codex_schema_values(property_schema, constraint)
+        except _CodexSchemaDerivationError as error:
+            if name not in required_set and (
+                "conflicting" in str(error) or "incompatible" in str(error)
+            ):
+                continue
+            raise
+        if property_schema is False:
+            if name in required_set:
+                raise _CodexSchemaDerivationError(
+                    "canonical schema composition requires a forbidden object property"
+                )
+            continue
+        properties[name] = property_schema
+
+    missing_required = [name for name in required if name not in properties]
+    if missing_required:
+        raise _CodexSchemaDerivationError(
+            "canonical schema composition requires a property forbidden by a closed object"
+        )
+    if "properties" in left or "properties" in right or "required" in left or "required" in right:
+        merged["properties"] = properties
+    if "required" in left or "required" in right:
+        merged["required"] = required
+
+    if left_closed or right_closed:
+        merged["additionalProperties"] = False
+    elif "additionalProperties" in left or "additionalProperties" in right:
+        if "additionalProperties" in left and "additionalProperties" in right:
+            try:
+                merged["additionalProperties"] = _merge_codex_schema_values(
+                    left_additional, right_additional
+                )
+            except _CodexSchemaDerivationError:
+                # No named property needs an unknown extra value.  A closed provider projection
+                # remains a sound, non-empty subset when two open extra-value schemas conflict.
+                merged["additionalProperties"] = False
+        elif "additionalProperties" in left:
+            merged["additionalProperties"] = _copy_codex_json(left_additional)
+        else:
+            merged["additionalProperties"] = _copy_codex_json(right_additional)
     return merged
 
 
@@ -545,7 +673,7 @@ def _merge_codex_schema_values(left: object, right: object) -> object:
         return False
     if isinstance(left, Mapping) and isinstance(right, Mapping):
         return _merge_codex_schema_objects(left, right)
-    if left == right:
+    if _codex_json_equal(left, right):
         return _copy_codex_json(left)
     raise _CodexSchemaDerivationError(
         "canonical schema composition contains conflicting schema values"
@@ -583,7 +711,7 @@ def _codex_type_atoms(value: object) -> set[str] | None:
         "integer",
         "number",
     }
-    if not set(values).issubset(allowed):
+    if not values or not set(values).issubset(allowed):
         return None
     atoms: set[str] = set()
     for item in values:
@@ -618,64 +746,353 @@ def _merge_codex_bound(
     *,
     take_max: bool,
 ) -> object:
-    if isinstance(left, bool) or isinstance(right, bool):
-        raise _CodexSchemaDerivationError(
-            f"canonical schema composition contains invalid {key} constraints"
-        )
-    if not isinstance(left, (int, float)) or not isinstance(right, (int, float)):
-        raise _CodexSchemaDerivationError(
-            f"canonical schema composition contains invalid {key} constraints"
-        )
-    return max(left, right) if take_max else min(left, right)
+    left_number = _codex_number_fraction(left, key)
+    right_number = _codex_number_fraction(right, key)
+    if left_number == right_number:
+        return _copy_codex_json(left)
+    take_left = (
+        left_number > right_number if take_max else left_number < right_number
+    )
+    return _copy_codex_json(left if take_left else right)
+
+
+def _merge_codex_multiple_of(left: object, right: object) -> object:
+    left_number = _codex_positive_number_fraction(left, "multipleOf")
+    right_number = _codex_positive_number_fraction(right, "multipleOf")
+    if left_number == right_number:
+        return _copy_codex_json(left)
+    common_multiple = Fraction(
+        left_number.numerator * right_number.numerator,
+        math.gcd(
+            left_number.numerator * right_number.denominator,
+            right_number.numerator * left_number.denominator,
+        ),
+    )
+    return _fraction_to_codex_json_number(common_multiple, "multipleOf")
 
 
 def _close_codex_object_composition_branch(
     branch: object, parent_properties: Mapping[str, object]
 ) -> object:
-    if not isinstance(branch, Mapping) or branch.get("type") != "object":
+    if not isinstance(branch, Mapping) or not _codex_schema_may_be_object(branch):
         return branch
     branch_properties = branch.get("properties")
-    if not isinstance(branch_properties, Mapping):
-        return branch
     closed = dict(branch)
+    if not isinstance(branch_properties, Mapping):
+        branch_properties = {}
+    closed["type"] = "object"
     closed["properties"] = _merge_codex_properties(parent_properties, branch_properties)
     closed["additionalProperties"] = False
-    required = branch.get("required")
-    current_required = required if isinstance(required, list) else []
+    current_required = _codex_object_required(branch)
     closed["required"] = _merge_codex_required(
         current_required, list(parent_properties.keys())
     )
+    _validate_codex_scalar_constraints(closed)
     return closed
 
 
+def _finalize_codex_provider_schema(value: object) -> object:
+    if isinstance(value, Mapping):
+        finalized = {
+            key: _finalize_codex_provider_schema(child) for key, child in value.items()
+        }
+        if finalized.get("type") == "object":
+            properties_value = finalized.get("properties")
+            properties = (
+                cast(Mapping[str, object], properties_value)
+                if isinstance(properties_value, Mapping)
+                else {}
+            )
+            finalized["properties"] = dict(properties)
+            if "additionalProperties" not in finalized:
+                finalized["additionalProperties"] = False
+            finalized["required"] = _merge_codex_required(
+                _codex_object_required(finalized), list(properties.keys())
+            )
+            for composition_key in ("anyOf", "oneOf"):
+                branches = finalized.get(composition_key)
+                if isinstance(branches, list):
+                    finalized[composition_key] = [
+                        _close_codex_object_composition_branch(branch, properties)
+                        for branch in branches
+                    ]
+            _validate_codex_scalar_constraints(finalized)
+        return finalized
+    if isinstance(value, list):
+        return [_finalize_codex_provider_schema(child) for child in value]
+    return value
+
+
 def _validate_codex_scalar_constraints(schema: Mapping[str, object]) -> None:
-    type_atoms = _codex_type_atoms(schema["type"]) if "type" in schema else None
+    type_atoms: set[str] | None = None
+    if "type" in schema:
+        type_atoms = _codex_type_atoms(schema["type"])
+        if type_atoms is None:
+            raise _CodexSchemaDerivationError(
+                "canonical schema composition contains an invalid type constraint"
+            )
+    _validate_codex_constraint_shapes(schema, type_atoms)
     const = schema.get("const")
-    if "const" in schema and "type" in schema and not _codex_value_matches_type(
-        const, type_atoms
-    ):
+    if "const" in schema and not _codex_value_satisfies_schema(const, schema):
         raise _CodexSchemaDerivationError(
-            "canonical schema composition contains an incompatible const and type"
+            "canonical schema composition contains an incompatible const constraint"
         )
     enum = schema.get("enum")
-    if isinstance(enum, list):
-        if "type" in schema and not all(
-            _codex_value_matches_type(item, type_atoms) for item in enum
+    if "enum" in schema:
+        if not isinstance(enum, list) or not enum:
+            raise _CodexSchemaDerivationError(
+                "canonical schema composition contains an empty enum constraint"
+            )
+        viable = [
+            _copy_codex_json(item)
+            for item in enum
+            if _codex_value_satisfies_schema(item, schema)
+        ]
+        if not viable:
+            raise _CodexSchemaDerivationError(
+                "canonical schema composition contains an empty scalar domain"
+            )
+        schema["enum"] = viable  # type: ignore[index]
+    _validate_codex_numeric_domain(schema, type_atoms)
+
+
+def _codex_number_fraction(value: object, key: str) -> Fraction:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise _CodexSchemaDerivationError(
+            f"canonical schema composition contains invalid {key} constraints"
+        )
+    if isinstance(value, float) and not math.isfinite(value):
+        raise _CodexSchemaDerivationError(
+            f"canonical schema composition contains invalid {key} constraints"
+        )
+    try:
+        return Fraction(str(value))
+    except (OverflowError, ValueError, ZeroDivisionError):
+        raise _CodexSchemaDerivationError(
+            f"canonical schema composition contains invalid {key} constraints"
+        ) from None
+
+
+def _codex_positive_number_fraction(value: object, key: str) -> Fraction:
+    fraction = _codex_number_fraction(value, key)
+    if fraction <= 0:
+        raise _CodexSchemaDerivationError(
+            f"canonical schema composition contains invalid {key} constraints"
+        )
+    return fraction
+
+
+def _fraction_to_codex_json_number(value: Fraction, key: str) -> int | float:
+    if value.denominator == 1:
+        return value.numerator
+    denominator = value.denominator
+    twos = 0
+    fives = 0
+    while denominator % 2 == 0:
+        denominator //= 2
+        twos += 1
+    while denominator % 5 == 0:
+        denominator //= 5
+        fives += 1
+    if denominator != 1:
+        raise _CodexSchemaDerivationError(
+            f"canonical schema composition contains an unrepresentable {key} intersection"
+        )
+    scale = max(twos, fives)
+    decimal_numerator = value.numerator * (2 ** (scale - twos)) * (5 ** (scale - fives))
+    sign = "-" if decimal_numerator < 0 else ""
+    digits = str(abs(decimal_numerator)).rjust(scale + 1, "0")
+    decimal_text = (
+        f"{sign}{digits[:-scale]}.{digits[-scale:]}" if scale else f"{sign}{digits}"
+    )
+    try:
+        candidate = float(decimal_text)
+    except (OverflowError, ValueError):
+        raise _CodexSchemaDerivationError(
+            f"canonical schema composition contains an unrepresentable {key} intersection"
+        ) from None
+    if not math.isfinite(candidate) or _codex_number_fraction(candidate, key) != value:
+        raise _CodexSchemaDerivationError(
+            f"canonical schema composition contains an unrepresentable {key} intersection"
+        )
+    return candidate
+
+
+def _validate_codex_constraint_shapes(
+    schema: Mapping[str, object], type_atoms: set[str] | None
+) -> None:
+    for key in ("minimum", "exclusiveMinimum", "maximum", "exclusiveMaximum"):
+        if key in schema:
+            _codex_number_fraction(schema[key], key)
+    if "multipleOf" in schema:
+        _codex_positive_number_fraction(schema["multipleOf"], "multipleOf")
+    if "pattern" in schema:
+        pattern = schema["pattern"]
+        if not isinstance(pattern, str):
+            raise _CodexSchemaDerivationError(
+                "canonical schema composition contains an invalid pattern constraint"
+            )
+        try:
+            re.compile(pattern)
+        except re.error:
+            raise _CodexSchemaDerivationError(
+                "canonical schema composition contains an unsupported pattern constraint"
+            ) from None
+    count_keys = (
+        "minLength",
+        "maxLength",
+        "minItems",
+        "maxItems",
+        "minProperties",
+        "maxProperties",
+        "minContains",
+        "maxContains",
+    )
+    for key in count_keys:
+        if key not in schema:
+            continue
+        value = schema[key]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise _CodexSchemaDerivationError(
+                f"canonical schema composition contains invalid {key} constraints"
+            )
+    for lower_key, upper_key, expected_type in (
+        ("minLength", "maxLength", "string"),
+        ("minItems", "maxItems", "array"),
+        ("minProperties", "maxProperties", "object"),
+        ("minContains", "maxContains", "array"),
+    ):
+        lower = schema.get(lower_key)
+        upper = schema.get(upper_key)
+        if lower is None or upper is None or cast(int, lower) <= cast(int, upper):
+            continue
+        if lower_key == "minContains" and "contains" not in schema:
+            continue
+        if type_atoms == {expected_type}:
+            raise _CodexSchemaDerivationError(
+                "canonical schema composition contains conflicting "
+                f"{lower_key}/{upper_key} constraints"
+            )
+    lower, upper = _codex_numeric_interval(schema)
+    if lower is not None and upper is not None:
+        lower_value, lower_exclusive = lower
+        upper_value, upper_exclusive = upper
+        if (
+            lower_value > upper_value
+            or (
+                lower_value == upper_value
+                and (lower_exclusive or upper_exclusive)
+            )
+        ) and type_atoms is not None and not (
+            type_atoms - {"integer", "non_integer_number"}
         ):
             raise _CodexSchemaDerivationError(
-                "canonical schema composition contains an incompatible enum and type"
+                "canonical schema composition contains conflicting numeric bounds"
             )
-        if "const" in schema and not any(
-            _codex_json_equal(item, const) for item in enum
-        ):
+
+
+def _codex_numeric_interval(
+    schema: Mapping[str, object],
+) -> tuple[tuple[Fraction, bool] | None, tuple[Fraction, bool] | None]:
+    lower: list[tuple[Fraction, bool]] = []
+    upper: list[tuple[Fraction, bool]] = []
+    for key, target, exclusive in (
+        ("minimum", lower, False),
+        ("exclusiveMinimum", lower, True),
+        ("maximum", upper, False),
+        ("exclusiveMaximum", upper, True),
+    ):
+        if key in schema:
+            target.append((_codex_number_fraction(schema[key], key), exclusive))
+    lower_result = None
+    upper_result = None
+    if lower:
+        lower_value = max(value for value, _exclusive in lower)
+        lower_result = (
+            lower_value,
+            any(value == lower_value and exclusive for value, exclusive in lower),
+        )
+    if upper:
+        upper_value = min(value for value, _exclusive in upper)
+        upper_result = (
+            upper_value,
+            any(value == upper_value and exclusive for value, exclusive in upper),
+        )
+    return lower_result, upper_result
+
+
+def _validate_codex_numeric_domain(
+    schema: Mapping[str, object], type_atoms: set[str] | None
+) -> None:
+    numeric_atoms = {"integer", "non_integer_number"}
+    if type_atoms is None or type_atoms - numeric_atoms:
+        return
+    lower, upper = _codex_numeric_interval(schema)
+    multiple = (
+        _codex_positive_number_fraction(schema["multipleOf"], "multipleOf")
+        if "multipleOf" in schema
+        else None
+    )
+    if multiple is None:
+        if type_atoms == {"integer"} and not _codex_integer_range_has_value(lower, upper):
             raise _CodexSchemaDerivationError(
-                "canonical schema composition contains an incompatible const and enum"
+                "canonical schema composition contains an empty integer domain"
             )
-    _validate_codex_numeric_bounds(schema, type_atoms)
-    _validate_codex_bound_pair(schema, type_atoms, "minLength", "maxLength")
-    _validate_codex_bound_pair(schema, type_atoms, "minItems", "maxItems")
-    _validate_codex_bound_pair(schema, type_atoms, "minProperties", "maxProperties")
-    _validate_codex_bound_pair(schema, type_atoms, "minContains", "maxContains")
+        return
+    if type_atoms == {"integer"}:
+        integer_range = _codex_integer_range(lower, upper)
+        if not _codex_integer_range_has_multiple(integer_range, multiple.numerator):
+            raise _CodexSchemaDerivationError(
+                "canonical schema composition contains an empty integer domain"
+            )
+        return
+    multiple_range = _codex_integer_range(
+        None
+        if lower is None
+        else (lower[0] / multiple, lower[1]),
+        None
+        if upper is None
+        else (upper[0] / multiple, upper[1]),
+    )
+    if not _codex_integer_range_has_multiple(multiple_range, 1):
+        raise _CodexSchemaDerivationError(
+            "canonical schema composition contains an empty numeric domain"
+        )
+
+
+def _codex_integer_range(
+    lower: tuple[Fraction, bool] | None,
+    upper: tuple[Fraction, bool] | None,
+) -> tuple[int | None, int | None]:
+    lower_value = None
+    upper_value = None
+    if lower is not None:
+        value, exclusive = lower
+        lower_value = math.floor(value) + 1 if exclusive else math.ceil(value)
+    if upper is not None:
+        value, exclusive = upper
+        upper_value = math.ceil(value) - 1 if exclusive else math.floor(value)
+    return lower_value, upper_value
+
+
+def _codex_integer_range_has_value(
+    lower: tuple[Fraction, bool] | None,
+    upper: tuple[Fraction, bool] | None,
+) -> bool:
+    lower_integer, upper_integer = _codex_integer_range(lower, upper)
+    return _codex_integer_range_has_multiple((lower_integer, upper_integer), 1)
+
+
+def _codex_integer_range_has_multiple(
+    integer_range: tuple[int | None, int | None], step: int
+) -> bool:
+    if step <= 0:
+        raise _CodexSchemaDerivationError("canonical schema contains an invalid numeric step")
+    lower, upper = integer_range
+    if lower is None:
+        return True
+    candidate = ((lower + step - 1) // step) * step
+    return upper is None or candidate <= upper
 
 
 def _codex_json_equal(left: object, right: object) -> bool:
@@ -720,88 +1137,147 @@ def _codex_value_matches_type(value: object, type_atoms: set[str] | None) -> boo
     return kind in type_atoms
 
 
-def _validate_codex_numeric_bounds(
-    schema: Mapping[str, object], type_atoms: set[str] | None
-) -> None:
-    keys = ("minimum", "exclusiveMinimum", "maximum", "exclusiveMaximum")
-    if not any(key in schema for key in keys):
-        return
-    applies = type_atoms is None or bool(
-        {"integer", "non_integer_number"}.intersection(type_atoms)
-    )
-    if not applies:
-        return
-    lower: list[tuple[int | float, bool]] = []
-    upper: list[tuple[int | float, bool]] = []
-    for key, target, exclusive in (
-        ("minimum", lower, False),
-        ("exclusiveMinimum", lower, True),
-        ("maximum", upper, False),
-        ("exclusiveMaximum", upper, True),
-    ):
-        value = schema.get(key)
-        if value is None:
+def _codex_value_satisfies_schema(value: object, schema: object) -> bool:
+    if schema is True:
+        return True
+    if schema is False or not isinstance(schema, Mapping):
+        return False
+    type_atoms = None
+    if "type" in schema:
+        type_atoms = _codex_type_atoms(schema["type"])
+        if type_atoms is None or not _codex_value_matches_type(value, type_atoms):
+            return False
+    if "const" in schema and not _codex_json_equal(value, schema["const"]):
+        return False
+    if "enum" in schema:
+        enum = schema["enum"]
+        if not isinstance(enum, list) or not any(
+            _codex_json_equal(value, candidate) for candidate in enum
+        ):
+            return False
+    for composition_key in ("allOf", "anyOf", "oneOf"):
+        branches = schema.get(composition_key)
+        if branches is None:
             continue
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+        if not isinstance(branches, list):
             raise _CodexSchemaDerivationError(
-                "canonical schema composition contains invalid numeric constraints"
+                f"canonical schema composition contains an invalid {composition_key}"
             )
-        target.append((value, exclusive))
-    if not lower or not upper:
-        return
-    lower_value = max(value for value, _exclusive in lower)
-    upper_value = min(value for value, _exclusive in upper)
-    lower_exclusive = any(value == lower_value and exclusive for value, exclusive in lower)
-    upper_exclusive = any(value == upper_value and exclusive for value, exclusive in upper)
-    if lower_value > upper_value or (
-        lower_value == upper_value and (lower_exclusive or upper_exclusive)
-    ):
-        raise _CodexSchemaDerivationError(
-            "canonical schema composition contains conflicting numeric bounds"
-        )
+        matches = [_codex_value_satisfies_schema(value, branch) for branch in branches]
+        if composition_key == "allOf" and not all(matches):
+            return False
+        if composition_key == "anyOf" and not any(matches):
+            return False
+        if composition_key == "oneOf" and sum(matches) != 1:
+            return False
+    if "not" in schema and _codex_value_satisfies_schema(value, schema["not"]):
+        return False
+    return _codex_value_satisfies_scalar_constraints(value, schema, type_atoms)
 
 
-def _validate_codex_bound_pair(
-    schema: Mapping[str, object],
-    type_atoms: set[str] | None,
-    lower_key: str,
-    upper_key: str,
-    *,
-    numeric: bool = False,
-) -> None:
-    lower = schema.get(lower_key)
-    upper = schema.get(upper_key)
-    if lower is None or upper is None:
-        return
-    if numeric:
-        applies = type_atoms is None or bool(
-            {"integer", "non_integer_number"}.intersection(type_atoms)
-        )
-    else:
-        expected = {
-            "minLength": "string",
-            "minItems": "array",
-            "minProperties": "object",
-            "minContains": None,
-        }[lower_key]
-        applies = type_atoms is None or expected is None or expected in type_atoms
-    if not applies:
-        return
-    if isinstance(lower, bool) or isinstance(upper, bool):
-        raise _CodexSchemaDerivationError(
-            f"canonical schema composition contains invalid {lower_key}/{upper_key} constraints"
-        )
-    if not isinstance(lower, (int, float)) or not isinstance(upper, (int, float)):
-        raise _CodexSchemaDerivationError(
-            f"canonical schema composition contains invalid {lower_key}/{upper_key} constraints"
-        )
-    if lower > upper:
-        raise _CodexSchemaDerivationError(
-            f"canonical schema composition contains conflicting {lower_key}/{upper_key} constraints"
-        )
+def _codex_value_satisfies_scalar_constraints(
+    value: object, schema: Mapping[str, object], type_atoms: set[str] | None
+) -> bool:
+    if _codex_is_json_number(value):
+        number = _codex_number_fraction(value, "numeric")
+        lower, upper = _codex_numeric_interval(schema)
+        if lower is not None:
+            lower_value, exclusive = lower
+            if number < lower_value or (number == lower_value and exclusive):
+                return False
+        if upper is not None:
+            upper_value, exclusive = upper
+            if number > upper_value or (number == upper_value and exclusive):
+                return False
+        if "multipleOf" in schema:
+            multiple = _codex_positive_number_fraction(schema["multipleOf"], "multipleOf")
+            if (number / multiple).denominator != 1:
+                return False
+    if isinstance(value, str):
+        if "minLength" in schema and len(value) < cast(int, schema["minLength"]):
+            return False
+        if "maxLength" in schema and len(value) > cast(int, schema["maxLength"]):
+            return False
+        if "pattern" in schema and re.search(cast(str, schema["pattern"]), value) is None:
+            return False
+    if isinstance(value, list):
+        if "minItems" in schema and len(value) < cast(int, schema["minItems"]):
+            return False
+        if "maxItems" in schema and len(value) > cast(int, schema["maxItems"]):
+            return False
+        if schema.get("uniqueItems") is True:
+            for index, item in enumerate(value):
+                if any(_codex_json_equal(item, other) for other in value[:index]):
+                    return False
+        items = schema.get("items")
+        if items is not None and not all(
+            _codex_value_satisfies_schema(item, items) for item in value
+        ):
+            return False
+        prefix_items = schema.get("prefixItems")
+        if isinstance(prefix_items, list) and not all(
+            _codex_value_satisfies_schema(item, prefix_items[index])
+            for index, item in enumerate(value[: len(prefix_items)])
+        ):
+            return False
+        contains = schema.get("contains")
+        if contains is not None:
+            matching = sum(_codex_value_satisfies_schema(item, contains) for item in value)
+            minimum = cast(int, schema.get("minContains", 1))
+            maximum = schema.get("maxContains")
+            if matching < minimum or (
+                maximum is not None and matching > cast(int, maximum)
+            ):
+                return False
+    if isinstance(value, Mapping):
+        if "minProperties" in schema and len(value) < cast(int, schema["minProperties"]):
+            return False
+        if "maxProperties" in schema and len(value) > cast(int, schema["maxProperties"]):
+            return False
+        required = schema.get("required")
+        if isinstance(required, list) and any(name not in value for name in required):
+            return False
+        properties = schema.get("properties")
+        property_names = set(properties) if isinstance(properties, Mapping) else set()
+        if isinstance(properties, Mapping):
+            for name, property_schema in properties.items():
+                if name in value and not _codex_value_satisfies_schema(
+                    value[name], property_schema
+                ):
+                    return False
+        additional = schema.get("additionalProperties", True)
+        if additional is False:
+            patterns = schema.get("patternProperties")
+            for name in value:
+                if name in property_names:
+                    continue
+                if isinstance(patterns, Mapping) and any(
+                    re.search(cast(str, pattern), name) is not None for pattern in patterns
+                ):
+                    continue
+                return False
+        elif isinstance(additional, Mapping):
+            patterns = schema.get("patternProperties")
+            for name, item in value.items():
+                if name in property_names:
+                    continue
+                if isinstance(patterns, Mapping) and any(
+                    re.search(cast(str, pattern), name) is not None for pattern in patterns
+                ):
+                    continue
+                if not _codex_value_satisfies_schema(item, additional):
+                    return False
+    del type_atoms
+    return True
 
 
-def _merge_codex_required(left: list[object], right: list[object]) -> list[object]:
+def _codex_is_json_number(value: object) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float))
+
+
+def _merge_codex_required(
+    left: Sequence[object], right: Sequence[object]
+) -> list[object]:
     result: list[object] = []
     for item in [*left, *right]:
         if item not in result:

@@ -611,7 +611,7 @@ def test_compatible_scalar_allof_constraints_intersect_without_mutation() -> Non
     }
     assert properties["value"] == {
         "type": "string",
-        "enum": ["a", "b"],
+        "enum": ["a"],
         "const": "a",
     }
 
@@ -645,6 +645,243 @@ def test_genuinely_conflicting_scalar_allof_is_deterministic(
 ) -> None:
     with pytest.raises(ValueError):
         derive_codex_provider_schema(canonical)
+
+
+@pytest.mark.parametrize(
+    "canonical",
+    [
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "allOf": [{"const": 1}, {"minimum": 2}],
+        },
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "allOf": [{"enum": [1, 2]}, {"type": "integer", "minimum": 3}],
+        },
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "integer",
+            "minimum": 0.1,
+            "maximum": 0.9,
+        },
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "allOf": [
+                {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {"a": {"type": "string"}},
+                },
+                {
+                    "type": "object",
+                    "required": ["b"],
+                    "properties": {"b": {"type": "string"}},
+                },
+            ],
+        },
+    ],
+)
+def test_empty_scalar_or_closed_object_domains_fail_before_provider_start(
+    tmp_path: Path, canonical: dict[str, object]
+) -> None:
+    schema = tmp_path / "empty-domain.schema.json"
+    schema.write_text(json.dumps(canonical), encoding="utf-8")
+    process = FakeProcess(_jsonl({"ok": True}))
+    created: list[tuple[ProcessSpec, FakeProcess]] = []
+    client = _client(process, created)
+
+    with pytest.raises(ProviderRuntimeConfigurationError) as raised:
+        client.complete(
+            payload={"request": "empty-domain"},
+            schema_path=schema,
+            model="model-a",
+            reasoning_effort="high",
+            fast_mode=False,
+        )
+
+    assert raised.value.error_code == "provider_schema_derivation_failed"
+    assert raised.value.transmission.value == "not_transmitted"
+    assert created == []
+
+
+def test_enum_intersection_filters_incompatible_members_and_keeps_canonical_input() -> None:
+    canonical = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "allOf": [
+            {"enum": [1, "x"]},
+            {"type": "integer", "minimum": 1, "maximum": 1},
+        ],
+    }
+    original = json.loads(json.dumps(canonical))
+
+    provider = derive_codex_provider_schema(canonical)
+
+    assert canonical == original
+    assert provider == {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "enum": [1],
+        "maximum": 1,
+        "minimum": 1,
+        "type": "integer",
+    }
+
+
+def test_enum_intersection_filters_string_and_array_values_by_applicable_limits() -> None:
+    string_schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "allOf": [{"enum": ["a", "long"]}, {"minLength": 2}],
+    }
+    array_schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "allOf": [{"enum": [[], [1]]}, {"type": "array", "minItems": 1}],
+    }
+
+    assert derive_codex_provider_schema(string_schema)["enum"] == ["long"]
+    assert derive_codex_provider_schema(array_schema)["enum"] == [[1]]
+
+
+def test_multiple_of_intersection_is_exact_for_integer_and_decimal_json_numbers() -> None:
+    integer_schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "allOf": [{"type": "integer", "multipleOf": 2}, {"multipleOf": 3}],
+    }
+    decimal_schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "allOf": [{"type": "number", "multipleOf": 0.2}, {"multipleOf": 0.3}],
+    }
+
+    integer_provider = derive_codex_provider_schema(integer_schema)
+    decimal_provider = derive_codex_provider_schema(decimal_schema)
+
+    assert integer_provider["multipleOf"] == 6
+    assert decimal_provider["multipleOf"] == 0.6
+    assert Draft202012Validator(integer_provider).is_valid(6)
+    assert not Draft202012Validator(integer_provider).is_valid(2)
+    assert Draft202012Validator(decimal_provider).is_valid(1.2)
+    assert not Draft202012Validator(decimal_provider).is_valid(0.3)
+
+
+@pytest.mark.parametrize("multiple_of", [0, -1, 0.0])
+def test_invalid_multiple_of_is_rejected_before_projection(multiple_of: int | float) -> None:
+    canonical = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "number",
+        "multipleOf": multiple_of,
+    }
+
+    with pytest.raises(ValueError, match="multipleOf"):
+        derive_codex_provider_schema(canonical)
+
+
+def test_closed_object_intersection_keeps_only_the_true_property_intersection() -> None:
+    canonical = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "allOf": [
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "a": {"type": "string"},
+                    "b": {"type": "integer"},
+                },
+            },
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "b": {"type": "number"},
+                    "c": {"type": "string"},
+                },
+            },
+        ],
+    }
+    original = json.loads(json.dumps(canonical))
+
+    provider = derive_codex_provider_schema(canonical)
+
+    assert canonical == original
+    assert provider["properties"] == {"b": {"type": "integer"}}
+    assert provider["required"] == ["b"]
+    assert provider["additionalProperties"] is False
+    assert Draft202012Validator(canonical).is_valid({"b": 2})
+    assert Draft202012Validator(provider).is_valid({"b": 2})
+    assert not Draft202012Validator(provider).is_valid({"a": "x", "b": 2})
+
+
+def test_open_and_closed_object_intersection_preserves_closed_authority() -> None:
+    canonical = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "allOf": [
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {"a": {"type": "string"}},
+            },
+            {
+                "type": "object",
+                "required": ["a"],
+                "properties": {
+                    "a": {"minLength": 1},
+                    "b": {"type": "string"},
+                },
+            },
+        ],
+    }
+
+    provider = derive_codex_provider_schema(canonical)
+
+    assert provider["properties"] == {"a": {"type": "string", "minLength": 1}}
+    assert provider["required"] == ["a"]
+    assert Draft202012Validator(canonical).is_valid({"a": "x"})
+    assert not Draft202012Validator(provider).is_valid({"a": "x", "b": "y"})
+
+
+def test_two_closed_objects_with_disjoint_optional_properties_intersect_at_empty_object() -> None:
+    canonical = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "allOf": [
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {"a": {"type": "string"}},
+            },
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {"b": {"type": "string"}},
+            },
+        ],
+    }
+
+    provider = derive_codex_provider_schema(canonical)
+
+    assert provider["properties"] == {}
+    assert provider["required"] == []
+    assert Draft202012Validator(canonical).is_valid({})
+    assert Draft202012Validator(provider).is_valid({})
+
+
+def test_closed_and_open_additional_properties_intersect_named_property_constraints() -> None:
+    canonical = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "allOf": [
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {"a": {"type": "string"}},
+            },
+            {
+                "type": "object",
+                "additionalProperties": {"type": "string"},
+                "properties": {"a": {"minLength": 2}},
+            },
+        ],
+    }
+
+    provider = derive_codex_provider_schema(canonical)
+
+    assert provider["properties"] == {"a": {"type": "string", "minLength": 2}}
+    assert provider["additionalProperties"] is False
 
 
 def test_runtime_model_mismatch_is_sanitized() -> None:
