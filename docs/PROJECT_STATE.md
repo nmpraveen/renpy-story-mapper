@@ -5,8 +5,10 @@ Updated: 2026-08-04
 ## Active work
 
 - Active product direction: AI-first Ren'Py-game-to-readable-web-storyboard pipeline.
-- Active phase: Phase 01.1 contract/evidence hardening. Focused implementation checks pass; the
-  real canary rerun and visual acceptance remain pending, and later phases remain paused.
+- Active phase: Phase 01.1 contract/evidence hardening. The combined core-contract and canonical-
+  renderer implementation is locally integrated and review-pending; focused implementation checks
+  pass, while the real canary rerun and visual acceptance remain pending and later phases remain
+  paused.
 - Active goal and task ledger: [`docs/storyboard-v2/GOAL.md`](storyboard-v2/GOAL.md).
 - Phase instructions: [`_storyboard_plan/02_PHASE_01_CANARY_PROMPT.md`](../_storyboard_plan/02_PHASE_01_CANARY_PROMPT.md).
 - Repository rules: [`AGENTS.md`](../AGENTS.md).
@@ -34,7 +36,8 @@ The isolated `src/renpy_story_mapper/storyboard/` path now implements a parser-i
 source-line ledger with parser annotations, one canonical evidence/profile/analysis contract,
 exact-once semantic ownership and per-scene/per-arm coverage, status-aware uncertainty validation,
 semantic scene destinations with source/target evidence, structural parent closure, public-path
-redaction, and normal-reader-first HTML rendering. The prior real-game canary covers
+redaction, and normal-reader-first HTML rendering. The Phase 01.1 core-contract and canonical-
+renderer repairs are combined locally and review-pending. The prior real-game canary covers
 `_6_2_WG_clean` lines 218-381 from `v0.07_6-1_clean.rpyc`, but its generated artifacts predate
 these Phase 01.1 corrections and were not regenerated in this task.
 
@@ -46,10 +49,11 @@ branch-owned records.
 The evidence, profile, and analysis files are linked by verified SHA-256 hashes of the exact emitted
 UTF-8 JSON bytes. The original `scripts.rpa` remained unchanged.
 
-The Phase 01.1 focused verification passes: 48 storyboard seam tests, Ruff, and strict mypy across
-the storyboard package. It includes parser-failure ledger recovery, branch ownership, dynamic
-status semantics, schema acceptance, scene ordering, nested span closure, path redaction, and the
-known-game/fixed-count scan. No real cloud canary acceptance run or screenshot was performed here.
+The Phase 01.1 focused verification passes: 60 `test_storyboard*.py` tests, Ruff, strict mypy, and
+Draft 2020-12 checks for both storyboard schemas. It includes parser-failure ledger recovery,
+branch ownership, dynamic status semantics, schema acceptance, scene ordering, nested span closure,
+canonical renderer topology, path redaction, and the known-game/fixed-count scan. No real cloud
+canary acceptance run or screenshot was performed here.
 
 The prior Chrome attempt was blocked by direct `file://` navigation policy. Phase 01.1 therefore
 remains awaiting the separate real-canary rerun and visual inspection of its generated `index.html`;

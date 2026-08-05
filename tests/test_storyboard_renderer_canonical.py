@@ -79,8 +79,6 @@ def _canonical_inputs() -> tuple[EvidenceIndex, dict[str, object], dict[str, obj
             "id": identifier,
             "from_id": source_scene_id,
             "to_id": destination_scene_id,
-            "source_scene_id": source_scene_id,
-            "destination_scene_id": destination_scene_id,
             "kind": kind,
             "source_evidence_ids": [source_evidence_id],
             "target_evidence_ids": [] if target_evidence_id is None else [target_evidence_id],
@@ -290,6 +288,30 @@ def test_canonical_renderer_accepts_mapping_evidence_from_real_index() -> None:
 
     assert "Canonical Reader Story" in html
     assert "game/canary.rpy:8" in html
+
+
+def test_canonical_renderer_ignores_legacy_topology_aliases() -> None:
+    index, profile, analysis = _canonical_inputs()
+    transitions = analysis["transitions"]
+    choices = analysis["choices"]
+    assert isinstance(transitions, list)
+    assert isinstance(choices, list)
+    assert isinstance(choices[0], dict)
+    arms = choices[0]["arms"]
+    assert isinstance(arms, list)
+    assert isinstance(arms[0], dict)
+
+    transitions[0]["source_scene_id"] = "scene-ending"
+    transitions[0]["destination_scene_id"] = "scene-ending"
+    arms[0]["destination_id"] = "scene-ending"
+    arms[0]["rejoin_id"] = "scene-ending"
+
+    html = render_storyboard_html(index.to_dict(), profile, analysis, {})
+
+    opening = html.index('<article class="scene" id="scene-0">')
+    branch = html.index('<article class="scene" id="scene-1">')
+    assert "Destination:</span>Ending" not in html[opening:branch]
+    assert "Shared merge" in html[branch:]
 
 
 def test_canonical_game_title_is_used_when_story_title_is_absent() -> None:

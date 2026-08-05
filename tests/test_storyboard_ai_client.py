@@ -183,6 +183,8 @@ def test_runtime_model_mismatch_is_sanitized() -> None:
         "conventions": [],
         "ending_patterns": [],
         "unresolved": [],
+        "status": "resolved",
+        "uncertainty": None,
     }
     process = FakeProcess(_jsonl(profile, model="unexpected-model"))
     created: list[tuple[ProcessSpec, FakeProcess]] = []
