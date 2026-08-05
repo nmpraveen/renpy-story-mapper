@@ -731,6 +731,72 @@ def test_pipeline_makes_one_profile_and_one_analysis_provider_call(tmp_path: Pat
     assert result.validation_report.publishable
 
 
+def test_pipeline_binds_complete_source_receipts_to_provider_results(tmp_path: Path) -> None:
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    expected_ids = [
+        item["id"] for item in evidence["records"] if isinstance(item, dict)
+    ]
+    semantic_marker = "AI-owned semantic content is preserved."
+
+    class IncompleteReceiptClient:
+        def complete(self, **request: object) -> dict[str, object]:
+            schema_path = request["schema_path"]
+            payload = request["payload"]
+            assert isinstance(schema_path, Path)
+            assert isinstance(payload, dict)
+            request_input = payload["input"]
+            assert isinstance(request_input, dict)
+            current_profile = request_input.get("game_profile")
+            profile, analysis = _schema_replays(raw_evidence, evidence)
+            if schema_path.name.startswith("game-profile"):
+                profile["conventions"] = [
+                    {
+                        "id": "semantic-marker",
+                        "kind": "test-convention",
+                        "description": semantic_marker,
+                        "evidence_ids": [expected_ids[0]],
+                        "confidence": "high",
+                        "status": "resolved",
+                        "uncertainty": None,
+                    }
+                ]
+                profile_source = profile["source"]
+                assert isinstance(profile_source, dict)
+                profile_source["scope_evidence_ids"] = [expected_ids[0]]
+                return profile
+            assert isinstance(current_profile, dict)
+            analysis_source = analysis["source"]
+            assert isinstance(analysis_source, dict)
+            analysis_source["profile_hash"] = _artifact_hash(current_profile)
+            analysis_source["canary_evidence_ids"] = [expected_ids[0]]
+            return analysis
+
+        def cancel(self) -> None:
+            return None
+
+    result = run_storyboard_pipeline(
+        game,
+        tmp_path / "bound-source-artifacts",
+        source_path="canary.rpy",
+        label="unfamiliar_entry",
+        ai_client=IncompleteReceiptClient(),  # type: ignore[arg-type]
+    )
+
+    assert result.game_profile["source"] == {
+        "evidence_index_hash": _artifact_hash(raw_evidence),
+        "scope_evidence_ids": expected_ids,
+    }
+    assert result.story_analysis["source"] == {
+        "evidence_index_hash": _artifact_hash(raw_evidence),
+        "profile_hash": _artifact_hash(result.game_profile),
+        "canary_evidence_ids": expected_ids,
+    }
+    conventions = result.game_profile["conventions"]
+    assert isinstance(conventions, list)
+    assert conventions[0]["description"] == semantic_marker
+    assert result.validation_report.publishable
+
+
 def test_pipeline_allows_exactly_one_targeted_canonical_repair(tmp_path: Path) -> None:
     game, raw_evidence, evidence = _source_and_evidence(tmp_path)
     profile, analysis = _schema_replays(raw_evidence, evidence)

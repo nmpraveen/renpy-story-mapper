@@ -183,6 +183,7 @@ def run_storyboard_pipeline(
     profile = _load_or_request_profile(
         selected_profile_replay,
         raw_evidence,
+        canary_ids,
         provider=provider,
         evidence_hash=evidence_hash,
         model=model,
@@ -305,6 +306,7 @@ def evidence_index_to_mapping(index: EvidenceIndex) -> dict[str, object]:
 def _load_or_request_profile(
     replay: ReplayInput | None,
     evidence: Mapping[str, object],
+    canary_ids: Sequence[str],
     *,
     provider: StoryboardJsonClient | None,
     evidence_hash: str,
@@ -318,7 +320,7 @@ def _load_or_request_profile(
     provider = provider or _new_provider()
     payload = build_game_profile_request(evidence_index=_copy_json_mapping(evidence))
     payload["required_provenance"] = {"evidence_index_hash": evidence_hash}
-    return _complete(
+    profile = _complete(
         provider,
         payload,
         "game-profile",
@@ -326,6 +328,13 @@ def _load_or_request_profile(
         reasoning_effort=reasoning_effort,
         fast_mode=fast_mode,
         timeout_seconds=timeout_seconds,
+    )
+    return _bind_deterministic_source(
+        profile,
+        {
+            "evidence_index_hash": evidence_hash,
+            "scope_evidence_ids": list(canary_ids),
+        },
     )
 
 
@@ -355,7 +364,7 @@ def _load_or_request_analysis(
         "evidence_index_hash": evidence_hash,
         "profile_hash": profile_hash,
     }
-    return _complete(
+    analysis = _complete(
         provider,
         payload,
         "story-analysis",
@@ -364,6 +373,24 @@ def _load_or_request_analysis(
         fast_mode=fast_mode,
         timeout_seconds=timeout_seconds,
     )
+    return _bind_deterministic_source(
+        analysis,
+        {
+            "evidence_index_hash": evidence_hash,
+            "profile_hash": profile_hash,
+            "canary_evidence_ids": list(canary_ids),
+        },
+    )
+
+
+def _bind_deterministic_source(
+    document: Mapping[str, object], source: Mapping[str, object]
+) -> dict[str, object]:
+    """Attach caller-owned provenance without changing AI semantic fields."""
+
+    bound = _copy_json_mapping(document)
+    bound["source"] = _copy_json_mapping(source)
+    return bound
 
 
 def _complete(
