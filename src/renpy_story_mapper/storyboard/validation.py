@@ -585,22 +585,20 @@ def _derive_expected_leaf_ownership(
 def _branch_id_for_chain(
     chain: Sequence[str], records: Mapping[str, JsonObject]
 ) -> str | None:
-    # The parent chain is ordered from the leaf annotation outward.  An inner evaluated
-    # condition therefore owns a leaf before its enclosing menu arm or outer condition.  The
-    # enclosing records remain in the chain for structural ancestry and citation validation.
+    # The parent chain is ordered from the leaf annotation outward, so the first physical branch
+    # owns the leaf.  This makes an inner condition win over its menu arm, while the menu arm wins
+    # over an outer condition that encloses the whole menu.
     for record_id in chain:
         record = records.get(record_id)
         if record is None:
             continue
-        if _text(record.get("kind")) != "condition":
-            continue
-        condition_type = _text(_facts(record).get("condition_type"))
-        if condition_type in {"if_branch", "else_branch"}:
+        kind = _text(record.get("kind"))
+        if kind == "choice_arm":
             return record_id
-    for record_id in chain:
-        record = records.get(record_id)
-        if record is not None and _text(record.get("kind")) == "choice_arm":
-            return record_id
+        if kind == "condition":
+            condition_type = _text(_facts(record).get("condition_type"))
+            if condition_type in {"if_branch", "else_branch"}:
+                return record_id
     return None
 
 

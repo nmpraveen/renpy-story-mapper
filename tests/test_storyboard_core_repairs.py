@@ -15,7 +15,7 @@ from renpy_story_mapper.storyboard.evidence import (
 from renpy_story_mapper.storyboard.model import redact_public_value
 from renpy_story_mapper.storyboard.pipeline import evidence_index_to_mapping
 from renpy_story_mapper.storyboard.render import render_storyboard_html
-from renpy_story_mapper.storyboard.validation import validate_phase01
+from renpy_story_mapper.storyboard.validation import project_physical_ownership, validate_phase01
 
 BRANCH_SOURCE = """label start:
     \"Intro\"
@@ -790,6 +790,62 @@ def test_nested_menu_condition_ownership_uses_deepest_evaluated_branch() -> None
     shared_report = validate_phase01(evidence, profile, shared)
     assert not shared_report.publishable
     assert any(issue.code == "arm_leaf_in_shared_scene" for issue in shared_report.errors)
+
+
+def test_nearest_branch_owns_lines_when_an_outer_condition_encloses_a_menu() -> None:
+    evidence = _evidence(
+        '''label start:
+    if outer_gate:
+        "Before menu"
+        menu:
+            "Left":
+                "Left line"
+            "Right":
+                if inner_gate:
+                    "Inner line"
+                "Right tail"
+        "After menu"
+    return
+'''
+    )
+    records = _records(evidence)
+    line_ids = {
+        int(item["facts"]["line_number"]): str(item["id"])
+        for item in records
+        if item["kind"] == "source_line" and isinstance(item.get("facts"), dict)
+    }
+    branches = {
+        str(item["id"]): item
+        for item in records
+        if item["kind"] in {"choice_arm", "condition"}
+    }
+    ownership = project_physical_ownership(evidence)
+    projected = {
+        str(item["branch_evidence_id"]): set(item["line_evidence_ids"])
+        for item in ownership["branches"]
+        if isinstance(item, dict)
+    }
+
+    outer = next(
+        branch_id
+        for branch_id, item in branches.items()
+        if item["kind"] == "condition" and item["facts"]["condition"] == "outer_gate"
+    )
+    inner = next(
+        branch_id
+        for branch_id, item in branches.items()
+        if item["kind"] == "condition" and item["facts"]["condition"] == "inner_gate"
+    )
+    arms = {
+        str(item["facts"]["caption"]): branch_id
+        for branch_id, item in branches.items()
+        if item["kind"] == "choice_arm"
+    }
+
+    assert projected[outer] == {line_ids[number] for number in (2, 3, 4, 11)}
+    assert projected[arms["Left"]] == {line_ids[number] for number in (5, 6)}
+    assert projected[inner] == {line_ids[number] for number in (8, 9)}
+    assert projected[arms["Right"]] == {line_ids[number] for number in (7, 10)}
 
 
 def test_scene_and_edge_completeness_bind_origin_and_destination_evidence() -> None:

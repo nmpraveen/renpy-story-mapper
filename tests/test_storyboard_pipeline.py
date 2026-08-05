@@ -1046,6 +1046,62 @@ def test_pipeline_repairs_schema_valid_dynamic_profile_once(tmp_path: Path) -> N
     assert result.validation_report.publishable
 
 
+def test_pipeline_repairs_unaccounted_source_and_invalid_choice_reference(
+    tmp_path: Path,
+) -> None:
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
+    invalid_analysis = json.loads(json.dumps(analysis))
+    invalid_scene = invalid_analysis["scenes"][0]
+    invalid_choice = invalid_analysis["choices"][0]
+    assert isinstance(invalid_scene, dict)
+    assert isinstance(invalid_choice, dict)
+    invalid_arms = invalid_choice["arms"]
+    assert isinstance(invalid_arms, list)
+    first_arm = invalid_arms[0]
+    assert isinstance(first_arm, dict)
+    invalid_scene["line_evidence_ids"] = []
+    invalid_choice["evidence_ids"] = list(first_arm["evidence_ids"])
+
+    class NewlyObservedRepairClient:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def complete(self, **request: object) -> dict[str, object]:
+            payload = request["payload"]
+            assert isinstance(payload, dict)
+            self.calls.append(payload)
+            if len(self.calls) == 1:
+                return profile
+            if len(self.calls) == 2:
+                return invalid_analysis
+            assert len(self.calls) == 3
+            repair_input = payload["input"]
+            assert isinstance(repair_input, dict)
+            issues = repair_input["validator_issues"]
+            assert isinstance(issues, list)
+            issue_codes = {item["path"][1] for item in issues}
+            assert "invalid_choice_reference" in issue_codes
+            assert "missing_menu_arm" in issue_codes
+            assert "unaccounted_source" in issue_codes
+            return analysis
+
+        def cancel(self) -> None:
+            return None
+
+    client = NewlyObservedRepairClient()
+    result = run_storyboard_pipeline(
+        game,
+        tmp_path / "newly-observed-validation-repair-artifacts",
+        source_path="canary.rpy",
+        label="unfamiliar_entry",
+        ai_client=client,  # type: ignore[arg-type]
+    )
+
+    assert len(client.calls) == 3
+    assert result.validation_report.publishable
+
+
 def test_pipeline_stops_after_failed_deterministic_analysis_repair(tmp_path: Path) -> None:
     game, raw_evidence, evidence = _source_and_evidence(tmp_path)
     profile, analysis = _schema_replays(raw_evidence, evidence)

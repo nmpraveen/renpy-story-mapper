@@ -75,14 +75,18 @@ _ANALYSIS_REPAIRABLE_CODES = frozenset(
         "duplicate_membership",
         "dynamic_behavior_as_fact",
         "incomplete_arm_coverage",
+        "incomplete_scene_coverage",
+        "invalid_choice_reference",
         "invalid_scene_order",
         "invalid_story_reference",
         "missing_branch_ownership",
+        "missing_menu_arm",
         "scene_contains_branch_leaves",
         "source_evidence_not_in_origin_arm",
         "source_evidence_not_in_origin_scene",
         "target_evidence_not_in_destination_scene",
         "unaccounted_evidence",
+        "unaccounted_source",
     }
 )
 
