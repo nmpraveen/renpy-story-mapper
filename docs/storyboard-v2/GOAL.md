@@ -58,7 +58,7 @@ add game-specific rules, polish the final UI, or start Phase 02.
 | Select one representative real-game canary section | Complete | `_6_2_WG_clean`, lines 218-381, recovered read-only from `v0.07_6-1_clean.rpyc` |
 | Build the isolated storyboard path and generic evidence index | Complete | `src/renpy_story_mapper/storyboard/`; 159 stable evidence records |
 | Generate AI profile/story analysis and deterministic validation | Complete | Publishable: 159/159, zero excluded, missing, or duplicated; byte-level SHA-256 provenance verified |
-| Complete bounded Phase 01.1 contract and evidence repairs | Locally integrated; review pending | 68 focused storyboard tests, Ruff, strict mypy, and both Draft 2020-12 schema checks pass; no real cloud canary or screenshot run |
+| Complete bounded Phase 01.1 contract and evidence repairs | Locally integrated; review pending | 70 focused storyboard tests, Ruff, strict mypy, and both Draft 2020-12 schema checks pass; no real cloud canary or screenshot run |
 | Rerun the real canary and inspect the rendered page, then stop before Phase 02 | Pending separate acceptance worker and visual acceptance | Existing accepted artifacts predate Phase 01.1 and were not regenerated in this task |
 
 ## Current pause boundary
