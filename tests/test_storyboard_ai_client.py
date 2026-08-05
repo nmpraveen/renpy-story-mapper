@@ -32,8 +32,15 @@ from renpy_story_mapper.storyboard.prompts import (
 
 
 class FakeProcess:
-    def __init__(self, stdout: bytes, *, returncode: int = 0) -> None:
+    def __init__(
+        self,
+        stdout: bytes,
+        *,
+        stderr: bytes = b"",
+        returncode: int = 0,
+    ) -> None:
         self.stdout = stdout
+        self.stderr = stderr
         self.returncode = returncode
         self.inputs: list[bytes | None] = []
         self.terminated = False
@@ -44,7 +51,7 @@ class FakeProcess:
     ) -> tuple[bytes, bytes]:
         del timeout
         self.inputs.append(input)
-        return self.stdout, b""
+        return self.stdout, self.stderr
 
     def poll(self) -> int | None:
         return self.returncode
@@ -1196,6 +1203,37 @@ def test_complete_rejects_provider_json_that_misses_the_requested_schema() -> No
     assert "ok" not in str(raised.value)
 
 
+def test_nonzero_process_uses_stdout_category_and_preserves_private_diagnostic() -> None:
+    stdout = b'{"type":"turn.failed","message":"invalid_json_schema"}\n'
+    process = FakeProcess(stdout, stderr=b"provider warning\n", returncode=1)
+    created: list[tuple[ProcessSpec, FakeProcess]] = []
+    client = _client(process, created)
+
+    with pytest.raises(ProviderRuntimeConfigurationError) as raised:
+        client.complete(
+            payload={"request": "profile"},
+            schema_path=schema_path("game-profile"),
+            model="model-a",
+            reasoning_effort="high",
+            fast_mode=False,
+        )
+
+    error = raised.value
+    assert error.error_code == "provider_schema_rejected"
+    assert "invalid_json_schema" not in str(error)
+    assert error.diagnostic_path is not None
+    diagnostic_path = error.diagnostic_path
+    try:
+        diagnostic = json.loads(diagnostic_path.read_text(encoding="utf-8"))
+        assert diagnostic["returncode"] == 1
+        assert diagnostic["stdout_utf8"] == stdout.decode("utf-8")
+        assert diagnostic["stderr_utf8"] == "provider warning\n"
+        assert "request" not in diagnostic
+    finally:
+        diagnostic_path.unlink(missing_ok=True)
+        diagnostic_path.parent.rmdir()
+
+
 def test_forbidden_policy_event_is_rejected() -> None:
     process = FakeProcess(b'{"type":"mcp_tool_call"}\n')
     created: list[tuple[ProcessSpec, FakeProcess]] = []
@@ -1273,6 +1311,14 @@ def test_prompt_builders_and_schemas_are_generic() -> None:
         "return": "one JSON object matching the supplied schema",
     }
     assert analysis["input"]["canary_evidence_ids"] == ["E1"]
+    for request in (profile, analysis):
+        authority = request["authority"]
+        assert isinstance(authority, str)
+        assert "status=resolved requires uncertainty=null." in authority
+        assert (
+            "status in uncertain, unresolved, or excluded requires a non-empty uncertainty "
+            "string."
+        ) in authority
     for kind, schema_id in (
         ("game-profile", PROFILE_SCHEMA_ID),
         ("story-analysis", ANALYSIS_SCHEMA_ID),

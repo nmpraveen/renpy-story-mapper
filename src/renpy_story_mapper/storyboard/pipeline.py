@@ -23,13 +23,16 @@ from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 from renpy_story_mapper.errors import StoryMapperError
 from renpy_story_mapper.ingestion import IngestionOptions
 from renpy_story_mapper.storyboard.ai_client import (
+    CanonicalValidationIssue,
     CodexCliJsonClient,
+    ProviderCanonicalValidationError,
     StoryboardAIError,
     StoryboardJsonClient,
 )
 from renpy_story_mapper.storyboard.evidence import build_evidence_index
 from renpy_story_mapper.storyboard.model import EvidenceIndex, redact_public_value
 from renpy_story_mapper.storyboard.prompts import (
+    build_canonical_repair_request,
     build_game_profile_request,
     build_story_analysis_request,
     schema_path,
@@ -106,9 +109,10 @@ def run_storyboard_pipeline(
     """Run one bounded, source-grounded storyboard canary.
 
     ``profile_replay`` and ``analysis_replay`` may each be a JSON file path or an in-memory JSON
-    mapping.  When a replay is absent, exactly one corresponding request is sent through the
-    supplied provider-neutral client (or a direct :class:`CodexCliJsonClient`).  No provider is
-    instantiated when both replays are supplied.
+    mapping.  When a replay is absent, one corresponding request is sent through the supplied
+    provider-neutral client (or a direct :class:`CodexCliJsonClient`); one targeted repair may
+    follow only when that response fails canonical schema validation.  No provider is instantiated
+    when both replays are supplied.
 
     The input is ingested and parsed before either AI call.  The output path is checked before
     ingestion, and the relevant source files are fingerprinted before and after the run.  Only the
@@ -372,6 +376,59 @@ def _complete(
     fast_mode: bool,
     timeout_seconds: float | None,
 ) -> dict[str, object]:
+    value, issues = _complete_once(
+        provider,
+        payload,
+        kind,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        fast_mode=fast_mode,
+        timeout_seconds=timeout_seconds,
+        repair=False,
+    )
+    if not issues:
+        return value
+
+    repair_payload = build_canonical_repair_request(
+        kind=kind,
+        prior_response=value,
+        validator_issues=[
+            {"path": list(issue.path), "message": issue.message} for issue in issues
+        ],
+    )
+    required_provenance = payload.get("required_provenance")
+    if isinstance(required_provenance, Mapping):
+        repair_payload["required_provenance"] = _copy_json_mapping(required_provenance)
+    repaired, repair_issues = _complete_once(
+        provider,
+        repair_payload,
+        kind,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        fast_mode=fast_mode,
+        timeout_seconds=timeout_seconds,
+        repair=True,
+    )
+    if repair_issues:
+        details = _format_validation_issues(repair_issues)
+        raise StoryboardPipelineError(
+            f"storyboard AI {kind} response still does not match the bundled schema after one "
+            f"targeted repair: {details}"
+        )
+    return repaired
+
+
+def _complete_once(
+    provider: StoryboardJsonClient,
+    payload: Mapping[str, object],
+    kind: str,
+    *,
+    model: str,
+    reasoning_effort: str,
+    fast_mode: bool,
+    timeout_seconds: float | None,
+    repair: bool,
+) -> tuple[dict[str, object], tuple[CanonicalValidationIssue, ...]]:
     try:
         value = provider.complete(
             payload=payload,
@@ -381,13 +438,59 @@ def _complete(
             fast_mode=fast_mode,
             timeout_seconds=timeout_seconds,
         )
+    except ProviderCanonicalValidationError as error:
+        copied = _copy_json_mapping(error.response)
+        return copied, _canonical_validation_issues(copied, kind)
     except StoryboardAIError as error:
+        diagnostic = (
+            f"; private diagnostic: {error.diagnostic_path}"
+            if error.diagnostic_path is not None
+            else ""
+        )
+        request_kind = f"{kind} repair" if repair else kind
         raise StoryboardPipelineError(
-            f"storyboard AI {kind} request failed ({error.error_code}): {error}"
+            f"storyboard AI {request_kind} request failed ({error.error_code}): "
+            f"{error}{diagnostic}"
         ) from error
     if not isinstance(value, Mapping):
-        raise StoryboardPipelineError(f"storyboard AI {kind} response must be a JSON object")
-    return _copy_json_mapping(value)
+        request_kind = f"{kind} repair" if repair else kind
+        raise StoryboardPipelineError(
+            f"storyboard AI {request_kind} response must be a JSON object"
+        )
+    copied = _copy_json_mapping(value)
+    return copied, _canonical_validation_issues(copied, kind)
+
+
+def _canonical_validation_issues(
+    value: Mapping[str, object],
+    kind: str,
+) -> tuple[CanonicalValidationIssue, ...]:
+    try:
+        schema = json.loads(schema_path(kind).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise StoryboardPipelineError(f"could not load bundled {kind} schema") from error
+    validator = Draft202012Validator(schema)
+    errors = sorted(
+        validator.iter_errors(value),
+        key=lambda item: tuple(str(part) for part in item.absolute_path),
+    )
+    return tuple(
+        CanonicalValidationIssue(
+            tuple(
+                part if isinstance(part, int) and not isinstance(part, bool) else str(part)
+                for part in error.absolute_path
+            ),
+            " ".join(error.message.split())[:500],
+        )
+        for error in errors[:5]
+    )
+
+
+def _format_validation_issues(issues: Sequence[CanonicalValidationIssue]) -> str:
+    return "; ".join(
+        f"{'.'.join(str(part) for part in issue.path) or '$'}: {issue.message}"
+        for issue in issues
+    )
 
 
 def _validate_schema_document(value: Mapping[str, object], kind: str) -> None:

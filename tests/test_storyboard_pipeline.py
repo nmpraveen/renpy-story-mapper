@@ -9,6 +9,10 @@ import pytest
 
 import renpy_story_mapper.storyboard.pipeline as storyboard_pipeline
 from renpy_story_mapper.cli import main
+from renpy_story_mapper.storyboard.ai_client import (
+    CanonicalValidationIssue,
+    ProviderCanonicalValidationError,
+)
 from renpy_story_mapper.storyboard.evidence import build_evidence_index
 from renpy_story_mapper.storyboard.pipeline import (
     ARTIFACT_FILENAMES,
@@ -725,3 +729,98 @@ def test_pipeline_makes_one_profile_and_one_analysis_provider_call(tmp_path: Pat
 
     assert client.calls == ["game-profile.schema.json", "story-analysis.schema.json"]
     assert result.validation_report.publishable
+
+
+def test_pipeline_allows_exactly_one_targeted_canonical_repair(tmp_path: Path) -> None:
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
+    invalid_profile = dict(profile)
+    invalid_profile["uncertainty"] = "A resolved response cannot retain uncertainty text."
+
+    class RepairClient:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def complete(self, **request: object) -> dict[str, object]:
+            payload = request["payload"]
+            assert isinstance(payload, dict)
+            self.calls.append(payload)
+            if len(self.calls) == 1:
+                raise ProviderCanonicalValidationError(
+                    invalid_profile,
+                    (
+                        CanonicalValidationIssue(
+                            ("uncertainty",),
+                            "value is not of type 'null'",
+                        ),
+                    ),
+                )
+            if len(self.calls) == 2:
+                assert payload["prompt_version"] == "storyboard-canonical-repair-prompt-v1"
+                repair_input = payload["input"]
+                assert isinstance(repair_input, dict)
+                assert repair_input["prior_response"] == invalid_profile
+                issues = repair_input["validator_issues"]
+                assert isinstance(issues, list)
+                assert issues[0]["path"] == ["uncertainty"]
+                assert "not of type 'null'" in issues[0]["message"]
+                assert payload["required_provenance"] == self.calls[0]["required_provenance"]
+                return profile
+            return analysis
+
+        def cancel(self) -> None:
+            return None
+
+    client = RepairClient()
+    output = tmp_path / "repair-artifacts"
+    result = run_storyboard_pipeline(
+        game,
+        output,
+        source_path="canary.rpy",
+        label="unfamiliar_entry",
+        ai_client=client,  # type: ignore[arg-type]
+    )
+
+    assert len(client.calls) == 3
+    assert invalid_profile["uncertainty"] == (
+        "A resolved response cannot retain uncertainty text."
+    )
+    written_profile = json.loads((output / "game-profile.json").read_text(encoding="utf-8"))
+    assert written_profile["uncertainty"] is None
+    assert result.validation_report.publishable
+
+
+def test_pipeline_fails_after_the_single_repair_attempt(tmp_path: Path) -> None:
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, _analysis = _schema_replays(raw_evidence, evidence)
+    invalid_profile = dict(profile)
+    invalid_profile["uncertainty"] = "Still invalid for resolved status."
+
+    class InvalidRepairClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def complete(self, **request: object) -> dict[str, object]:
+            del request
+            self.calls += 1
+            return invalid_profile
+
+        def cancel(self) -> None:
+            return None
+
+    client = InvalidRepairClient()
+    output = tmp_path / "failed-repair-artifacts"
+    with pytest.raises(
+        StoryboardPipelineError,
+        match="after one targeted repair",
+    ):
+        run_storyboard_pipeline(
+            game,
+            output,
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            ai_client=client,  # type: ignore[arg-type]
+        )
+
+    assert client.calls == 2
+    assert not output.exists()

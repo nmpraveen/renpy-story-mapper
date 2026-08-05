@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Protocol, cast
 
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
-from jsonschema.exceptions import SchemaError  # type: ignore[import-untyped]
+from jsonschema.exceptions import SchemaError, ValidationError  # type: ignore[import-untyped]
 
 _POLL_SECONDS = 0.05
 _CANCEL_GRACE_SECONDS = 0.5
@@ -160,11 +160,13 @@ class StoryboardAIError(RuntimeError):
         *,
         transient: bool = False,
         transmission: TransmissionDisposition = TransmissionDisposition.UNKNOWN,
+        diagnostic_path: Path | None = None,
     ) -> None:
         super().__init__(message)
         self.error_code = error_code
         self.transient = transient
         self.transmission = transmission
+        self.diagnostic_path = diagnostic_path
 
 
 class ProviderUnavailableError(StoryboardAIError):
@@ -193,6 +195,31 @@ class ProviderPolicyViolationError(StoryboardAIError):
 
 class ProviderOutputError(StoryboardAIError):
     pass
+
+
+@dataclass(frozen=True)
+class CanonicalValidationIssue:
+    """One bounded validator finding safe to include in a targeted repair request."""
+
+    path: tuple[str | int, ...]
+    message: str
+
+
+class ProviderCanonicalValidationError(ProviderOutputError):
+    """A parsed provider response rejected by the unchanged canonical schema."""
+
+    def __init__(
+        self,
+        response: Mapping[str, object],
+        issues: tuple[CanonicalValidationIssue, ...],
+    ) -> None:
+        super().__init__(
+            "schema_mismatch",
+            "The provider returned JSON that does not match the requested schema.",
+            transmission=TransmissionDisposition.TRANSMITTED,
+        )
+        self.response = dict(response)
+        self.issues = issues
 
 
 class ProviderIdentityMismatchError(StoryboardAIError):
@@ -329,6 +356,40 @@ def _load_schema_validator(
     except SchemaError:
         raise ValueError("schema_path must contain a valid JSON schema") from None
     return resolved, schema, Draft202012Validator(schema)
+
+
+def _canonical_validation_issues(
+    validator: Draft202012Validator,
+    value: Mapping[str, object],
+) -> tuple[CanonicalValidationIssue, ...]:
+    errors = sorted(
+        validator.iter_errors(value),
+        key=lambda item: tuple(str(part) for part in item.absolute_path),
+    )
+    return tuple(
+        CanonicalValidationIssue(
+            path=tuple(_safe_validator_path_part(part) for part in error.absolute_path),
+            message=_safe_validator_message(error),
+        )
+        for error in errors[:5]
+    )
+
+
+def _safe_validator_path_part(value: object) -> str | int:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    text = str(value)
+    return "".join(character for character in text if character.isprintable())[:200]
+
+
+def _safe_validator_message(error: ValidationError) -> str:
+    message = " ".join(error.message.split())
+    message = re.sub(
+        r"(?i)(?:[a-z]:[\\/]|\\\\)[^\s'\"]+",
+        "<redacted-path>",
+        message,
+    )
+    return message[:500] or f"canonical validator {error.validator} failed"
 
 
 def derive_codex_provider_schema(canonical_schema: Mapping[str, object]) -> dict[str, object]:
@@ -2009,16 +2070,25 @@ class CodexCliJsonClient:
                     if process.poll() is None:
                         _stop_process(process)
                 if process.returncode != 0:
-                    _raise_process_failure(
+                    diagnostic_path = _write_private_process_diagnostic(
+                        stdout,
                         stderr,
+                        returncode=process.returncode,
+                    )
+                    _raise_process_failure(
+                        stdout + b"\n" + stderr,
                         transmission=TransmissionDisposition.TRANSMITTED,
+                        diagnostic_path=diagnostic_path,
                     )
                 payload_value, observed = _parse_jsonl(stdout)
-                if next(response_validator.iter_errors(payload_value), None) is not None:
-                    raise ProviderOutputError(
-                        "schema_mismatch",
-                        "The provider returned JSON that does not match the requested schema.",
-                        transmission=TransmissionDisposition.TRANSMITTED,
+                validation_issues = _canonical_validation_issues(
+                    response_validator,
+                    payload_value,
+                )
+                if validation_issues:
+                    raise ProviderCanonicalValidationError(
+                        payload_value,
+                        validation_issues,
                     )
         except StoryboardAIError:
             raise
@@ -2372,8 +2442,23 @@ def _raise_process_failure(
     raw: bytes,
     *,
     transmission: TransmissionDisposition,
+    diagnostic_path: Path | None = None,
 ) -> None:
     category = raw.decode("utf-8", errors="ignore").casefold()
+    if any(
+        marker in category
+        for marker in (
+            "invalid_json_schema",
+            "invalid json schema",
+            "output schema is invalid",
+        )
+    ):
+        raise ProviderRuntimeConfigurationError(
+            "provider_schema_rejected",
+            "The provider rejected the temporary output schema.",
+            transmission=transmission,
+            diagnostic_path=diagnostic_path,
+        )
     if any(
         marker in category
         for marker in ("rate limit", "rate_limit", "too many requests", "429")
@@ -2383,6 +2468,7 @@ def _raise_process_failure(
             "The provider is rate limited.",
             transient=True,
             transmission=transmission,
+            diagnostic_path=diagnostic_path,
         )
     if any(
         marker in category
@@ -2402,12 +2488,14 @@ def _raise_process_failure(
             "authentication_failed",
             "The provider authentication was rejected.",
             transmission=transmission,
+            diagnostic_path=diagnostic_path,
         )
     if "refus" in category:
         raise ProviderOutputError(
             "provider_refusal",
             "The provider refused the request.",
             transmission=transmission,
+            diagnostic_path=diagnostic_path,
         )
     if any(marker in category for marker in ("timed out", "request timeout")):
         raise ProviderTimeoutError(
@@ -2415,6 +2503,7 @@ def _raise_process_failure(
             "The provider request timed out.",
             transient=True,
             transmission=transmission,
+            diagnostic_path=diagnostic_path,
         )
     if any(
         marker in category
@@ -2435,12 +2524,40 @@ def _raise_process_failure(
             "The provider transport failed.",
             transient=True,
             transmission=transmission,
+            diagnostic_path=diagnostic_path,
         )
     raise ProviderProcessError(
         "provider_process_failed",
         "The provider process failed.",
         transmission=transmission,
+        diagnostic_path=diagnostic_path,
     )
+
+
+def _write_private_process_diagnostic(
+    stdout: bytes,
+    stderr: bytes,
+    *,
+    returncode: int | None,
+) -> Path | None:
+    """Preserve nonzero process output outside public artifacts without request data."""
+
+    try:
+        directory = Path(tempfile.mkdtemp(prefix="renpy-storyboard-ai-diagnostic-"))
+        path = directory / "diagnostic.json"
+        diagnostic = {
+            "schema": "storyboard-provider-process-diagnostic-v1",
+            "returncode": returncode,
+            "stdout_utf8": stdout.decode("utf-8", errors="replace"),
+            "stderr_utf8": stderr.decode("utf-8", errors="replace"),
+        }
+        path.write_text(
+            json.dumps(diagnostic, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return path.resolve()
+    except OSError:
+        return None
 
 
 def _stop_process(process: Process) -> None:
