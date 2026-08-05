@@ -82,7 +82,9 @@ class EvidenceProvenance:
             "tool_version": self.tool_version,
             "tool_commit": self.tool_commit,
             "tool_bundle_sha256": self.tool_bundle_sha256,
-            "options": _redact_value(self.options, preserve_exact_text=True),
+            # Options are operational metadata, not source evidence.  In particular, an
+            # arbitrary nested ``text`` value must not be exempt from path redaction.
+            "options": _redact_value(self.options),
             "cache_hit": self.cache_hit,
             "complete": self.complete,
             "warnings": [_redact_message(warning) for warning in self.warnings],
@@ -327,21 +329,39 @@ _MESSAGE_KEYS = frozenset(
         "details",
     }
 )
-_EXACT_TEXT_KEYS = frozenset({"text", "source_text", "parser_text", "dialogue_text"})
+_EXACT_TEXT_KEYS = frozenset({"source_text", "parser_text", "dialogue_text"})
+_REDACTION_ONLY_CONTAINERS = frozenset(
+    {
+        "options",
+        "warning",
+        "warnings",
+        "diagnostic",
+        "diagnostics",
+        "detail",
+        "details",
+    }
+)
+_QUOTED_ABSOLUTE_PATH_TOKEN = re.compile(
+    r'''(?ix)(?P<quote>["'])(?P<path>(?:file://)?(?:[A-Za-z]:[\\/]|\\\\|//|/)[^"'<>\r\n]*)(?P=quote)'''
+)
 _ABSOLUTE_PATH_TOKEN = re.compile(
-    r"(?i)(?<![A-Za-z0-9+.\-:/])(?:file://)?(?:[A-Za-z]:[\\/]|\\\\|//|/)[^\s\"'<>]+"
+    r'''(?ix)(?<![A-Za-z0-9+.\-/:])(?P<path>(?:file://)?(?:[A-Za-z]:[\\/]|\\\\|//|/)[^"'<>\r\n,;!?()\[\]{}]*)'''
 )
 
 
 def _is_absolute_path(value: str) -> bool:
-    normalized = value.replace("\\", "/")
+    normalized = value.strip().replace("\\", "/")
+    if len(normalized) >= 2 and normalized[0] == normalized[-1] in {"'", '"'}:
+        normalized = normalized[1:-1]
     if normalized.casefold().startswith("file://"):
         normalized = normalized[7:]
     return bool(re.match(r"^[A-Za-z]:/", normalized)) or normalized.startswith("/")
 
 
 def _absolute_basename(value: str) -> str:
-    normalized = value.replace("\\", "/")
+    normalized = value.strip().replace("\\", "/")
+    if len(normalized) >= 2 and normalized[0] == normalized[-1] in {"'", '"'}:
+        normalized = normalized[1:-1]
     if normalized.casefold().startswith("file://"):
         normalized = normalized[7:]
     normalized = normalized.rstrip("/")
@@ -368,20 +388,36 @@ def _public_span(span: SourceSpan) -> dict[str, object]:
 
 
 def _redact_message(value: str) -> str:
-    def replace(match: re.Match[str]) -> str:
-        token = match.group(0)
+    def redact_token(token: str) -> str:
+        whitespace = token[len(token.rstrip()):]
+        token = token.rstrip()
         trailing = ""
         while token and token[-1] in ",.;!?)]}>":
             trailing = token[-1] + trailing
             token = token[:-1]
-        return f"source/{_absolute_basename(token)}{trailing}"
+        return f"source/{_absolute_basename(token)}{trailing}{whitespace}"
 
-    return _ABSOLUTE_PATH_TOKEN.sub(replace, value)
+    def replace_quoted(match: re.Match[str]) -> str:
+        return f"{match.group('quote')}{redact_token(match.group('path'))}{match.group('quote')}"
+
+    def replace_unquoted(match: re.Match[str]) -> str:
+        return redact_token(match.group("path"))
+
+    redacted = _QUOTED_ABSOLUTE_PATH_TOKEN.sub(replace_quoted, value)
+    return _ABSOLUTE_PATH_TOKEN.sub(replace_unquoted, redacted)
 
 
 def _redact_mapping(value: Mapping[str, object]) -> dict[str, object]:
     redacted = _redact_value(value, preserve_exact_text=True)
     return redacted if isinstance(redacted, dict) else {}
+
+
+def _is_evidence_record(value: Mapping[str, object]) -> bool:
+    return (
+        isinstance(value.get("id"), str)
+        and isinstance(value.get("kind"), str)
+        and isinstance(value.get("source"), Mapping)
+    )
 
 
 def _redact_value(
@@ -394,14 +430,28 @@ def _redact_value(
 
     normalized_key = key.casefold() if key is not None else None
     if isinstance(value, Mapping):
-        return {
-            str(raw_key): _redact_value(
-                child,
-                preserve_exact_text=preserve_exact_text,
-                key=str(raw_key),
+        is_evidence_record = _is_evidence_record(value)
+        redacted: dict[str, object] = {}
+        for raw_key, child in value.items():
+            child_key = str(raw_key)
+            normalized_child_key = child_key.casefold()
+            child_preserve = (
+                preserve_exact_text
+                and normalized_child_key not in _REDACTION_ONLY_CONTAINERS
             )
-            for raw_key, child in value.items()
-        }
+            if normalized_child_key == "text" and not is_evidence_record:
+                child_preserve = False
+            redaction_key = (
+                "source_text"
+                if normalized_child_key == "text" and is_evidence_record
+                else child_key
+            )
+            redacted[child_key] = _redact_value(
+                child,
+                preserve_exact_text=child_preserve,
+                key=redaction_key,
+            )
+        return redacted
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return [
             _redact_value(child, preserve_exact_text=preserve_exact_text, key=key)

@@ -553,8 +553,11 @@ def _render_menu(
         else ("evidence_id", "source_evidence_id", "evidence_ids")
     )
     menu_ids = _evidence_ids(menu, menu_keys)
-    for identifier in _ordered_identifiers(menu_ids, state.evidence):
-        parts.append(_render_evidence_ref(identifier, state, show_text=True))
+    if canonical:
+        parts.extend(_render_canonical_choice_metadata(menu, state))
+    else:
+        for identifier in _ordered_identifiers(menu_ids, state.evidence):
+            parts.append(_render_evidence_ref(identifier, state, show_text=True))
     arm_keys = ("arms",) if canonical else ("arms", "choice_arms", "options")
     arms = _records(menu, arm_keys)
     if not arms:
@@ -570,6 +573,162 @@ def _render_menu(
     return "\n".join(parts)
 
 
+def _render_canonical_choice_metadata(
+    choice: Mapping[str, object], state: _RenderState
+) -> list[str]:
+    parts = _render_canonical_inference_metadata(
+        choice,
+        state,
+        evidence_title="Choice evidence",
+        include_condition=True,
+    )
+    menu_ids = _evidence_ids(choice, ("menu_evidence_id",))
+    if menu_ids:
+        parts.append(_render_evidence_citations("Menu evidence", menu_ids, state))
+    source_ids = _evidence_ids(choice, ("source_evidence_ids",))
+    if source_ids:
+        parts.append(_render_evidence_citations("Choice source evidence", source_ids, state))
+    return parts
+
+
+def _render_canonical_arm_metadata(
+    arm: Mapping[str, object],
+    state: _RenderState,
+    scene_titles: Mapping[str, str],
+) -> list[str]:
+    parts = _render_canonical_condition(arm, state)
+    consequence = arm.get("consequence")
+    if isinstance(consequence, Mapping):
+        consequence_text = _first_text(consequence, "text")
+        if consequence_text:
+            parts.append(
+                f'<div class="detail consequence"><span class="detail-label">Consequence:</span>'
+                f"{_escape(consequence_text)}</div>"
+            )
+        parts.extend(
+            _render_canonical_inference_metadata(
+                consequence,
+                state,
+                evidence_title="Consequence evidence",
+            )
+        )
+    elif not _empty(consequence):
+        parts.append(
+            f'<div class="detail consequence"><span class="detail-label">Consequence:</span>'
+            f"{_escape(_describe(consequence))}</div>"
+        )
+
+    for label, key in (("Destination", "destination_scene_id"), ("Rejoin", "rejoin_scene_id")):
+        destination_id = _first_text(arm, key)
+        if not destination_id:
+            continue
+        destination = _resolve_scene_reference(destination_id, scene_titles)
+        parts.append(
+            f'<div class="detail"><span class="detail-label">{label}:</span>'
+            f"{_escape(_describe(destination))}</div>"
+        )
+    parts.extend(_render_canonical_terminal(arm))
+    parts.extend(
+        _render_canonical_inference_metadata(
+            arm,
+            state,
+            evidence_title="Arm evidence",
+        )
+    )
+    for title, key in (
+        ("Source evidence", "source_evidence_ids"),
+        ("Target evidence", "target_evidence_ids"),
+    ):
+        identifiers = _evidence_ids(arm, (key,))
+        if identifiers:
+            parts.append(_render_evidence_citations(title, identifiers, state))
+    return parts
+
+
+def _render_canonical_condition(
+    record: Mapping[str, object], state: _RenderState
+) -> list[str]:
+    condition = _first_value(record, "condition")
+    parts: list[str] = []
+    if not _empty(condition):
+        parts.append(
+            f'<div class="detail"><span class="detail-label">Condition:</span>'
+            f"{_escape(_describe(condition))}</div>"
+        )
+    condition_ids = _evidence_ids(record, ("condition_evidence_ids",))
+    if condition_ids:
+        parts.append(_render_evidence_citations("Condition evidence", condition_ids, state))
+    return parts
+
+
+def _render_canonical_inference_metadata(
+    record: Mapping[str, object],
+    state: _RenderState,
+    *,
+    evidence_title: str,
+    include_condition: bool = False,
+) -> list[str]:
+    parts: list[str] = []
+    if include_condition:
+        parts.extend(_render_canonical_condition(record, state))
+
+    confidence = _first_text(record, "confidence")
+    if confidence:
+        parts.append(
+            f'<div class="detail"><span class="detail-label">Confidence:</span>'
+            f"{_escape(confidence)}</div>"
+        )
+    status = _first_text(record, "status")
+    if status:
+        wrapper = "uncertainty" if status not in {"resolved", "none"} else "detail"
+        parts.append(
+            f'<div class="{wrapper}"><span class="detail-label">Status:</span>'
+            f"{_escape(status)}</div>"
+        )
+    uncertainty = _first_text(record, "uncertainty")
+    if uncertainty:
+        parts.append(
+            f'<div class="uncertainty"><span class="detail-label">Uncertainty:</span>'
+            f"{_escape(uncertainty)}</div>"
+        )
+    rationale = _first_text(record, "rationale", "interpretation_rationale")
+    if rationale:
+        parts.append(
+            f'<div class="detail rationale"><span class="detail-label">Rationale:</span>'
+            f"{_escape(rationale)}</div>"
+        )
+    evidence_ids = _evidence_ids(record, ("evidence_ids",))
+    if evidence_ids:
+        parts.append(_render_evidence_citations(evidence_title, evidence_ids, state))
+    return parts
+
+
+def _render_canonical_terminal(record: Mapping[str, object]) -> list[str]:
+    terminal = _first_text(record, "terminal")
+    normalized = terminal.casefold().replace("-", "_")
+    if not normalized or normalized == "none":
+        return []
+    if normalized == "ending":
+        return [
+            '<div class="detail terminal"><span class="detail-label">Terminal:</span>'
+            "ending</div>"
+        ]
+    if normalized == "loop":
+        return [
+            '<div class="detail loop"><span class="detail-label">Loop:</span>'
+            "the route repeats</div>"
+        ]
+    if normalized == "unresolved":
+        return [
+            '<div class="uncertainty"><span class="detail-label">Unresolved:</span>'
+            "terminal behavior is unresolved.</div>"
+        ]
+    return [
+        f'<div class="uncertainty"><span class="detail-label">Unresolved:</span>'
+        f"terminal state {_escape(terminal)} is not recognized.</div>"
+    ]
+
+
 def _render_arm(
     arm: Mapping[str, object],
     arm_index: int,
@@ -581,15 +740,13 @@ def _render_arm(
     caption_keys = ("caption",) if canonical else ("caption", "title", "label", "text")
     caption = _first_text(arm, *caption_keys) or f"Choice arm {arm_index + 1}"
     parts = [f'<li class="arm"><span class="arm-caption">{_escape(caption)}</span>']
-    parts.extend(_render_relationships(arm, scene_titles, canonical=canonical))
-    evidence_keys = (
-        ("evidence_ids", "condition_evidence_ids", "source_evidence_ids", "target_evidence_ids")
-        if canonical
-        else ("evidence_id", "source_evidence_id", "evidence_ids")
-    )
-    identifiers = _evidence_ids(arm, evidence_keys)
-    for identifier in _ordered_identifiers(identifiers, state.evidence):
-        parts.append(_render_evidence_ref(identifier, state, show_text=True))
+    if canonical:
+        parts.extend(_render_canonical_arm_metadata(arm, state, scene_titles))
+    else:
+        parts.extend(_render_relationships(arm, scene_titles))
+        identifiers = _evidence_ids(arm, ("evidence_id", "source_evidence_id", "evidence_ids"))
+        for identifier in _ordered_identifiers(identifiers, state.evidence):
+            parts.append(_render_evidence_ref(identifier, state, show_text=True))
     line_identifiers = _evidence_ids(
         arm,
         (
@@ -699,6 +856,16 @@ def _render_transition(
             '<div class="detail terminal"><span class="detail-label">Terminal:</span>'
             f"{_escape(kind_label)}</div>"
         )
+    elif canonical and _is_loop_kind(kind):
+        parts.append(
+            '<div class="detail loop"><span class="detail-label">Loop:</span>'
+            "the route repeats</div>"
+        )
+    elif canonical and _is_unresolved_kind(kind):
+        parts.append(
+            '<div class="uncertainty"><span class="detail-label">Unresolved:</span>'
+            "transition behavior is unresolved.</div>"
+        )
 
     status = _first_text(transition, "status")
     if status and status not in {"resolved", "none"}:
@@ -781,17 +948,20 @@ def _render_relationships(
             f"{_escape(_describe(value))}</div>"
         )
 
-    terminal = _first_value(record, "terminal", "terminals", "ending")
-    if _empty(terminal):
-        outcome_kind = _first_text(record, "outcome_kind", "result_kind")
-        if outcome_kind and outcome_kind.casefold() in {"terminal", "ends", "ending"}:
-            terminal = outcome_kind
-    if not _empty(terminal):
-        value = "Terminal" if terminal is True else _describe(terminal)
-        result.append(
-            f'<div class="detail terminal"><span class="detail-label">Terminal:</span>'
-            f"{_escape(value)}</div>"
-        )
+    if canonical:
+        result.extend(_render_canonical_terminal(record))
+    else:
+        terminal = _first_value(record, "terminal", "terminals", "ending")
+        if _empty(terminal):
+            outcome_kind = _first_text(record, "outcome_kind", "result_kind")
+            if outcome_kind and outcome_kind.casefold() in {"terminal", "ends", "ending"}:
+                terminal = outcome_kind
+        if not _empty(terminal):
+            value = "Terminal" if terminal is True else _describe(terminal)
+            result.append(
+                f'<div class="detail terminal"><span class="detail-label">Terminal:</span>'
+                f"{_escape(value)}</div>"
+            )
     return result
 
 
@@ -1003,6 +1173,14 @@ def _is_terminal_kind(kind: str) -> bool:
     return kind.casefold().replace("-", "_") in {"terminal", "ending", "ends"}
 
 
+def _is_loop_kind(kind: str) -> bool:
+    return kind.casefold().replace("-", "_") == "loop"
+
+
+def _is_unresolved_kind(kind: str) -> bool:
+    return kind.casefold().replace("-", "_") == "unresolved"
+
+
 def _story_title(
     profile: Mapping[str, object],
     analysis: Mapping[str, object],
@@ -1060,17 +1238,9 @@ def _canonical_scene_choices(
     for raw_choice in _records(analysis, ("choices",)):
         if _first_text(raw_choice, "scene_id") != scene_id:
             continue
-        result.append(
-            {
-                "id": _first_text(raw_choice, "id"),
-                "title": _first_text(raw_choice, "caption") or "Choice",
-                "condition": _first_value(raw_choice, "condition"),
-                "evidence_ids": _evidence_ids(
-                    raw_choice, ("menu_evidence_id", "source_evidence_ids", "evidence_ids")
-                ),
-                "arms": list(_records(raw_choice, ("arms",))),
-            }
-        )
+        choice = dict(raw_choice)
+        choice["title"] = _first_text(raw_choice, "caption") or "Choice"
+        result.append(choice)
     return result
 
 
@@ -1185,12 +1355,16 @@ def _first_text(mapping: Mapping[str, object], *keys: str) -> str:
 
 def _public_path(value: str) -> str:
     normalized = value.replace("\\", "/").strip()
-    parts = [part for part in normalized.split("/") if part not in {"", ".", ".."}]
-    if not parts:
+    if not normalized:
         return "source"
-    if normalized.startswith("/") or (len(normalized) >= 3 and normalized[1:3] == ":/"):
-        return f"source/{parts[-1]}"
-    return "/".join(parts)
+    candidate = normalized
+    if len(candidate) >= 2 and candidate[0] == candidate[-1] in {"'", '"'}:
+        candidate = candidate[1:-1]
+    if candidate.casefold().startswith("file://"):
+        candidate = candidate[7:]
+    if candidate.startswith("/") or (len(candidate) >= 3 and candidate[1:3] == ":/"):
+        return f"source/{candidate.rstrip('/').rsplit('/', 1)[-1]}"
+    return normalized
 
 
 def _text(value: object) -> str:
