@@ -1355,6 +1355,7 @@ def test_prompt_builders_and_schemas_are_generic() -> None:
     assert "Never repeat branch-owned lines in a scene body." in analysis_authority
     assert "Scene order is zero-based and contiguous." in analysis_authority
     assert "never a continuation ID" in analysis_authority
+    assert "Set menu_evidence_id only for a real menu record" in analysis_authority
     for request in (profile, analysis):
         authority = request["authority"]
         assert isinstance(authority, str)

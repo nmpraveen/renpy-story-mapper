@@ -1018,6 +1018,52 @@ def test_choice_arm_origin_and_destination_evidence_are_bound_to_the_arm_and_sce
     )
 
 
+def test_edge_bindings_accept_associated_arm_and_continuation_membership() -> None:
+    evidence, analysis = _menu_arm_destination_inputs()
+    profile = _canonical_profile(evidence)
+    destination = analysis["scenes"][1]
+    assert isinstance(destination, dict)
+    destination_lines = list(destination["line_evidence_ids"])
+    destination["line_evidence_ids"] = []
+    analysis["continuations"] = [
+        {
+            "id": "continuation-destination",
+            "scene_id": "scene-destination",
+            "title": "Destination continuation",
+            "line_evidence_ids": destination_lines,
+            "evidence_ids": destination_lines,
+            "confidence": "high",
+            "status": "resolved",
+            "uncertainty": None,
+        }
+    ]
+    choice = analysis["choices"][0]
+    assert isinstance(choice, dict)
+    arms = choice["arms"]
+    assert isinstance(arms, list)
+    source_ids = [arm["line_evidence_ids"][-1] for arm in arms if isinstance(arm, dict)]
+    first_arm = arms[0]
+    assert isinstance(first_arm, dict)
+    target_ids = list(first_arm["target_evidence_ids"])
+    analysis["transitions"] = [
+        {
+            "id": "transition-convergence",
+            "from_id": "scene-start",
+            "to_id": "scene-destination",
+            "kind": "convergence",
+            "source_evidence_ids": source_ids,
+            "target_evidence_ids": target_ids,
+            "evidence_ids": source_ids + target_ids,
+            "confidence": "high",
+            "status": "resolved",
+            "uncertainty": None,
+        }
+    ]
+
+    report = validate_phase01(evidence, profile, analysis)
+    assert report.publishable
+
+
 def test_canonical_line_membership_is_sole_scene_and_arm_membership_field() -> None:
     evidence = _evidence()
     profile = _canonical_profile(evidence)

@@ -108,7 +108,12 @@ def build_story_analysis_request(
             "need their own arm and must not be folded into an enclosing menu arm. Never repeat "
             "branch-owned lines in a scene body. Scene order is zero-based and contiguous. A "
             "destination_scene_id or rejoin_scene_id may reference only an ID declared in scenes, "
-            "never a continuation ID; associate a continuation with its declared scene_id instead."
+            "never a continuation ID; associate a continuation with its declared scene_id instead. "
+            "Set menu_evidence_id only for a real menu record; omit it for a condition-only "
+            "choice. "
+            "Transition source evidence must be physically owned by its origin scene, including "
+            "that scene's arms or continuations, and target evidence must be physically owned by "
+            "the destination scene."
         ),
         "security": (
             "Use only the structured profile and evidence in this request; do not use tools, "
@@ -196,8 +201,10 @@ def build_validation_repair_request(
             "authoritative. Each accountable line must have exactly one owner. Shared lines cannot "
             "appear in arms; branch lines must appear only in the arm citing that "
             "branch_evidence_id. Scene order is zero-based and contiguous. Destination and rejoin "
-            "IDs must name declared "
-            "scenes, not continuations. Any object citing embedded Python or runtime-computed "
+            "IDs must name declared scenes, not continuations. Set menu_evidence_id only when it "
+            "names a real menu record; omit it for condition-only choices. Edge source and target "
+            "evidence must come from the physical ownership of the declared origin and destination "
+            "scenes. Any object citing embedded Python or runtime-computed "
             "evidence must remain unresolved with a non-empty uncertainty. This is the only "
             "response-level repair attempt."
         ),

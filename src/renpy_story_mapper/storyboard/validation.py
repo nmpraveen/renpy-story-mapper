@@ -1141,11 +1141,26 @@ def _validate_evidence_bindings(
         scene = scenes.get(scene_id or "")
         if scene is None:
             return set()
-        # Semantic citations explain a scene but do not define its physical source scope.  Edge
-        # bindings may use only the canonical line membership and deterministic annotations whose
-        # spans are physically associated with those member lines.
+        # Semantic citations explain a scene but do not define its physical source scope.  The
+        # canonical physical scope is the scene body plus the arms and continuations explicitly
+        # associated with that scene.  This matches exact-once coverage while allowing a
+        # convergence edge to cite branch tails and a destination to cite its shared continuation.
+        member_ids = set(_text_ids_without_issues(scene.get("line_evidence_ids")))
+        for continuation in _sequence(analysis.get("continuations")):
+            if not isinstance(continuation, Mapping):
+                continue
+            if _text(continuation.get("scene_id")) == scene_id:
+                member_ids.update(
+                    _text_ids_without_issues(continuation.get("line_evidence_ids"))
+                )
+        for choice in _sequence(analysis.get("choices")):
+            if not isinstance(choice, Mapping) or _text(choice.get("scene_id")) != scene_id:
+                continue
+            for arm in _sequence(choice.get("arms")):
+                if isinstance(arm, Mapping):
+                    member_ids.update(_text_ids_without_issues(arm.get("line_evidence_ids")))
         return _expand_evidence_scope(
-            set(_text_ids_without_issues(scene.get("line_evidence_ids"))),
+            member_ids,
             view,
         )
 
