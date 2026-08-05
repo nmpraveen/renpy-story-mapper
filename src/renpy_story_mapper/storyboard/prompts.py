@@ -64,7 +64,9 @@ def build_story_analysis_request(
             "destinations, semantic destination scene IDs, explicit source/target evidence, "
             "rejoins, loops, terminals, and unresolved dynamic behavior. Include exact-once leaf "
             "ownership for shared scene bodies, each menu/conditional arm, shared continuations, "
-            "and explicit exclusion/unresolved buckets. Preserve the declared scene order."
+            "and explicit exclusion/unresolved buckets. Use line_evidence_ids as the only direct "
+            "source-line membership field for scenes, arms, and continuations; include it even "
+            "when the list is empty. Preserve the declared scene order."
         ),
         "authority": (
             "Use the game profile for interpretation, but keep every structural or semantic "
@@ -76,7 +78,8 @@ def build_story_analysis_request(
             "legacy unresolved string. Keep choices and transitions at the top level only. Use "
             "semantic destination_scene_id/rejoin_scene_id fields, and when a concrete destination "
             "is present include both source_evidence_ids and target_evidence_ids. Line lists may "
-            "be empty when a scene or arm has no direct lines."
+            "be empty when a scene or arm has no direct lines. Do not use any alternate membership "
+            "field or replay envelope."
         ),
         "security": (
             "Use only the structured profile and evidence in this request; do not use tools, "

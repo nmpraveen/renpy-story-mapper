@@ -58,9 +58,9 @@
     "scene": {
       "allOf": [
         {"$ref": "#/$defs/inference_fields"},
-        {"type": "object", "required": ["id", "title", "summary", "order"], "properties": {
+        {"type": "object", "required": ["id", "title", "summary", "order", "line_evidence_ids"], "properties": {
           "id": {"$ref": "#/$defs/text"}, "title": {"$ref": "#/$defs/text"}, "summary": {"$ref": "#/$defs/text"}, "order": {"type": "integer", "minimum": 0},
-          "line_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "leaf_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "body_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "member_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "choice_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/text"}}
+          "line_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "choice_ids": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/text"}}
         }},
         {"$ref": "#/$defs/status_contract"}
       ],
@@ -77,8 +77,8 @@
     "arm": {
       "allOf": [
         {"$ref": "#/$defs/inference_fields"},
-        {"type": "object", "required": ["id", "caption", "consequence"], "properties": {
-          "id": {"$ref": "#/$defs/text"}, "caption": {"$ref": "#/$defs/text"}, "condition": {"type": ["string", "null"]}, "condition_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "line_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "leaf_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "body_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "member_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "source_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "target_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "consequence": {"$ref": "#/$defs/consequence"}, "destination_scene_id": {"type": ["string", "null"]}, "rejoin_scene_id": {"type": ["string", "null"]}, "terminal": {"type": "string", "enum": ["none", "ending", "loop", "unresolved"]}
+        {"type": "object", "required": ["id", "caption", "line_evidence_ids", "consequence"], "properties": {
+          "id": {"$ref": "#/$defs/text"}, "caption": {"$ref": "#/$defs/text"}, "condition": {"type": ["string", "null"]}, "condition_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "line_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "source_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "target_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}, "consequence": {"$ref": "#/$defs/consequence"}, "destination_scene_id": {"type": ["string", "null"]}, "rejoin_scene_id": {"type": ["string", "null"]}, "terminal": {"type": "string", "enum": ["none", "ending", "loop", "unresolved"]}
         }},
         {"$ref": "#/$defs/status_contract"},
         {"$ref": "#/$defs/concrete_destination_contract"}
@@ -116,10 +116,7 @@
             "id": {"$ref": "#/$defs/text"},
             "scene_id": {"type": ["string", "null"]},
             "title": {"$ref": "#/$defs/text"},
-            "line_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-            "leaf_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-            "body_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"},
-            "member_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}
+            "line_evidence_ids": {"$ref": "#/$defs/line_evidence_ids"}
           }
         },
         {"$ref": "#/$defs/status_contract"}

@@ -310,7 +310,7 @@ def _load_or_request_profile(
     timeout_seconds: float | None,
 ) -> dict[str, object]:
     if replay is not None:
-        return _read_replay(replay, "profile", ("profile", "game_profile"))
+        return _read_replay(replay, "profile")
     provider = provider or _new_provider()
     payload = build_game_profile_request(evidence_index=_copy_json_mapping(evidence))
     payload["required_provenance"] = {"evidence_index_hash": evidence_hash}
@@ -340,7 +340,7 @@ def _load_or_request_analysis(
     timeout_seconds: float | None,
 ) -> dict[str, object]:
     if replay is not None:
-        return _read_replay(replay, "analysis", ("analysis", "story_analysis"))
+        return _read_replay(replay, "analysis")
     provider = provider or _new_provider()
     payload = build_story_analysis_request(
         evidence_index=_copy_json_mapping(evidence),
@@ -490,7 +490,6 @@ def _new_provider() -> StoryboardJsonClient:
 def _read_replay(
     replay: ReplayInput,
     kind: str,
-    wrapper_keys: Sequence[str],
 ) -> dict[str, object]:
     if isinstance(replay, Mapping):
         value = _copy_json_mapping(replay)
@@ -504,10 +503,13 @@ def _read_replay(
         if not isinstance(loaded, Mapping):
             raise StoryboardPipelineError(f"{kind} replay JSON must contain an object: {path}")
         value = _copy_json_mapping(loaded)
-    for key in wrapper_keys:
-        nested = value.get(key)
-        if isinstance(nested, Mapping) and "schema" not in value:
-            return _copy_json_mapping(nested)
+    legacy_envelope_keys = (
+        ("profile", "game_profile") if kind == "profile" else ("analysis", "story_analysis")
+    )
+    if any(key in value for key in legacy_envelope_keys):
+        raise StoryboardPipelineError(
+            f"{kind} replay uses a legacy envelope; supply the canonical document directly"
+        )
     return value
 
 

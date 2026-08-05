@@ -56,7 +56,7 @@ def _base_objects() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
                 "title": "Start",
                 "summary": "The canary start scene.",
                 "order": 0,
-                "member_evidence_ids": [
+                "line_evidence_ids": [
                     "label-start",
                     "line-intro",
                     "menu-main",
@@ -84,6 +84,7 @@ def _base_objects() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
                     {
                         "id": "arm-left-story",
                         "caption": "Left",
+                        "line_evidence_ids": [],
                         "consequence": {
                             "text": "The left route continues.",
                             "evidence_ids": ["arm-left", "label-left"],
@@ -111,6 +112,7 @@ def _base_objects() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
                     {
                         "id": "arm-right-story",
                         "caption": "Right",
+                        "line_evidence_ids": [],
                         "consequence": {
                             "text": "The right route continues.",
                             "evidence_ids": ["arm-right", "label-right"],
@@ -176,8 +178,8 @@ def test_omitted_choice_arm_is_reported_with_exact_id_and_source_span() -> None:
     reduced = deepcopy(analysis)
     scene = reduced["scenes"][0]
     assert isinstance(scene, dict)
-    scene["member_evidence_ids"] = [
-        item for item in scene["member_evidence_ids"] if item != "arm-right"
+    scene["line_evidence_ids"] = [
+        item for item in scene["line_evidence_ids"] if item != "arm-right"
     ]
     reduced["choices"] = [reduced["choices"][0]]
 
@@ -193,7 +195,7 @@ def test_duplicate_membership_and_coverage_totals_are_reported() -> None:
     evidence, profile, analysis = _base_objects()
     scene = analysis["scenes"][0]
     assert isinstance(scene, dict)
-    scene["member_evidence_ids"].append("line-intro")
+    scene["line_evidence_ids"].append("line-intro")
     analysis["exclusions"] = [{
         "evidence_id": "line-intro",
         "reason": "incorrectly excluded",
@@ -226,7 +228,7 @@ def test_dynamic_behavior_and_missing_uncertainty_are_not_publishable() -> None:
     )
     scene = analysis["scenes"][0]
     assert isinstance(scene, dict)
-    scene["member_evidence_ids"].append("jump-dynamic")
+    scene["line_evidence_ids"].append("jump-dynamic")
     analysis["unresolved"] = [
         {
             "id": "dynamic-uncertainty",

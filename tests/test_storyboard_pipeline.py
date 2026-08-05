@@ -335,6 +335,48 @@ def test_replays_must_match_bundled_schemas(tmp_path: Path) -> None:
         )
 
 
+def test_legacy_replay_envelopes_are_rejected_instead_of_unwrapped(tmp_path: Path) -> None:
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
+
+    with pytest.raises(StoryboardPipelineError, match="legacy envelope"):
+        run_storyboard_pipeline(
+            game,
+            tmp_path / "profile-envelope",
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            profile_replay={"profile": profile},
+            analysis_replay=analysis,
+        )
+    with pytest.raises(StoryboardPipelineError, match="legacy envelope"):
+        run_storyboard_pipeline(
+            game,
+            tmp_path / "game-profile-envelope",
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            profile_replay={"game_profile": profile},
+            analysis_replay=analysis,
+        )
+    with pytest.raises(StoryboardPipelineError, match="legacy envelope"):
+        run_storyboard_pipeline(
+            game,
+            tmp_path / "analysis-envelope",
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            profile_replay=profile,
+            analysis_replay={"analysis": analysis},
+        )
+    with pytest.raises(StoryboardPipelineError, match="legacy envelope"):
+        run_storyboard_pipeline(
+            game,
+            tmp_path / "story-analysis-envelope",
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            profile_replay=profile,
+            analysis_replay={"story_analysis": analysis},
+        )
+
+
 def test_replay_provenance_binds_raw_evidence_and_exact_profile_json(tmp_path: Path) -> None:
     game, raw_evidence, evidence = _source_and_evidence(tmp_path)
     profile, analysis = _schema_replays(raw_evidence, evidence)

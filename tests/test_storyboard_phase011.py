@@ -45,7 +45,7 @@ def _branch_inputs() -> tuple[dict[str, object], dict[str, object], dict[str, st
         "title": "Start",
         "summary": "The shared opening divides into two arms.",
         "order": 0,
-        "leaf_evidence_ids": [lines[str(line)] for line in (1, 2, 3, 8)],
+        "line_evidence_ids": [lines[str(line)] for line in (1, 2, 3, 8)],
         "choice_ids": ["choice-main"],
         "evidence_ids": [annotations["label"], annotations["menu"]],
         "confidence": "high",
@@ -172,7 +172,7 @@ def test_branch_body_leaf_ownership_is_exact_once_and_reported_per_arm() -> None
 
     scene = analysis["scenes"][0]
     assert isinstance(scene, dict)
-    scene["leaf_evidence_ids"].append(analysis["choices"][0]["arms"][0]["line_evidence_ids"][0])
+    scene["line_evidence_ids"].append(analysis["choices"][0]["arms"][0]["line_evidence_ids"][0])
     rejected = validate_phase01(evidence, profile, analysis)
     assert not rejected.publishable
     assert any(item.code == "duplicate_membership" for item in rejected.errors)
@@ -204,7 +204,7 @@ def test_resolved_choice_consequence_and_custom_rationale_are_allowed_but_python
             {
                 "id": "scene",
                 "evidence_ids": ["custom", "python"],
-                "member_evidence_ids": ["custom", "python"],
+                "line_evidence_ids": ["custom", "python"],
                 "confidence": "medium",
                 "status": "unresolved",
                 "uncertainty": "The embedded Python behavior is not statically closed.",
@@ -239,7 +239,7 @@ def test_scene_order_and_semantic_destination_require_source_target_evidence() -
         "title": "Next",
         "summary": "Continuation",
         "order": 0,
-        "leaf_evidence_ids": [],
+                "line_evidence_ids": [],
         "choice_ids": [],
         "evidence_ids": [lines["8"]],
         "confidence": "high",
