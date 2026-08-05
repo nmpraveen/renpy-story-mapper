@@ -66,7 +66,10 @@ def build_story_analysis_request(
             "ownership for shared scene bodies, each menu/conditional arm, shared continuations, "
             "and explicit exclusion/unresolved buckets. Use line_evidence_ids as the only direct "
             "source-line membership field for scenes, arms, and continuations; include it even "
-            "when the list is empty. Preserve the declared scene order."
+            "when the list is empty. Preserve the declared scene order. Semantic evidence_ids "
+            "are citations for claim grounding only: edge source/target binding must use only "
+            "line_evidence_ids plus deterministic annotations physically associated with those "
+            "member lines."
         ),
         "authority": (
             "Use the game profile for interpretation, but keep every structural or semantic "
@@ -78,7 +81,9 @@ def build_story_analysis_request(
             "legacy unresolved string. Keep choices and transitions at the top level only. Use "
             "semantic destination_scene_id/rejoin_scene_id fields, and when a concrete destination "
             "is present include both source_evidence_ids and target_evidence_ids. Line lists may "
-            "be empty when a scene or arm has no direct lines. Do not use any alternate membership "
+            "be empty when a scene or arm has no direct lines. Semantic evidence_ids must never "
+            "expand scene or arm edge-binding scope; use only line_evidence_ids and annotations "
+            "physically associated with those member lines. Do not use any alternate membership "
             "field or replay envelope."
         ),
         "security": (

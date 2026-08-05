@@ -974,21 +974,19 @@ def _validate_evidence_bindings(
         scene = scenes.get(scene_id or "")
         if scene is None:
             return set()
+        # Semantic citations explain a scene but do not define its physical source scope.  Edge
+        # bindings may use only the canonical line membership and deterministic annotations whose
+        # spans are physically associated with those member lines.
         return _expand_evidence_scope(
-            {
-                *_text_ids_without_issues(scene.get("line_evidence_ids")),
-                *_text_ids_without_issues(scene.get("evidence_ids")),
-            },
+            set(_text_ids_without_issues(scene.get("line_evidence_ids"))),
             view,
         )
 
     def arm_scope(arm: JsonObject) -> set[str]:
+        # Keep general semantic citations and condition citations available for claim grounding,
+        # but never let either field expand the arm's source/target binding scope.
         return _expand_evidence_scope(
-            {
-                *_text_ids_without_issues(arm.get("line_evidence_ids")),
-                *_text_ids_without_issues(arm.get("evidence_ids")),
-                *_text_ids_without_issues(arm.get("condition_evidence_ids")),
-            },
+            set(_text_ids_without_issues(arm.get("line_evidence_ids"))),
             view,
         )
 
@@ -1106,13 +1104,12 @@ def _validate_evidence_bindings(
 
 
 def _expand_evidence_scope(scope_ids: set[str], view: _IndexView) -> set[str]:
-    """Include parser annotations whose physical spans belong to the supplied source lines."""
+    """Expand canonical line membership with annotations physically tied to those lines."""
 
-    allowed = {evidence_id for evidence_id in scope_ids if evidence_id in view.records}
+    member_line_ids = {evidence_id for evidence_id in scope_ids if evidence_id in view.leaf_ids}
+    allowed = set(member_line_ids)
     source_line_spans: list[Mapping[str, object]] = []
-    for evidence_id in scope_ids:
-        if evidence_id not in view.leaf_ids:
-            continue
+    for evidence_id in member_line_ids:
         span = _span_mapping(_source(view.records[evidence_id]))
         if span is not None:
             source_line_spans.append(span)
@@ -1653,7 +1650,7 @@ def _validate_semantic_inference_objects(
                 continue
             label = f"{owner}.{collection_name}[{ordinal}]"
             _validate_claim_metadata(raw, label, view, issues)
-            if collection_name == "scenes" and "line_evidence_ids" not in raw:
+            if collection_name in {"scenes", "continuations"} and "line_evidence_ids" not in raw:
                 issues.add(
                     "missing_membership_field",
                     f"{label} must declare line_evidence_ids, even when it is empty",

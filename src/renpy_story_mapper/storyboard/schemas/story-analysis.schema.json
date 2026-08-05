@@ -111,7 +111,7 @@
         {"$ref": "#/$defs/inference_fields"},
         {
           "type": "object",
-          "required": ["id"],
+          "required": ["id", "line_evidence_ids"],
           "properties": {
             "id": {"$ref": "#/$defs/text"},
             "scene_id": {"type": ["string", "null"]},

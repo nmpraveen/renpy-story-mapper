@@ -821,6 +821,40 @@ def test_scene_and_edge_completeness_bind_origin_and_destination_evidence() -> N
         issue.code == "source_evidence_not_in_origin_scene" for issue in source_report.errors
     )
 
+    semantic_target = deepcopy(valid)
+    destination_scene = semantic_target["scenes"][1]
+    assert isinstance(destination_scene, dict)
+    destination_citations = destination_scene["evidence_ids"]
+    assert isinstance(destination_citations, list)
+    destination_citations.append(line_ids[4])
+    assert validate_phase01(evidence, profile, semantic_target).publishable
+    semantic_target_transition = semantic_target["transitions"][0]
+    assert isinstance(semantic_target_transition, dict)
+    semantic_target_transition["target_evidence_ids"] = [line_ids[4]]
+    semantic_target_report = validate_phase01(evidence, profile, semantic_target)
+    assert not semantic_target_report.publishable
+    assert any(
+        issue.code == "target_evidence_not_in_destination_scene"
+        for issue in semantic_target_report.errors
+    )
+
+    semantic_source = deepcopy(valid)
+    origin_scene = semantic_source["scenes"][0]
+    assert isinstance(origin_scene, dict)
+    origin_citations = origin_scene["evidence_ids"]
+    assert isinstance(origin_citations, list)
+    origin_citations.append(line_ids[6])
+    assert validate_phase01(evidence, profile, semantic_source).publishable
+    semantic_source_transition = semantic_source["transitions"][0]
+    assert isinstance(semantic_source_transition, dict)
+    semantic_source_transition["source_evidence_ids"] = [line_ids[6]]
+    semantic_source_report = validate_phase01(evidence, profile, semantic_source)
+    assert not semantic_source_report.publishable
+    assert any(
+        issue.code == "source_evidence_not_in_origin_scene"
+        for issue in semantic_source_report.errors
+    )
+
     empty, empty_profile, empty_destination = _two_scene_transition_inputs(
         empty_destination=True, unrelated_target=True
     )
@@ -869,6 +903,62 @@ def test_choice_arm_origin_and_destination_evidence_are_bound_to_the_arm_and_sce
         issue.code == "target_evidence_not_in_destination_scene" for issue in target_report.errors
     )
 
+    semantic_source = deepcopy(analysis)
+    semantic_go = semantic_source["choices"][0]["arms"][0]
+    assert isinstance(semantic_go, dict)
+    arm_citations = semantic_go["evidence_ids"]
+    assert isinstance(arm_citations, list)
+    arm_citations.append(line_ids[6])
+    assert validate_phase01(evidence, profile, semantic_source).publishable
+    semantic_go["source_evidence_ids"] = [line_ids[6]]
+    semantic_source_report = validate_phase01(evidence, profile, semantic_source)
+    assert not semantic_source_report.publishable
+    assert any(
+        issue.code == "source_evidence_not_in_origin_arm"
+        for issue in semantic_source_report.errors
+    )
+
+    semantic_target = deepcopy(analysis)
+    semantic_destination = semantic_target["scenes"][1]
+    assert isinstance(semantic_destination, dict)
+    destination_citations = semantic_destination["evidence_ids"]
+    assert isinstance(destination_citations, list)
+    destination_citations.append(line_ids[6])
+    assert validate_phase01(evidence, profile, semantic_target).publishable
+    semantic_target_go = semantic_target["choices"][0]["arms"][0]
+    assert isinstance(semantic_target_go, dict)
+    semantic_target_go["target_evidence_ids"] = [line_ids[6]]
+    semantic_target_report = validate_phase01(evidence, profile, semantic_target)
+    assert not semantic_target_report.publishable
+    assert any(
+        issue.code == "target_evidence_not_in_destination_scene"
+        for issue in semantic_target_report.errors
+    )
+
+    rejoin = deepcopy(analysis)
+    rejoin_go = rejoin["choices"][0]["arms"][0]
+    assert isinstance(rejoin_go, dict)
+    rejoin_go.pop("destination_scene_id")
+    rejoin_go["rejoin_scene_id"] = "scene-destination"
+    assert validate_phase01(evidence, profile, rejoin).publishable
+
+    semantic_rejoin = deepcopy(rejoin)
+    semantic_rejoin_destination = semantic_rejoin["scenes"][1]
+    assert isinstance(semantic_rejoin_destination, dict)
+    rejoin_citations = semantic_rejoin_destination["evidence_ids"]
+    assert isinstance(rejoin_citations, list)
+    rejoin_citations.append(line_ids[6])
+    assert validate_phase01(evidence, profile, semantic_rejoin).publishable
+    semantic_rejoin_go = semantic_rejoin["choices"][0]["arms"][0]
+    assert isinstance(semantic_rejoin_go, dict)
+    semantic_rejoin_go["target_evidence_ids"] = [line_ids[6]]
+    semantic_rejoin_report = validate_phase01(evidence, profile, semantic_rejoin)
+    assert not semantic_rejoin_report.publishable
+    assert any(
+        issue.code == "target_evidence_not_in_destination_scene"
+        for issue in semantic_rejoin_report.errors
+    )
+
 
 def test_canonical_line_membership_is_sole_scene_and_arm_membership_field() -> None:
     evidence = _evidence()
@@ -897,6 +987,45 @@ def test_canonical_line_membership_is_sole_scene_and_arm_membership_field() -> N
     )
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     assert list(Draft202012Validator(schema).iter_errors(analysis))
+
+
+def test_continuation_line_membership_is_required_but_explicit_empty_is_valid() -> None:
+    evidence = _evidence()
+    profile = _canonical_profile(evidence)
+    valid = _branch_analysis(evidence)
+    records = _records(evidence)
+    label = next(item for item in records if item["kind"] == "label")
+    continuation = {
+        "id": "continuation-empty",
+        "title": "Shared continuation",
+        "evidence_ids": [str(label["id"])],
+        "confidence": "high",
+        "status": "resolved",
+        "uncertainty": None,
+        "line_evidence_ids": [],
+    }
+    with_empty_membership = deepcopy(valid)
+    with_empty_membership["continuations"] = [continuation]
+    schema_path = (
+        Path(__file__).parents[1]
+        / "src"
+        / "renpy_story_mapper"
+        / "storyboard"
+        / "schemas"
+        / "story-analysis.schema.json"
+    )
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    assert list(Draft202012Validator(schema).iter_errors(with_empty_membership)) == []
+    assert validate_phase01(evidence, profile, with_empty_membership).publishable
+
+    without_membership = deepcopy(with_empty_membership)
+    missing_continuation = without_membership["continuations"][0]
+    assert isinstance(missing_continuation, dict)
+    missing_continuation.pop("line_evidence_ids")
+    assert list(Draft202012Validator(schema).iter_errors(without_membership))
+    report = validate_phase01(evidence, profile, without_membership)
+    assert not report.publishable
+    assert any(issue.code == "missing_membership_field" for issue in report.errors)
 
 
 def test_recursive_path_redaction_preserves_relative_identity_and_exact_source_text() -> None:
