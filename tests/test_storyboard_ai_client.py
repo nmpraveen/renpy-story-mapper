@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -131,7 +132,7 @@ def test_command_is_direct_read_only_schema_bound_and_explicitly_fast(tmp_path: 
     assert command[command.index("--model") + 1] == "model-a"
     assert str(schema) in command
     assert 'model_reasoning_effort="high"' in command
-    assert ("--enable", "fast_mode") in tuple(zip(command, command[1:]))
+    assert ("--enable", "fast_mode") in tuple(pairwise(command))
     assert all(
         not (value == "-c" and command[index + 1].startswith("fast_mode="))
         for index, value in enumerate(command[:-1])
@@ -186,7 +187,7 @@ def test_no_fast_mode_cli_flag_builds_supported_disabled_feature_command(tmp_pat
     assert "--ignore-user-config" in command
     assert "--ignore-rules" in command
     assert "--strict-config" in command
-    assert ("--disable", "fast_mode") in tuple(zip(command, command[1:]))
+    assert ("--disable", "fast_mode") in tuple(pairwise(command))
     assert "fast_mode=false" not in config_overrides
     assert "features.fast_mode=false" not in config_overrides
     assert 'model_reasoning_effort="xhigh"' in config_overrides
