@@ -761,8 +761,271 @@ def test_multiple_of_intersection_is_exact_for_integer_and_decimal_json_numbers(
     assert not Draft202012Validator(decimal_provider).is_valid(0.3)
 
 
+def test_allof_conjunction_is_order_independent_and_impossible_domains_do_not_start(
+    tmp_path: Path,
+) -> None:
+    allof_first = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "allOf": [
+            {
+                "type": "object",
+                "properties": {"b": {"type": "integer"}},
+                "required": ["b"],
+            }
+        ],
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {"a": {"type": "string"}},
+    }
+    siblings_first = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {"a": {"type": "string"}},
+        "allOf": [
+            {
+                "type": "object",
+                "properties": {"b": {"type": "integer"}},
+                "required": ["b"],
+            }
+        ],
+    }
+    values = ({}, {"a": "x"}, {"b": 1}, {"a": "x", "b": 1})
+    for index, canonical in enumerate((allof_first, siblings_first)):
+        assert not any(Draft202012Validator(canonical).is_valid(value) for value in values)
+        schema = tmp_path / f"allof-order-{index}.json"
+        schema.write_text(json.dumps(canonical), encoding="utf-8")
+        process = FakeProcess(_jsonl({"ok": True}))
+        created: list[tuple[ProcessSpec, FakeProcess]] = []
+        client = _client(process, created)
+
+        with pytest.raises(ProviderRuntimeConfigurationError) as raised:
+            client.complete(
+                payload={"request": "allof-order"},
+                schema_path=schema,
+                model="model-a",
+                reasoning_effort="high",
+                fast_mode=False,
+            )
+
+        assert raised.value.error_code == "provider_schema_derivation_failed"
+        assert raised.value.transmission.value == "not_transmitted"
+        assert created == []
+
+
+def test_closed_anyof_alternatives_are_projected_independently_without_property_union() -> None:
+    canonical = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {"a": {"const": 1}, "b": {"const": 2}},
+        "anyOf": [
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {"a": {"const": 1}},
+                "required": ["a"],
+            },
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {"b": {"const": 2}},
+                "required": ["b"],
+            },
+        ],
+    }
+    provider = derive_codex_provider_schema(canonical)
+    alternatives = provider["anyOf"]
+    assert isinstance(alternatives, list)
+    assert [set(alternative["properties"]) for alternative in alternatives] == [
+        {"a"},
+        {"b"},
+    ]
+    values = ({}, {"a": 1}, {"b": 2}, {"a": 1, "b": 2})
+    canonical_valid = [Draft202012Validator(canonical).is_valid(value) for value in values]
+    provider_valid = [Draft202012Validator(provider).is_valid(value) for value in values]
+    assert canonical_valid == [False, True, True, False]
+    assert provider_valid == canonical_valid
+
+
+@pytest.mark.parametrize(
+    "canonical",
+    [
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "array",
+            "const": [1, 1],
+            "uniqueItems": True,
+        },
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "array",
+            "enum": [[1, 1]],
+            "uniqueItems": True,
+        },
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "array",
+            "items": {"const": 1},
+            "minItems": 2,
+            "uniqueItems": True,
+        },
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "array",
+            "contains": False,
+        },
+    ],
+)
+def test_impossible_finite_array_domains_fail_before_provider_projection(
+    canonical: dict[str, object],
+) -> None:
+    with pytest.raises(ValueError):
+        derive_codex_provider_schema(canonical)
+
+
+def test_required_impossible_nested_array_stops_before_provider_start(tmp_path: Path) -> None:
+    canonical = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["value"],
+        "properties": {
+            "value": {
+                "type": "array",
+                "const": [1, 1],
+                "uniqueItems": True,
+            }
+        },
+    }
+    schema = tmp_path / "impossible-nested-array.schema.json"
+    schema.write_text(json.dumps(canonical), encoding="utf-8")
+    process = FakeProcess(_jsonl({"value": [1, 1]}))
+    created: list[tuple[ProcessSpec, FakeProcess]] = []
+    client = _client(process, created)
+
+    with pytest.raises(ProviderRuntimeConfigurationError) as raised:
+        client.complete(
+            payload={"request": "impossible-nested-array"},
+            schema_path=schema,
+            model="model-a",
+            reasoning_effort="high",
+            fast_mode=False,
+        )
+
+    assert raised.value.error_code == "provider_schema_derivation_failed"
+    assert raised.value.transmission.value == "not_transmitted"
+    assert created == []
+
+
+def test_prefix_items_do_not_apply_items_to_the_prefix_tuple() -> None:
+    canonical = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "prefixItems": [{"const": 1}],
+        "items": False,
+    }
+    provider = derive_codex_provider_schema(canonical)
+    values = ([], [1], [2], [1, 2])
+    canonical_valid = [Draft202012Validator(canonical).is_valid(value) for value in values]
+    provider_valid = [Draft202012Validator(provider).is_valid(value) for value in values]
+    assert canonical_valid == [True, True, False, False]
+    assert provider_valid == canonical_valid
+
+
+def test_optional_impossible_nested_properties_are_omitted_but_required_ones_fail() -> None:
+    impossible_child = {
+        "allOf": [
+            {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {"a": {"type": "string"}},
+            },
+            {
+                "type": "object",
+                "required": ["b"],
+                "properties": {"b": {"type": "integer"}},
+            },
+        ]
+    }
+    optional = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {"child": impossible_child},
+    }
+    provider = derive_codex_provider_schema(optional)
+    assert provider["properties"] == {}
+    assert Draft202012Validator(optional).is_valid({})
+    assert Draft202012Validator(provider).is_valid({})
+
+    required = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["child"],
+        "properties": {"child": impossible_child},
+    }
+    with pytest.raises(ValueError):
+        derive_codex_provider_schema(required)
+
+
+def test_high_precision_multiple_of_uses_exact_decimal_materialization(tmp_path: Path) -> None:
+    canonical = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "required": ["step"],
+        "properties": {
+            "step": {
+                "allOf": [
+                    {"type": "number", "multipleOf": 0.6666666666666666},
+                    {"minimum": 0, "maximum": 3000000000000000, "multipleOf": 0.8},
+                ]
+            }
+        },
+    }
+    schema = tmp_path / "high-precision.schema.json"
+    schema.write_text(json.dumps(canonical), encoding="utf-8")
+    provider = derive_codex_provider_schema(canonical)
+    step = provider["properties"]["step"]
+    assert str(step["multipleOf"]) == "2666666666666666.4"
+    Draft202012Validator.check_schema(provider)
+
+    observed_schema_text: list[str] = []
+    process = FakeProcess(_jsonl({"step": 0}, fast_mode=False))
+
+    def factory(spec: ProcessSpec) -> FakeProcess:
+        provider_path = Path(spec.command[spec.command.index("--output-schema") + 1])
+        observed_schema_text.append(provider_path.read_text(encoding="utf-8"))
+        return process
+
+    client = CodexCliJsonClient(
+        executable="codex",
+        process_factory=factory,
+        executable_resolver=lambda _command: "C:/synthetic/codex.exe",
+        timeout_seconds=1.0,
+    )
+    assert client.complete(
+        payload={"request": "high-precision"},
+        schema_path=schema,
+        model="model-a",
+        reasoning_effort="high",
+        fast_mode=False,
+    ) == {"step": 0}
+    assert '"multipleOf":2666666666666666.4' in observed_schema_text[0]
+    assert '"multipleOf":"2666666666666666.4"' not in observed_schema_text[0]
+
+
 @pytest.mark.parametrize("multiple_of", [0, -1, 0.0])
 def test_invalid_multiple_of_is_rejected_before_projection(multiple_of: int | float) -> None:
+    canonical = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "number",
+        "multipleOf": multiple_of,
+    }
+
+    with pytest.raises(ValueError, match="multipleOf"):
+        derive_codex_provider_schema(canonical)
+
+
+@pytest.mark.parametrize("multiple_of", [float("nan"), float("inf"), float("-inf")])
+def test_nonfinite_multiple_of_is_rejected_before_projection(multiple_of: float) -> None:
     canonical = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "number",
