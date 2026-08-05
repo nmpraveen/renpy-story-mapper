@@ -35,10 +35,17 @@ from renpy_story_mapper.storyboard.prompts import (
     build_canonical_repair_request,
     build_game_profile_request,
     build_story_analysis_request,
+    build_validation_repair_request,
     schema_path,
 )
 from renpy_story_mapper.storyboard.render import render_storyboard_html
-from renpy_story_mapper.storyboard.validation import ValidationReport, validate_phase01
+from renpy_story_mapper.storyboard.validation import (
+    ValidationIssue,
+    ValidationReport,
+    project_physical_ownership,
+    validate_phase01,
+    validate_profile_response,
+)
 
 __all__ = [
     "ARTIFACT_FILENAMES",
@@ -59,6 +66,25 @@ ARTIFACT_FILENAMES = (
 
 JsonMapping = Mapping[str, object]
 ReplayInput = str | os.PathLike[str] | JsonMapping
+
+_PROFILE_REPAIRABLE_CODES = frozenset({"dynamic_behavior_as_fact"})
+_ANALYSIS_REPAIRABLE_CODES = frozenset(
+    {
+        "arm_leaf_in_shared_scene",
+        "cross_arm_ownership",
+        "duplicate_membership",
+        "dynamic_behavior_as_fact",
+        "incomplete_arm_coverage",
+        "invalid_scene_order",
+        "invalid_story_reference",
+        "missing_branch_ownership",
+        "scene_contains_branch_leaves",
+        "source_evidence_not_in_origin_arm",
+        "source_evidence_not_in_origin_scene",
+        "target_evidence_not_in_destination_scene",
+        "unaccounted_evidence",
+    }
+)
 
 
 class StoryboardPipelineError(StoryMapperError):
@@ -81,6 +107,12 @@ class PipelineResult:
         """Compatibility name for callers that prefer an explicit path property."""
 
         return self.artifacts
+
+
+@dataclass(frozen=True)
+class _AIResult:
+    value: dict[str, object]
+    validation_repair_available: bool
 
 
 def run_storyboard_pipeline(
@@ -110,9 +142,9 @@ def run_storyboard_pipeline(
 
     ``profile_replay`` and ``analysis_replay`` may each be a JSON file path or an in-memory JSON
     mapping.  When a replay is absent, one corresponding request is sent through the supplied
-    provider-neutral client (or a direct :class:`CodexCliJsonClient`); one targeted repair may
-    follow only when that response fails canonical schema validation.  No provider is instantiated
-    when both replays are supplied.
+    provider-neutral client (or a direct :class:`CodexCliJsonClient`); each response permits at
+    most one targeted repair, shared by canonical schema validation and the focused deterministic
+    response checks.  No provider is instantiated when both replays are supplied.
 
     The input is ingested and parsed before either AI call.  The output path is checked before
     ingestion, and the relevant source files are fingerprinted before and after the run.  Only the
@@ -181,7 +213,7 @@ def run_storyboard_pipeline(
         selected_profile_replay is None or selected_analysis_replay is None
     ):
         provider = _new_provider()
-    profile = _load_or_request_profile(
+    profile_result = _load_or_request_profile(
         selected_profile_replay,
         ai_evidence,
         canary_ids,
@@ -192,6 +224,7 @@ def run_storyboard_pipeline(
         fast_mode=fast_mode,
         timeout_seconds=timeout_seconds,
     )
+    profile = profile_result.value
     _validate_schema_document(profile, "game-profile")
     _verify_source_hash(
         profile,
@@ -205,8 +238,54 @@ def run_storyboard_pipeline(
         field="scope_evidence_ids",
         expected=canary_ids,
     )
+    profile_issues = validate_profile_response(raw_evidence, profile)
+    if (
+        profile_issues
+        and profile_result.validation_repair_available
+        and _issues_are_repairable(profile_issues, _PROFILE_REPAIRABLE_CODES)
+    ):
+        if provider is None:
+            raise StoryboardPipelineError("storyboard profile repair provider is unavailable")
+        profile = _repair_validated_response(
+            provider,
+            prior_response=profile,
+            issues=profile_issues,
+            kind="game-profile",
+            required_provenance={"evidence_index_hash": evidence_hash},
+            physical_ownership=None,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            fast_mode=fast_mode,
+            timeout_seconds=timeout_seconds,
+        )
+        profile = _bind_deterministic_source(
+            profile,
+            {
+                "evidence_index_hash": evidence_hash,
+                "scope_evidence_ids": list(canary_ids),
+            },
+        )
+        _validate_schema_document(profile, "game-profile")
+        _verify_source_hash(
+            profile,
+            kind="game profile",
+            field="evidence_index_hash",
+            expected=evidence_hash,
+        )
+        _verify_source_ids(
+            profile,
+            kind="game profile",
+            field="scope_evidence_ids",
+            expected=canary_ids,
+        )
+        profile_issues = validate_profile_response(raw_evidence, profile)
+    if profile_issues:
+        raise StoryboardPipelineError(
+            "storyboard AI game-profile response failed deterministic validation after its "
+            f"single allowed response attempt: {_format_response_issues(profile_issues)}"
+        )
     profile_hash = _sha256_artifact_json(profile)
-    analysis = _load_or_request_analysis(
+    analysis_result = _load_or_request_analysis(
         selected_analysis_replay,
         ai_evidence,
         profile,
@@ -219,6 +298,7 @@ def run_storyboard_pipeline(
         fast_mode=fast_mode,
         timeout_seconds=timeout_seconds,
     )
+    analysis = analysis_result.value
     _validate_schema_document(analysis, "story-analysis")
     _verify_source_hash(
         analysis,
@@ -238,11 +318,65 @@ def run_storyboard_pipeline(
         field="canary_evidence_ids",
         expected=canary_ids,
     )
+    validation_report = validate_phase01(evidence, profile, analysis)
+    if (
+        not validation_report.publishable
+        and analysis_result.validation_repair_available
+        and _issues_are_repairable(validation_report.errors, _ANALYSIS_REPAIRABLE_CODES)
+    ):
+        if provider is None:
+            raise StoryboardPipelineError("storyboard analysis repair provider is unavailable")
+        physical_ownership = ai_evidence.get("physical_ownership")
+        if not isinstance(physical_ownership, Mapping):
+            raise StoryboardPipelineError("deterministic physical ownership is unavailable")
+        analysis = _repair_validated_response(
+            provider,
+            prior_response=analysis,
+            issues=validation_report.errors,
+            kind="story-analysis",
+            required_provenance={
+                "evidence_index_hash": evidence_hash,
+                "profile_hash": profile_hash,
+            },
+            physical_ownership=physical_ownership,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            fast_mode=fast_mode,
+            timeout_seconds=timeout_seconds,
+        )
+        analysis = _bind_deterministic_source(
+            analysis,
+            {
+                "evidence_index_hash": evidence_hash,
+                "profile_hash": profile_hash,
+                "canary_evidence_ids": list(canary_ids),
+            },
+        )
+        _validate_schema_document(analysis, "story-analysis")
+        _verify_source_hash(
+            analysis,
+            kind="story analysis",
+            field="evidence_index_hash",
+            expected=evidence_hash,
+        )
+        _verify_source_hash(
+            analysis,
+            kind="story analysis",
+            field="profile_hash",
+            expected=profile_hash,
+        )
+        _verify_source_ids(
+            analysis,
+            kind="story analysis",
+            field="canary_evidence_ids",
+            expected=canary_ids,
+        )
+        validation_report = validate_phase01(evidence, profile, analysis)
+
     analysis_hash = _sha256_artifact_json(analysis)
 
-    # Keep this call before rendering.  A rejected report is still rendered so the static page
-    # exposes the exact deterministic findings instead of disappearing behind a failed command.
-    validation_report = validate_phase01(evidence, profile, analysis)
+    # Keep this validation before rendering.  A rejected report is still rendered so the static
+    # page exposes the exact deterministic findings instead of disappearing behind a failed command.
     report_mapping = validation_report.to_dict()
     provenance = _artifact_provenance(evidence_hash, profile_hash, analysis_hash)
     report_mapping["provenance"] = provenance
@@ -335,6 +469,12 @@ def _project_evidence_for_ai(evidence: Mapping[str, object]) -> dict[str, object
         source = record.get("source")
         if has_shared_provenance and isinstance(source, dict):
             source.pop("provenance", None)
+    try:
+        projected["physical_ownership"] = project_physical_ownership(evidence)
+    except ValueError as error:
+        raise StoryboardPipelineError(
+            "could not derive deterministic physical ownership"
+        ) from error
     return projected
 
 
@@ -349,9 +489,9 @@ def _load_or_request_profile(
     reasoning_effort: str,
     fast_mode: bool,
     timeout_seconds: float | None,
-) -> dict[str, object]:
+) -> _AIResult:
     if replay is not None:
-        return _read_replay(replay, "profile")
+        return _AIResult(_read_replay(replay, "profile"), False)
     provider = provider or _new_provider()
     payload = build_game_profile_request(evidence_index=_copy_json_mapping(evidence))
     payload["required_provenance"] = {"evidence_index_hash": evidence_hash}
@@ -364,12 +504,15 @@ def _load_or_request_profile(
         fast_mode=fast_mode,
         timeout_seconds=timeout_seconds,
     )
-    return _bind_deterministic_source(
-        profile,
-        {
-            "evidence_index_hash": evidence_hash,
-            "scope_evidence_ids": list(canary_ids),
-        },
+    return _AIResult(
+        _bind_deterministic_source(
+            profile.value,
+            {
+                "evidence_index_hash": evidence_hash,
+                "scope_evidence_ids": list(canary_ids),
+            },
+        ),
+        profile.validation_repair_available,
     )
 
 
@@ -386,9 +529,9 @@ def _load_or_request_analysis(
     reasoning_effort: str,
     fast_mode: bool,
     timeout_seconds: float | None,
-) -> dict[str, object]:
+) -> _AIResult:
     if replay is not None:
-        return _read_replay(replay, "analysis")
+        return _AIResult(_read_replay(replay, "analysis"), False)
     provider = provider or _new_provider()
     payload = build_story_analysis_request(
         evidence_index=_copy_json_mapping(evidence),
@@ -408,13 +551,16 @@ def _load_or_request_analysis(
         fast_mode=fast_mode,
         timeout_seconds=timeout_seconds,
     )
-    return _bind_deterministic_source(
-        analysis,
-        {
-            "evidence_index_hash": evidence_hash,
-            "profile_hash": profile_hash,
-            "canary_evidence_ids": list(canary_ids),
-        },
+    return _AIResult(
+        _bind_deterministic_source(
+            analysis.value,
+            {
+                "evidence_index_hash": evidence_hash,
+                "profile_hash": profile_hash,
+                "canary_evidence_ids": list(canary_ids),
+            },
+        ),
+        analysis.validation_repair_available,
     )
 
 
@@ -437,7 +583,7 @@ def _complete(
     reasoning_effort: str,
     fast_mode: bool,
     timeout_seconds: float | None,
-) -> dict[str, object]:
+) -> _AIResult:
     value, issues = _complete_once(
         provider,
         payload,
@@ -449,7 +595,7 @@ def _complete(
         repair=False,
     )
     if not issues:
-        return value
+        return _AIResult(value, True)
 
     repair_payload = build_canonical_repair_request(
         kind=kind,
@@ -477,7 +623,7 @@ def _complete(
             f"storyboard AI {kind} response still does not match the bundled schema after one "
             f"targeted repair: {details}"
         )
-    return repaired
+    return _AIResult(repaired, False)
 
 
 def _complete_once(
@@ -521,6 +667,86 @@ def _complete_once(
         )
     copied = _copy_json_mapping(value)
     return copied, _canonical_validation_issues(copied, kind)
+
+
+def _repair_validated_response(
+    provider: StoryboardJsonClient,
+    *,
+    prior_response: Mapping[str, object],
+    issues: Sequence[ValidationIssue],
+    kind: str,
+    required_provenance: Mapping[str, object],
+    physical_ownership: Mapping[str, object] | None,
+    model: str,
+    reasoning_effort: str,
+    fast_mode: bool,
+    timeout_seconds: float | None,
+) -> dict[str, object]:
+    payload = build_validation_repair_request(
+        kind=kind,
+        prior_response=prior_response,
+        validator_issues=_group_response_issues(issues),
+        physical_ownership=physical_ownership,
+    )
+    payload["required_provenance"] = _copy_json_mapping(required_provenance)
+    repaired, canonical_issues = _complete_once(
+        provider,
+        payload,
+        kind,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        fast_mode=fast_mode,
+        timeout_seconds=timeout_seconds,
+        repair=True,
+    )
+    if canonical_issues:
+        details = _format_validation_issues(canonical_issues)
+        raise StoryboardPipelineError(
+            f"storyboard AI {kind} response does not match the bundled schema after its single "
+            f"validation repair: {details}"
+        )
+    return repaired
+
+
+def _issues_are_repairable(
+    issues: Sequence[ValidationIssue], allowed_codes: frozenset[str]
+) -> bool:
+    return bool(issues) and all(issue.code in allowed_codes for issue in issues)
+
+
+def _group_response_issues(issues: Sequence[ValidationIssue]) -> list[dict[str, object]]:
+    grouped: dict[str, list[ValidationIssue]] = {}
+    for issue in issues:
+        grouped.setdefault(issue.code, []).append(issue)
+
+    result: list[dict[str, object]] = []
+    for code, code_issues in sorted(grouped.items()):
+        messages = list(dict.fromkeys(issue.message for issue in code_issues))
+        examples = messages[:8]
+        if len(messages) > len(examples):
+            examples.append(
+                f"{len(messages) - len(examples)} additional occurrences; apply the rule to all"
+            )
+        evidence_ids = list(
+            dict.fromkeys(
+                evidence_id
+                for issue in code_issues
+                for evidence_id in issue.evidence_ids
+            )
+        )
+        result.append(
+            {
+                "path": ["validation", code],
+                "message": f"{len(code_issues)} finding(s): " + " | ".join(examples),
+                "evidence_ids": evidence_ids[:16],
+            }
+        )
+    return result
+
+
+def _format_response_issues(issues: Sequence[ValidationIssue]) -> str:
+    grouped = _group_response_issues(issues)
+    return "; ".join(str(item["message"]) for item in grouped)
 
 
 def _canonical_validation_issues(

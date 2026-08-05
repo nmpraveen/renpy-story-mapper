@@ -6,8 +6,9 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 PROFILE_PROMPT_VERSION = "storyboard-game-profile-prompt-v1"
-ANALYSIS_PROMPT_VERSION = "storyboard-story-analysis-prompt-v1"
+ANALYSIS_PROMPT_VERSION = "storyboard-story-analysis-prompt-v2"
 REPAIR_PROMPT_VERSION = "storyboard-canonical-repair-prompt-v1"
+VALIDATION_REPAIR_PROMPT_VERSION = "storyboard-validation-repair-prompt-v1"
 PROFILE_SCHEMA_ID = "storyboard-game-profile-v1"
 ANALYSIS_SCHEMA_ID = "storyboard-story-analysis-v1"
 
@@ -99,7 +100,15 @@ def build_story_analysis_request(
             "lines. Semantic evidence_ids must never "
             "expand scene or arm edge-binding scope; use only line_evidence_ids and annotations "
             "physically associated with those member lines. Do not use any alternate membership "
-            "field or replay envelope."
+            "field or replay envelope. The evidence_index physical_ownership map is authoritative "
+            "for source-line membership only. Put every shared_line_evidence_id exactly once in a "
+            "scene, continuation, or explicit owning unresolved/exclusion bucket. For every "
+            "physical branch, create an arm whose evidence_ids cites branch_evidence_id and whose "
+            "line_evidence_ids exactly equals that branch's line_evidence_ids; nested conditions "
+            "need their own arm and must not be folded into an enclosing menu arm. Never repeat "
+            "branch-owned lines in a scene body. Scene order is zero-based and contiguous. A "
+            "destination_scene_id or rejoin_scene_id may reference only an ID declared in scenes, "
+            "never a continuation ID; associate a continuation with its declared scene_id instead."
         ),
         "security": (
             "Use only the structured profile and evidence in this request; do not use tools, "
@@ -149,6 +158,54 @@ def build_canonical_repair_request(
             "validator_issues": [dict(issue) for issue in validator_issues],
             "prior_response": dict(prior_response),
         },
+        "output_contract": {
+            "schema": contract,
+            "return": "one complete corrected JSON object matching the supplied schema",
+        },
+    }
+
+
+def build_validation_repair_request(
+    *,
+    kind: str,
+    prior_response: Mapping[str, object],
+    validator_issues: Sequence[Mapping[str, object]],
+    physical_ownership: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Build the sole response-level repair request after deterministic validation."""
+
+    if kind not in {"game-profile", "story-analysis"}:
+        raise ValueError("kind must be game-profile or story-analysis")
+    contract = PROFILE_SCHEMA_ID if kind == "game-profile" else ANALYSIS_SCHEMA_ID
+    repair_input: dict[str, object] = {
+        "validator_issues": [dict(issue) for issue in validator_issues],
+        "prior_response": dict(prior_response),
+    }
+    if physical_ownership is not None:
+        repair_input["physical_ownership"] = dict(physical_ownership)
+    return {
+        "prompt_version": VALIDATION_REPAIR_PROMPT_VERSION,
+        "task": (
+            "Correct every listed deterministic validator failure in the prior response and "
+            "return one complete corrected JSON object. Rebuild physical line membership from "
+            "the supplied ownership map instead of moving individual examples heuristically. "
+            "Do not delete, suppress, normalize, or silently reinterpret otherwise valid claims."
+        ),
+        "authority": (
+            "The canonical Draft 2020-12 schema and deterministic physical_ownership map remain "
+            "authoritative. Each accountable line must have exactly one owner. Shared lines cannot "
+            "appear in arms; branch lines must appear only in the arm citing that "
+            "branch_evidence_id. Scene order is zero-based and contiguous. Destination and rejoin "
+            "IDs must name declared "
+            "scenes, not continuations. Any object citing embedded Python or runtime-computed "
+            "evidence must remain unresolved with a non-empty uncertainty. This is the only "
+            "response-level repair attempt."
+        ),
+        "security": (
+            "Use only the prior response, validator findings, and physical ownership facts in this "
+            "request; do not use tools, files, web, or outside knowledge."
+        ),
+        "input": repair_input,
         "output_contract": {
             "schema": contract,
             "return": "one complete corrected JSON object matching the supplied schema",

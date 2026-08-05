@@ -56,6 +56,60 @@ _STATUS_VALUES = frozenset({"resolved", "uncertain", "unresolved", "excluded"})
 JsonObject = Mapping[str, object]
 
 
+def project_physical_ownership(evidence_index: Mapping[str, object]) -> dict[str, object]:
+    """Return the deterministic leaf-membership facts needed by the AI boundary.
+
+    The projection is private request context, not a canonical artifact.  It exposes only the
+    physical ownership that the validator already derives from parser annotations and source
+    spans; scene meaning and all narrative interpretation remain AI-owned.
+    """
+
+    index = _require_mapping(evidence_index, "evidence index")
+    issues = _Issues()
+    view = _index_view(index, issues)
+    if issues.errors:
+        raise ValueError("cannot project ownership from an invalid evidence index")
+
+    def line_key(evidence_id: str) -> tuple[int, str]:
+        source = _source(view.records.get(evidence_id))
+        span = _span_mapping(source)
+        if span is None:
+            return (2**31 - 1, evidence_id)
+        start = span.get("start")
+        if not isinstance(start, Mapping):
+            return (2**31 - 1, evidence_id)
+        line = start.get("line")
+        return (line if isinstance(line, int) else 2**31 - 1, evidence_id)
+
+    branches: list[dict[str, object]] = []
+    for branch_id, leaf_ids in sorted(view.expected_leaves_by_branch.items()):
+        record = view.records.get(branch_id, {})
+        facts = _facts(record)
+        branch: dict[str, object] = {
+            "branch_evidence_id": branch_id,
+            "kind": _text(record.get("kind")) or "branch",
+            "line_evidence_ids": sorted(leaf_ids, key=line_key),
+        }
+        for source_key, target_key in (
+            ("parent_id", "parent_evidence_id"),
+            ("condition_type", "condition_type"),
+            ("condition", "condition"),
+            ("caption", "caption"),
+        ):
+            value = _text(facts.get(source_key))
+            if value is not None:
+                branch[target_key] = value
+        branches.append(branch)
+
+    branch_owned = set(view.expected_branch_by_leaf)
+    shared = sorted(set(view.leaf_ids) - branch_owned, key=line_key)
+    return {
+        "contract": "storyboard-physical-ownership-v1",
+        "shared_line_evidence_ids": shared,
+        "branches": branches,
+    }
+
+
 @dataclass(frozen=True)
 class ValidationIssue:
     """One deterministic validation finding."""
@@ -214,6 +268,22 @@ def validate(
     """Short alias for callers that do not need the Phase 01 name."""
 
     return validate_phase01(evidence_index, profile, analysis)
+
+
+def validate_profile_response(
+    evidence_index: Mapping[str, object], profile: Mapping[str, object]
+) -> tuple[ValidationIssue, ...]:
+    """Validate repairable profile claims before requesting the story analysis."""
+
+    index = _require_mapping(evidence_index, "evidence index")
+    profile_value = _require_mapping(profile, "game profile")
+    issues = _Issues()
+    view = _index_view(index, issues)
+    _validate_canonical_profile_contract(profile_value, issues)
+    _validate_membership_shape(profile_value, "profile", issues)
+    _validate_citations(profile_value, "profile", view, issues)
+    _validate_semantic_inference_objects(profile_value, "profile", view, issues)
+    return issues.errors
 
 
 def _require_mapping(value: object, label: str) -> JsonObject:

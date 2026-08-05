@@ -1349,6 +1349,12 @@ def test_prompt_builders_and_schemas_are_generic() -> None:
         "return": "one JSON object matching the supplied schema",
     }
     assert analysis["input"]["canary_evidence_ids"] == ["E1"]
+    analysis_authority = analysis["authority"]
+    assert isinstance(analysis_authority, str)
+    assert "physical_ownership map is authoritative" in analysis_authority
+    assert "Never repeat branch-owned lines in a scene body." in analysis_authority
+    assert "Scene order is zero-based and contiguous." in analysis_authority
+    assert "never a continuation ID" in analysis_authority
     for request in (profile, analysis):
         authority = request["authority"]
         assert isinstance(authority, str)
