@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from copy import deepcopy
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
@@ -27,6 +28,7 @@ SOURCE = """label opening:
 
 label ending:
     "Shared ending line"
+    "Shared continuation line"
     return
 """
 
@@ -64,7 +66,7 @@ def _canonical_inputs() -> tuple[EvidenceIndex, dict[str, object], dict[str, obj
     index = build_evidence_index_from_text(SOURCE, path="game/canary.rpy")
     line_ids = {
         line_number: _record_for_line(index, line_number).id
-        for line_number in range(1, 17)
+        for line_number in range(1, 18)
         if line_number != 13
     }
     menu = next(record for record in index.records if record.kind.value == "menu")
@@ -188,7 +190,7 @@ def _canonical_inputs() -> tuple[EvidenceIndex, dict[str, object], dict[str, obj
                 "title": "Ending",
                 "summary": "The shared ending line closes the selected section.",
                 "order": 1,
-                "line_evidence_ids": [line_ids[14], line_ids[15], line_ids[16]],
+                "line_evidence_ids": [line_ids[14], line_ids[15], line_ids[17]],
                 "evidence_ids": [label_records["ending"].id],
                 "confidence": "high",
                 "status": "resolved",
@@ -313,6 +315,19 @@ def _canonical_inputs() -> tuple[EvidenceIndex, dict[str, object], dict[str, obj
                 ),
             }
         ],
+        "continuations": [
+            {
+                "id": "continuation-shared",
+                "scene_id": "scene-opening",
+                "title": "Shared continuation",
+                "line_evidence_ids": [line_ids[16]],
+                "evidence_ids": [line_ids[16]],
+                "confidence": "medium",
+                "status": "resolved",
+                "uncertainty": None,
+                "rationale": "The continuation is available after the selected route.",
+            }
+        ],
         "claims": [],
         "excluded_evidence_ids": [],
         "unresolved": [],
@@ -387,13 +402,110 @@ def test_canonical_renderer_preserves_local_metadata_and_terminal_semantics() ->
 
 def test_canonical_projection_has_one_top_level_menu_and_no_legacy_nested_topology() -> None:
     index, profile, analysis = _canonical_inputs()
+    rendered_analysis = deepcopy(analysis)
+    rendered_analysis["menus"] = [
+        {
+            "title": "Legacy nested menu",
+            "arms": [{"caption": "Legacy nested arm", "evidence_id": "missing"}],
+        }
+    ]
+    scenes = rendered_analysis["scenes"]
+    assert isinstance(scenes, list)
+    scene = scenes[0]
+    assert isinstance(scene, dict)
+    scene["menus"] = [{"title": "Legacy scene menu", "arms": []}]
 
-    html = render_storyboard_html(index.to_dict(), profile, analysis, {})
+    html = render_storyboard_html(index.to_dict(), profile, rendered_analysis, {})
 
     assert html.count('<section class="menu"') == 1
     assert html.count('<ol class="arms">') == 1
     assert "Legacy nested menu" not in html
     assert "Legacy nested branch" not in html
+
+
+def test_canonical_membership_uses_only_line_ids_and_arm_metadata_is_emitted_once() -> None:
+    index, profile, analysis = _canonical_inputs()
+    rendered_analysis = deepcopy(analysis)
+
+    ending_label_id = _record_for_line(index, 14).id
+    ending_line_id = _record_for_line(index, 15).id
+    loop_line_id = _record_for_line(index, 7).id
+    unresolved_line_id = _record_for_line(index, 9).id
+    ordinary_line_id = _record_for_line(index, 11).id
+
+    scene = rendered_analysis["scenes"][0]
+    assert isinstance(scene, dict)
+    scene.update(
+        {
+            "leaf_evidence_ids": [ending_label_id],
+            "body_evidence_ids": [ending_label_id],
+            "member_evidence_ids": [ending_label_id],
+            "exact_line_evidence_ids": [ending_line_id],
+            "source_evidence_ids": [ending_line_id],
+        }
+    )
+    choices = rendered_analysis["choices"]
+    assert isinstance(choices, list)
+    choice = choices[0]
+    assert isinstance(choice, dict)
+    arms = choice["arms"]
+    assert isinstance(arms, list)
+    end_arm = arms[0]
+    assert isinstance(end_arm, dict)
+    end_arm.update(
+        {
+            "leaf_evidence_ids": [loop_line_id],
+            "body_evidence_ids": [unresolved_line_id],
+            "member_evidence_ids": [ordinary_line_id],
+            "exact_line_evidence_ids": [ending_line_id],
+            "source_evidence_ids": [loop_line_id],
+        }
+    )
+    continuations = rendered_analysis["continuations"]
+    assert isinstance(continuations, list)
+    continuation = continuations[0]
+    assert isinstance(continuation, dict)
+    continuation.update(
+        {
+            "leaf_evidence_ids": [ending_line_id],
+            "body_evidence_ids": [ending_label_id],
+            "member_evidence_ids": [loop_line_id],
+            "exact_line_evidence_ids": [unresolved_line_id],
+            "source_evidence_ids": [ordinary_line_id],
+        }
+    )
+
+    html = render_storyboard_html(index.to_dict(), profile, rendered_analysis, {})
+
+    opening = html.index('<article class="scene" id="scene-0">')
+    ending = html.index('<article class="scene" id="scene-1">')
+    opening_html = html[opening:ending]
+    assert "label ending:" not in opening_html
+
+    end_arm_start = html.index("End the route")
+    loop_arm_start = html.index("Loop back")
+    end_arm_html = html[end_arm_start:loop_arm_start]
+    assert "Loop branch line" not in end_arm_html
+    assert loop_line_id in end_arm_html
+
+    unresolved_arm_start = html.index("Leave unresolved")
+    none_arm_start = html.index(">Continue</span>")
+    unresolved_arm_html = html[unresolved_arm_start:none_arm_start]
+    assert unresolved_arm_html.count("Status:</span>uncertain") == 1
+    assert (
+        unresolved_arm_html.count(
+            "Uncertainty:</span>The runtime choice does not establish a terminal state."
+        )
+        == 1
+    )
+
+    continuation_start = html.index(
+        '<h3 class="branch-title">Shared continuation</h3>'
+    )
+    continuation_end = html.index("</article>", continuation_start)
+    continuation_html = html[continuation_start:continuation_end]
+    assert "Shared continuation line" in continuation_html
+    assert "Shared ending line" not in continuation_html
 
 
 def test_canonical_renderer_accepts_mapping_evidence_from_real_index() -> None:

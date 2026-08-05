@@ -75,8 +75,9 @@ def render_storyboard_html(
 
     ``evidence`` is expected to contain an ``evidence``/``records`` collection
     whose records have an ID, exact ``source_text``, and source location.  A
-    scene uses ``line_evidence_ids`` (with a few equivalent aliases) to select
-    exact lines.  ``profile``, ``analysis``, and ``report`` may be any
+    Canonical scenes, arms, and continuations use only ``line_evidence_ids``;
+    explicitly pre-canonical mappings may use a few equivalent aliases.
+    ``profile``, ``analysis``, and ``report`` may be any
     ``Mapping`` implementation; missing optional fields render as visible
     uncertainty rather than causing a fabricated story fact.
     """
@@ -127,14 +128,19 @@ def render_storyboard_html(
     else:
         content.append('<p class="uncertainty">No AI scenes were supplied.</p>')
 
-    top_level_lines = _evidence_ids(
+    top_level_lines = _membership_evidence_ids(
         analysis,
-        ("line_evidence_ids", "exact_line_evidence_ids", "source_evidence_ids"),
+        canonical=canonical_graph,
+        legacy_keys=("line_evidence_ids", "exact_line_evidence_ids", "source_evidence_ids"),
     )
     if top_level_lines:
         content.append(_render_exact_lines("Source lines", top_level_lines, state))
 
-    top_level_menus = _records(analysis, ("menus", "menu_points", "choice_points"))
+    top_level_menus = (
+        ()
+        if canonical_graph
+        else _records(analysis, ("menus", "menu_points", "choice_points"))
+    )
     if top_level_menus:
         content.append('<section class="menus" aria-label="Choices">')
         content.append("<h2>Choices</h2>")
@@ -153,7 +159,14 @@ def render_storyboard_html(
         for continuation_index, continuation in enumerate(
             _ordered_records(top_level_continuations, state.evidence)
         ):
-            content.append(_render_continuation(continuation, continuation_index, state))
+            content.append(
+                _render_continuation(
+                    continuation,
+                    continuation_index,
+                    state,
+                    canonical=canonical_graph,
+                )
+            )
         content.append("</section>")
 
     analysis_notes = _notes_from(
@@ -401,9 +414,10 @@ def _render_scene(
     title = _scene_title(scene, scene_index, canonical=canonical_graph)
     summary = _first_text(scene, "summary", "description", "overview")
     confidence = _first_text(scene, "confidence", "certainty")
-    lines = _evidence_ids(
+    lines = _membership_evidence_ids(
         scene,
-        (
+        canonical=canonical_graph,
+        legacy_keys=(
             "line_evidence_ids",
             "leaf_evidence_ids",
             "body_evidence_ids",
@@ -487,7 +501,14 @@ def _render_scene(
         for continuation_index, continuation in enumerate(
             _ordered_records(continuations, state.evidence)
         ):
-            parts.append(_render_continuation(continuation, continuation_index, state))
+            parts.append(
+                _render_continuation(
+                    continuation,
+                    continuation_index,
+                    state,
+                    canonical=canonical_graph,
+                )
+            )
         parts.append("</section>")
 
     scene_notes = _notes_from(
@@ -747,9 +768,10 @@ def _render_arm(
         identifiers = _evidence_ids(arm, ("evidence_id", "source_evidence_id", "evidence_ids"))
         for identifier in _ordered_identifiers(identifiers, state.evidence):
             parts.append(_render_evidence_ref(identifier, state, show_text=True))
-    line_identifiers = _evidence_ids(
+    line_identifiers = _membership_evidence_ids(
         arm,
-        (
+        canonical=canonical,
+        legacy_keys=(
             "line_evidence_ids",
             "leaf_evidence_ids",
             "body_evidence_ids",
@@ -758,13 +780,14 @@ def _render_arm(
     )
     if line_identifiers:
         parts.append(_render_exact_lines("Branch lines", line_identifiers, state))
-    uncertainty = _first_text(arm, "uncertainty", "unresolved", "reason")
-    status = _first_text(arm, "status")
-    if status and status not in {"resolved", "none"}:
-        parts.append('<div class="uncertainty"><span class="detail-label">Status:</span>')
-        parts.append(f"{_escape(status)}</div>")
-    if uncertainty:
-        parts.append(f'<div class="uncertainty">{_escape(uncertainty)}</div>')
+    if not canonical:
+        uncertainty = _first_text(arm, "uncertainty", "unresolved", "reason")
+        status = _first_text(arm, "status")
+        if status and status not in {"resolved", "none"}:
+            parts.append('<div class="uncertainty"><span class="detail-label">Status:</span>')
+            parts.append(f"{_escape(status)}</div>")
+        if uncertainty:
+            parts.append(f'<div class="uncertainty">{_escape(uncertainty)}</div>')
     parts.append("</li>")
     return "\n".join(parts)
 
@@ -786,7 +809,11 @@ def _render_branch(
 
 
 def _render_continuation(
-    continuation: Mapping[str, object], continuation_index: int, state: _RenderState
+    continuation: Mapping[str, object],
+    continuation_index: int,
+    state: _RenderState,
+    *,
+    canonical: bool = False,
 ) -> str:
     title = (
         _first_text(continuation, "title", "name", "label")
@@ -796,9 +823,10 @@ def _render_continuation(
     summary = _first_text(continuation, "summary", "description", "overview")
     if summary:
         parts.append(f'<p class="summary">{_escape(summary)}</p>')
-    identifiers = _evidence_ids(
+    identifiers = _membership_evidence_ids(
         continuation,
-        (
+        canonical=canonical,
+        legacy_keys=(
             "line_evidence_ids",
             "leaf_evidence_ids",
             "body_evidence_ids",
@@ -1319,6 +1347,13 @@ def _evidence_ids(mapping: Mapping[str, object], keys: Sequence[str]) -> tuple[s
             if identifier not in result:
                 result.append(identifier)
     return tuple(result)
+
+
+def _membership_evidence_ids(
+    mapping: Mapping[str, object], *, canonical: bool, legacy_keys: Sequence[str]
+) -> tuple[str, ...]:
+    keys = ("line_evidence_ids",) if canonical else legacy_keys
+    return _evidence_ids(mapping, keys)
 
 
 def _identifiers(value: object) -> tuple[str, ...]:
