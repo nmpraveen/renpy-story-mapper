@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-08-05
+Updated: 2026-08-06
 
 ## Active work
 
@@ -11,6 +11,7 @@ Updated: 2026-08-05
 - Active goal and task ledger: [`docs/storyboard-v2/GOAL.md`](storyboard-v2/GOAL.md).
 - Phase instructions: [`_storyboard_plan/02_PHASE_01_CANARY_PROMPT.md`](../_storyboard_plan/02_PHASE_01_CANARY_PROMPT.md).
 - Repository rules: [`AGENTS.md`](../AGENTS.md).
+- Private progress map: [Workflow Atlas](https://renpy-workflow-atlas.nmpraveen.chatgpt.site).
 - Historical record: [`docs/PROJECT_HISTORY.md`](PROJECT_HISTORY.md).
 - Native Codex goal: Phase 01.1 recovery and acceptance, fulfilled by the evidence below.
 
@@ -95,3 +96,8 @@ work or from this Phase 01 canary.
 Older milestone and benchmark files are historical evidence. They do not control the active
 architecture, model/provider policy, testing scope, or orchestration unless the current authority
 explicitly adopts them.
+
+The active-phase coordinator is the sole Workflow Atlas publisher for coordinated work. Worker tasks
+report status and evidence to the coordinator and do not edit or deploy the Atlas. Accepted future
+plans, execution starts, integrated passes, failures, and attention states must be reflected in the
+published map before the coordinator closes the phase.
