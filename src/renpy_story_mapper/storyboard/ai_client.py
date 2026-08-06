@@ -418,6 +418,31 @@ def derive_codex_provider_schema(canonical_schema: Mapping[str, object]) -> dict
     return provider
 
 
+def _project_story_analysis_transport_schema(
+    canonical_schema: Mapping[str, object], provider_schema: dict[str, object]
+) -> dict[str, object]:
+    """Remove one non-null optional hint that Codex transport cannot represent as absent."""
+
+    if canonical_schema.get("$id") != "storyboard-story-analysis-v1":
+        return provider_schema
+    root_properties = provider_schema.get("properties")
+    if not isinstance(root_properties, dict):
+        raise _CodexSchemaDerivationError("story analysis transport schema has no properties")
+    choices = root_properties.get("choices")
+    if not isinstance(choices, dict):
+        raise _CodexSchemaDerivationError("story analysis transport schema has no choices")
+    choice = choices.get("items")
+    if not isinstance(choice, dict):
+        raise _CodexSchemaDerivationError("story analysis transport schema has no choice item")
+    choice_properties = choice.get("properties")
+    choice_required = choice.get("required")
+    if not isinstance(choice_properties, dict) or not isinstance(choice_required, list):
+        raise _CodexSchemaDerivationError("story analysis choice transport schema is malformed")
+    choice_properties.pop("menu_evidence_id", None)
+    choice["required"] = [item for item in choice_required if item != "menu_evidence_id"]
+    return provider_schema
+
+
 def _flatten_codex_schema_node(
     value: object,
     root: Mapping[str, object],
@@ -2019,6 +2044,9 @@ class CodexCliJsonClient:
         _resolved_schema, canonical_schema, response_validator = _load_schema_validator(schema_path)
         try:
             provider_schema = derive_codex_provider_schema(canonical_schema)
+            provider_schema = _project_story_analysis_transport_schema(
+                canonical_schema, provider_schema
+            )
         except (TypeError, ValueError):
             raise ProviderRuntimeConfigurationError(
                 "provider_schema_derivation_failed",

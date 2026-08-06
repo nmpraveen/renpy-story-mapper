@@ -360,6 +360,58 @@ def test_complete_materializes_provider_schema_without_mutating_canonical_input(
     assert schema.read_bytes() == canonical_bytes
 
 
+def test_story_analysis_transport_omits_non_nullable_optional_menu_hint() -> None:
+    schema = schema_path("story-analysis").resolve()
+    canonical_bytes = schema.read_bytes()
+    canonical = json.loads(canonical_bytes)
+    assert "menu_evidence_id" in canonical["$defs"]["choice"]["allOf"][1]["properties"]
+    analysis = {
+        "schema": ANALYSIS_SCHEMA_ID,
+        "source": {
+            "evidence_index_hash": "probe",
+            "profile_hash": "probe",
+            "canary_evidence_ids": ["E1"],
+        },
+        "scenes": [],
+        "choices": [],
+        "transitions": [],
+        "claims": [],
+        "excluded_evidence_ids": [],
+        "unresolved": [],
+        "disagreements": [],
+        "status": "resolved",
+        "uncertainty": None,
+    }
+    process = FakeProcess(_jsonl(analysis, fast_mode=False))
+    observed_provider_schema: dict[str, object] = {}
+
+    def factory(spec: ProcessSpec) -> FakeProcess:
+        provider_path = Path(spec.command[spec.command.index("--output-schema") + 1])
+        observed_provider_schema.update(json.loads(provider_path.read_text(encoding="utf-8")))
+        return process
+
+    client = CodexCliJsonClient(
+        executable="codex",
+        process_factory=factory,
+        executable_resolver=lambda _command: "C:/synthetic/codex.exe",
+        timeout_seconds=1.0,
+    )
+
+    assert client.complete(
+        payload={"request": "analysis"},
+        schema_path=schema,
+        model="model-a",
+        reasoning_effort="high",
+        fast_mode=False,
+    ) == analysis
+
+    choices = observed_provider_schema["properties"]["choices"]
+    choice = choices["items"]
+    assert "menu_evidence_id" not in choice["properties"]
+    assert "menu_evidence_id" not in choice["required"]
+    assert schema.read_bytes() == canonical_bytes
+
+
 @pytest.mark.parametrize(
     ("kind", "payload"),
     [
@@ -1355,7 +1407,7 @@ def test_prompt_builders_and_schemas_are_generic() -> None:
     assert "Never repeat branch-owned lines in a scene body." in analysis_authority
     assert "Scene order is zero-based and contiguous." in analysis_authority
     assert "never a continuation ID" in analysis_authority
-    assert "Set menu_evidence_id only for a real menu record" in analysis_authority
+    assert "Do not emit menu_evidence_id" in analysis_authority
     for request in (profile, analysis):
         authority = request["authority"]
         assert isinstance(authority, str)

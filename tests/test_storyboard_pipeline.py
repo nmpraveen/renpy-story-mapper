@@ -961,7 +961,7 @@ def test_pipeline_repairs_schema_valid_deterministic_analysis_once(tmp_path: Pat
                 return invalid_analysis
             assert len(self.calls) == 3
             assert payload["prompt_version"] == "storyboard-validation-repair-prompt-v1"
-            assert "menu_evidence_id only when it names a real menu record" in payload["authority"]
+            assert "Do not emit menu_evidence_id" in payload["authority"]
             repair_input = payload["input"]
             assert isinstance(repair_input, dict)
             assert repair_input["prior_response"] == invalid_analysis
