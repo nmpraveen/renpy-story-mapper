@@ -31,6 +31,8 @@ test("server-renders the Workflow Atlas", async () => {
   assert.match(html, /<title>Workflow Atlas \| Ren&#x27;Py Story Mapper<\/title>/i);
   assert.match(html, /Workflow Atlas/);
   assert.match(html, /Final validator/);
+  assert.match(html, /Box fill = who did the work/);
+  assert.match(html, /Border = result/);
   assert.match(html, /159 \/ 159 evidence records/);
   assert.doesNotMatch(html, /codex-preview/);
   assert.doesNotMatch(html, /react-loading-skeleton/);

@@ -574,9 +574,26 @@ button {
     transform 180ms ease;
 }
 
+.atlas-node.executor-python {
+  background:
+    linear-gradient(145deg, rgba(15, 72, 84, 0.96), rgba(7, 25, 31, 0.98));
+}
+
+.atlas-node.executor-ai {
+  background:
+    linear-gradient(145deg, rgba(74, 35, 111, 0.98), rgba(29, 13, 48, 0.98));
+}
+
+.atlas-node.executor-browser {
+  background:
+    linear-gradient(145deg, rgba(91, 61, 15, 0.98), rgba(36, 23, 6, 0.98));
+}
+
 .atlas-node:hover {
   transform: translateY(-2px);
-  border-color: currentColor;
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.08),
+    0 12px 30px rgba(0, 0, 0, 0.34);
 }
 
 .atlas-node:focus-visible {
@@ -593,7 +610,6 @@ button {
 
 .atlas-node.status-failed {
   border-color: rgba(255, 77, 77, 0.9);
-  background: linear-gradient(145deg, rgba(46, 12, 13, 0.98), rgba(18, 7, 8, 0.98));
   box-shadow: 0 0 24px rgba(255, 77, 77, 0.18);
 }
 
@@ -609,11 +625,10 @@ button {
 
 .atlas-node.is-selected {
   z-index: 6;
-  border-color: var(--cyan);
   box-shadow:
-    0 0 0 4px rgba(47, 213, 231, 0.12),
-    0 0 30px rgba(47, 213, 231, 0.24),
-    inset 0 0 24px rgba(47, 213, 231, 0.08);
+    0 0 0 4px rgba(255, 255, 255, 0.16),
+    0 0 30px rgba(47, 213, 231, 0.2),
+    inset 0 0 24px rgba(255, 255, 255, 0.06);
 }
 
 .atlas-node.is-dimmed {
@@ -776,13 +791,28 @@ button {
 .atlas-legend {
   left: 16px;
   top: 14px;
-  width: 265px;
+  width: 286px;
   padding: 12px;
   border-radius: 13px;
   font-family: var(--font-geist-mono), monospace;
   font-size: 8px;
 }
 
+.atlas-legend > strong {
+  display: block;
+  margin: 10px 0 7px;
+  color: #728087;
+  font-size: 7px;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.atlas-legend > strong:first-child {
+  margin-top: 0;
+}
+
+.legend-executor-row,
 .legend-flow-row,
 .legend-status-row {
   display: grid;
@@ -791,9 +821,7 @@ button {
 }
 
 .legend-status-row {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
+  margin-top: 0;
 }
 
 .atlas-legend span {
@@ -808,6 +836,28 @@ button {
   height: 2px;
   border-radius: 999px;
   background: currentColor;
+}
+
+.legend-executor-row i {
+  width: 14px;
+  height: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.legend-executor-row .executor-python i,
+.minimap-node.executor-python {
+  background: #166576;
+}
+
+.legend-executor-row .executor-ai i,
+.minimap-node.executor-ai {
+  background: #6e3aa3;
+}
+
+.legend-executor-row .executor-browser i,
+.minimap-node.executor-browser {
+  background: #8a5c15;
 }
 
 .legend-status-row i {
@@ -938,15 +988,15 @@ button {
 }
 
 .minimap-node.status-passed {
-  background: rgba(75, 242, 138, 0.82);
+  border: 1px solid rgba(75, 242, 138, 0.94);
 }
 
 .minimap-node.status-failed {
-  background: rgba(255, 77, 77, 0.92);
+  border: 1px solid rgba(255, 77, 77, 0.96);
 }
 
 .minimap-node.status-attention {
-  background: rgba(247, 183, 49, 0.9);
+  border: 1px solid rgba(247, 183, 49, 0.96);
 }
 
 .minimap-viewport {
@@ -1023,6 +1073,36 @@ button {
   border: 1px solid rgba(75, 242, 138, 0.22);
   border-radius: 12px;
   background: var(--green-soft);
+}
+
+.inspector-executor {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -4px 18px 4px;
+  color: #aeb9be;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.inspector-executor > span {
+  width: 13px;
+  height: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.inspector-executor.executor-python > span {
+  background: #166576;
+}
+
+.inspector-executor.executor-ai > span {
+  background: #6e3aa3;
+}
+
+.inspector-executor.executor-browser > span {
+  background: #8a5c15;
 }
 
 .status-failed .inspector-status {
@@ -1285,6 +1365,7 @@ button {
   }
 
   .legend-flow-row,
+  .legend-executor-row,
   .legend-status-row {
     grid-template-columns: 1fr 1fr;
     gap: 6px;

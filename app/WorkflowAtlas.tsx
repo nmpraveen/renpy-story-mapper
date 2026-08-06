@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex -- the canvas is intentionally a keyboard-operable application surface */
+
 import {
   useCallback,
   useEffect,
@@ -14,6 +16,7 @@ import workflowMap from "./workflow-map.json";
 
 type Status = "passed" | "failed" | "attention" | "not-built";
 type Flow = "evidence" | "ai" | "validation" | "publication";
+type Executor = "python" | "ai" | "browser";
 type TraceMode = "both" | "upstream" | "downstream";
 
 type Project = {
@@ -53,6 +56,7 @@ type WorkflowNode = {
   label: string;
   kicker: string;
   status: Status;
+  executor: Executor;
   x: number;
   y: number;
   width: number;
@@ -108,6 +112,12 @@ const flowLabels: Record<Flow, string> = {
   publication: "Publication flow",
 };
 
+const executorLabels: Record<Executor, string> = {
+  python: "Python",
+  ai: "AI",
+  browser: "Browser check",
+};
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
@@ -149,6 +159,8 @@ export default function WorkflowAtlas() {
     viewY: number;
   } | null>(null);
   const [view, setView] = useState<ViewState>({ x: 24, y: 68, zoom: 0.54 });
+  const [viewportSize, setViewportSize] = useState({ width: 1400, height: 820 });
+  const [isDragging, setIsDragging] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>("final-validator");
   const [traceMode, setTraceMode] = useState<TraceMode>("both");
   const [search, setSearch] = useState("");
@@ -234,6 +246,10 @@ export default function WorkflowAtlas() {
   const fitAll = useCallback(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
+    setViewportSize({
+      width: viewport.clientWidth,
+      height: viewport.clientHeight,
+    });
     const horizontalPadding = viewport.clientWidth < 760 ? 38 : 92;
     const verticalPadding = viewport.clientHeight < 700 ? 110 : 150;
     const nextZoom = clamp(
@@ -333,6 +349,7 @@ export default function WorkflowAtlas() {
       viewX: view.x,
       viewY: view.y,
     };
+    setIsDragging(true);
   };
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -348,6 +365,7 @@ export default function WorkflowAtlas() {
   const endPointerDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (dragRef.current?.pointerId === event.pointerId) {
       dragRef.current = null;
+      setIsDragging(false);
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
@@ -381,13 +399,11 @@ export default function WorkflowAtlas() {
   };
 
   const minimapScale = 0.102;
-  const viewportWidth = viewportRef.current?.clientWidth ?? 1400;
-  const viewportHeight = viewportRef.current?.clientHeight ?? 820;
   const minimapViewport = {
     left: (-view.x / view.zoom) * minimapScale,
     top: (-view.y / view.zoom) * minimapScale,
-    width: (viewportWidth / view.zoom) * minimapScale,
-    height: (viewportHeight / view.zoom) * minimapScale,
+    width: (viewportSize.width / view.zoom) * minimapScale,
+    height: (viewportSize.height / view.zoom) * minimapScale,
   };
   const zoomBand = view.zoom >= 1.1 ? "detail" : view.zoom < 0.52 ? "overview" : "normal";
 
@@ -448,7 +464,7 @@ export default function WorkflowAtlas() {
 
       <div
         ref={viewportRef}
-        className={`atlas-viewport ${dragRef.current ? "is-dragging" : ""}`}
+        className={`atlas-viewport ${isDragging ? "is-dragging" : ""}`}
         tabIndex={0}
         role="application"
         aria-label="Interactive project dependency map. Drag to pan, scroll to zoom, and select a node to trace dependencies."
@@ -633,7 +649,7 @@ export default function WorkflowAtlas() {
               <button
                 key={node.id}
                 type="button"
-                className={`atlas-node status-${node.status} flow-${node.flow} ${
+                className={`atlas-node executor-${node.executor} status-${node.status} flow-${node.flow} ${
                   isSelected ? "is-selected" : ""
                 } ${isDimmed ? "is-dimmed" : ""}`}
                 style={{
@@ -700,6 +716,15 @@ export default function WorkflowAtlas() {
         </div>
 
         <div className="atlas-legend" aria-label="Map legend">
+          <strong>Box fill = who did the work</strong>
+          <div className="legend-executor-row">
+            {(Object.keys(executorLabels) as Executor[]).map((executor) => (
+              <span key={executor} className={`executor-${executor}`}>
+                <i /> {executorLabels[executor]}
+              </span>
+            ))}
+          </div>
+          <strong>Line = information flow</strong>
           <div className="legend-flow-row">
             {(Object.keys(flowLabels) as Flow[]).map((flow) => (
               <span key={flow} className={`flow-${flow}`}>
@@ -707,6 +732,7 @@ export default function WorkflowAtlas() {
               </span>
             ))}
           </div>
+          <strong>Border = result</strong>
           <div className="legend-status-row">
             {(Object.keys(statusLabels) as Status[]).map((status) => (
               <span key={status} className={`status-${status}`}>
@@ -755,7 +781,7 @@ export default function WorkflowAtlas() {
             {data.nodes.map((node) => (
               <i
                 key={node.id}
-                className={`minimap-node status-${node.status}`}
+                className={`minimap-node executor-${node.executor} status-${node.status}`}
                 style={{
                   left: node.x * minimapScale,
                   top: node.y * minimapScale,
@@ -813,6 +839,11 @@ export default function WorkflowAtlas() {
                     : "No active blocker at this step"}
                 </small>
               </div>
+            </div>
+
+            <div className={`inspector-executor executor-${selectedNode.executor}`}>
+              <span aria-hidden="true" />
+              Handled by {executorLabels[selectedNode.executor]}
             </div>
 
             {selectedNode.error ? (
