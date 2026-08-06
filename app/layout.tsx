@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("http://localhost:3000"),
+  metadataBase: new URL("https://renpy-workflow-atlas.nmpraveen.chatgpt.site"),
   title: "Workflow Atlas | Ren'Py Story Mapper",
   description: "A living dependency map for the Ren'Py Story Mapper project.",
   icons: {
