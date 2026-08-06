@@ -1,0 +1,446 @@
+{
+  "project": {
+    "title": "Ren'Py Story Mapper",
+    "subtitle": "Workflow Atlas",
+    "commit": "1d0295b",
+    "updatedAt": "2026-08-06",
+    "status": "passed",
+    "summary": "Phase 01 and Phase 01.1 are complete. Phase 02 has not started.",
+    "evidence": "159 / 159 evidence records • 0 validation errors • publishable"
+  },
+  "canvas": {
+    "width": 2700,
+    "height": 1200
+  },
+  "phases": [
+    {
+      "id": "phase-01",
+      "label": "PHASE 01 + 01.1",
+      "title": "SOURCE TO STORYBOARD",
+      "status": "passed",
+      "x": 70,
+      "y": 100,
+      "width": 1810,
+      "height": 980,
+      "summary": "Complete • real canary accepted"
+    },
+    {
+      "id": "phase-02",
+      "label": "PHASE 02",
+      "title": "FULL-GAME MAPPING",
+      "status": "not-built",
+      "x": 2010,
+      "y": 160,
+      "width": 470,
+      "height": 340,
+      "summary": "Not started"
+    },
+    {
+      "id": "phase-03",
+      "label": "PHASE 03",
+      "title": "FINAL AUDIT",
+      "status": "not-built",
+      "x": 2010,
+      "y": 610,
+      "width": 470,
+      "height": 340,
+      "summary": "Not planned"
+    }
+  ],
+  "lanes": [
+    {
+      "id": "evidence",
+      "label": "DETERMINISTIC EVIDENCE",
+      "x": 115,
+      "y": 220,
+      "width": 1705,
+      "height": 240,
+      "flow": "evidence"
+    },
+    {
+      "id": "ai",
+      "label": "AI INTERPRETATION",
+      "x": 600,
+      "y": 500,
+      "width": 920,
+      "height": 205,
+      "flow": "ai"
+    },
+    {
+      "id": "safety",
+      "label": "PHASE 01.1 • SAFETY + PUBLICATION",
+      "x": 430,
+      "y": 745,
+      "width": 1390,
+      "height": 275,
+      "flow": "validation"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "game-folder",
+      "label": "Read game folder",
+      "kicker": "INPUT",
+      "status": "passed",
+      "executor": "python",
+      "x": 160,
+      "y": 300,
+      "width": 165,
+      "height": 105,
+      "flow": "evidence",
+      "description": "Open the supplied game as read-only input.",
+      "why": "The original game must never be altered.",
+      "evidence": "scripts.rpa hash unchanged"
+    },
+    {
+      "id": "recover-scripts",
+      "label": "Recover scripts",
+      "kicker": "SOURCE",
+      "status": "passed",
+      "executor": "python",
+      "x": 375,
+      "y": 300,
+      "width": 165,
+      "height": 105,
+      "flow": "evidence",
+      "description": "Recover readable script material safely.",
+      "why": "Everything downstream depends on faithful source recovery.",
+      "evidence": "Selected source recovered read-only"
+    },
+    {
+      "id": "script-lines",
+      "label": "Exact script lines",
+      "kicker": "SOURCE",
+      "status": "passed",
+      "executor": "python",
+      "x": 590,
+      "y": 300,
+      "width": 165,
+      "height": 105,
+      "flow": "evidence",
+      "description": "Preserve source text exactly as written.",
+      "why": "The reader and AI claims must point back to exact lines.",
+      "evidence": "_6_2_WG_clean • lines 218–381"
+    },
+    {
+      "id": "parser-annotations",
+      "label": "Parser annotations",
+      "kicker": "PARALLEL INPUT",
+      "status": "passed",
+      "executor": "python",
+      "x": 605,
+      "y": 145,
+      "width": 170,
+      "height": 88,
+      "flow": "evidence",
+      "description": "Add direct syntax hints when the parser can prove them.",
+      "why": "Annotations help bookkeeping without becoming a story interpreter.",
+      "evidence": "Menus, conditions, assignments and Python/custom blocks"
+    },
+    {
+      "id": "evidence-index",
+      "label": "Evidence index",
+      "kicker": "CORE LEDGER",
+      "status": "passed",
+      "executor": "python",
+      "x": 835,
+      "y": 285,
+      "width": 190,
+      "height": 130,
+      "flow": "evidence",
+      "description": "Give every accountable source record a stable identity.",
+      "why": "This is the shared source of truth for AI, validation and rendering.",
+      "evidence": "159 stable records"
+    },
+    {
+      "id": "coverage-audit",
+      "label": "Coverage audit",
+      "kicker": "GUARDRAIL",
+      "status": "passed",
+      "executor": "python",
+      "x": 1120,
+      "y": 300,
+      "width": 175,
+      "height": 105,
+      "flow": "evidence",
+      "description": "Check that every source record is owned exactly once.",
+      "why": "Missing or duplicated story material must stop publication.",
+      "evidence": "159 / 159 • no duplicates"
+    },
+    {
+      "id": "ai-profile",
+      "label": "AI game profile",
+      "kicker": "AI",
+      "status": "passed",
+      "executor": "ai",
+      "x": 740,
+      "y": 555,
+      "width": 180,
+      "height": 108,
+      "flow": "ai",
+      "description": "Identify characters, variables and custom mechanics.",
+      "why": "The AI first learns the unfamiliar game's conventions.",
+      "evidence": "Citations + confidence on every inferred claim"
+    },
+    {
+      "id": "ai-analysis",
+      "label": "AI story analysis",
+      "kicker": "AI",
+      "status": "passed",
+      "executor": "ai",
+      "x": 1040,
+      "y": 545,
+      "width": 200,
+      "height": 125,
+      "flow": "ai",
+      "description": "Map story order, choices, consequences and rejoins.",
+      "why": "This turns exact source evidence into a readable explanation.",
+      "evidence": "Sourced scenes, branches, destinations and uncertainty"
+    },
+    {
+      "id": "canonical-schemas",
+      "label": "Canonical schemas",
+      "kicker": "RULEBOOK",
+      "status": "passed",
+      "executor": "python",
+      "x": 490,
+      "y": 825,
+      "width": 170,
+      "height": 105,
+      "flow": "validation",
+      "description": "Define the unchanged final contract for AI responses.",
+      "why": "Transport accommodations cannot weaken the final judge.",
+      "evidence": "Draft 2020-12 schemas unchanged"
+    },
+    {
+      "id": "branch-ownership",
+      "label": "Nearest-branch ownership",
+      "kicker": "HARDENING",
+      "status": "passed",
+      "executor": "python",
+      "x": 715,
+      "y": 785,
+      "width": 190,
+      "height": 100,
+      "flow": "validation",
+      "description": "File each source line under its closest physical branch.",
+      "why": "Menu-arm lines cannot also belong directly to an outer condition.",
+      "evidence": "Exact-once per scene and per arm"
+    },
+    {
+      "id": "status-rule",
+      "label": "Status + uncertainty",
+      "kicker": "HARDENING",
+      "status": "passed",
+      "executor": "python",
+      "x": 715,
+      "y": 905,
+      "width": 190,
+      "height": 90,
+      "flow": "validation",
+      "description": "Keep certainty status and explanations consistent.",
+      "why": "Dynamic behavior must remain visibly unresolved.",
+      "evidence": "Resolved → null • otherwise explanation required"
+    },
+    {
+      "id": "provider-transport",
+      "label": "AI transport boundary",
+      "kicker": "HARDENING",
+      "status": "passed",
+      "executor": "python",
+      "x": 955,
+      "y": 785,
+      "width": 180,
+      "height": 100,
+      "flow": "validation",
+      "description": "Send the AI a compatible transport copy of the schema.",
+      "why": "The provider can respond without changing canonical validation.",
+      "evidence": "Provider projection passes canonical validation"
+    },
+    {
+      "id": "path-redaction",
+      "label": "Public path redaction",
+      "kicker": "PRIVACY",
+      "status": "passed",
+      "executor": "python",
+      "x": 955,
+      "y": 905,
+      "width": 180,
+      "height": 90,
+      "flow": "validation",
+      "description": "Remove private absolute paths from public artifacts.",
+      "why": "The storyboard can be shared without leaking local details.",
+      "evidence": "No absolute path leaks"
+    },
+    {
+      "id": "final-validator",
+      "label": "Final validator",
+      "kicker": "STRICT GATE",
+      "status": "passed",
+      "executor": "python",
+      "x": 1260,
+      "y": 825,
+      "width": 195,
+      "height": 120,
+      "flow": "validation",
+      "description": "Reject unsupported citations, gaps, duplicates and invalid uncertainty.",
+      "why": "The AI may explain the story, but it cannot publish unsupported claims.",
+      "evidence": "0 validation errors • publishable=true",
+      "history": [
+        "129 errors",
+        "11",
+        "3",
+        "6",
+        "0 errors"
+      ]
+    },
+    {
+      "id": "five-files",
+      "label": "Five output files",
+      "kicker": "PUBLICATION",
+      "status": "passed",
+      "executor": "python",
+      "x": 1510,
+      "y": 825,
+      "width": 165,
+      "height": 105,
+      "flow": "publication",
+      "description": "Publish the complete accepted storyboard package.",
+      "why": "The output is small, portable and directly inspectable.",
+      "evidence": "Evidence, profile, analysis, report and index.html"
+    },
+    {
+      "id": "browser-inspection",
+      "label": "Browser inspection",
+      "kicker": "FINAL PROOF",
+      "status": "passed",
+      "executor": "browser",
+      "x": 1700,
+      "y": 825,
+      "width": 155,
+      "height": 105,
+      "flow": "publication",
+      "description": "Inspect the rendered storyboard as a normal reader.",
+      "why": "Passing data checks is not enough if the page is unreadable.",
+      "evidence": "Readable • no clipping • no broken assets"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source": "game-folder",
+      "target": "recover-scripts",
+      "flow": "evidence"
+    },
+    {
+      "id": "e2",
+      "source": "recover-scripts",
+      "target": "script-lines",
+      "flow": "evidence"
+    },
+    {
+      "id": "e3",
+      "source": "script-lines",
+      "target": "evidence-index",
+      "flow": "evidence"
+    },
+    {
+      "id": "e4",
+      "source": "parser-annotations",
+      "target": "evidence-index",
+      "flow": "evidence"
+    },
+    {
+      "id": "e5",
+      "source": "evidence-index",
+      "target": "coverage-audit",
+      "flow": "evidence"
+    },
+    {
+      "id": "e6",
+      "source": "evidence-index",
+      "target": "ai-profile",
+      "flow": "ai"
+    },
+    {
+      "id": "e7",
+      "source": "evidence-index",
+      "target": "ai-analysis",
+      "flow": "ai"
+    },
+    {
+      "id": "e8",
+      "source": "ai-profile",
+      "target": "ai-analysis",
+      "flow": "ai"
+    },
+    {
+      "id": "e9",
+      "source": "coverage-audit",
+      "target": "final-validator",
+      "flow": "evidence"
+    },
+    {
+      "id": "e10",
+      "source": "ai-analysis",
+      "target": "final-validator",
+      "flow": "ai"
+    },
+    {
+      "id": "e11",
+      "source": "canonical-schemas",
+      "target": "final-validator",
+      "flow": "validation"
+    },
+    {
+      "id": "e12",
+      "source": "branch-ownership",
+      "target": "coverage-audit",
+      "flow": "validation"
+    },
+    {
+      "id": "e13",
+      "source": "status-rule",
+      "target": "final-validator",
+      "flow": "validation"
+    },
+    {
+      "id": "e14",
+      "source": "provider-transport",
+      "target": "ai-profile",
+      "flow": "validation"
+    },
+    {
+      "id": "e15",
+      "source": "provider-transport",
+      "target": "ai-analysis",
+      "flow": "validation"
+    },
+    {
+      "id": "e16",
+      "source": "path-redaction",
+      "target": "five-files",
+      "flow": "validation"
+    },
+    {
+      "id": "e17",
+      "source": "final-validator",
+      "target": "five-files",
+      "flow": "publication"
+    },
+    {
+      "id": "e18",
+      "source": "five-files",
+      "target": "browser-inspection",
+      "flow": "publication"
+    },
+    {
+      "id": "e19",
+      "source": "final-validator",
+      "target": "ai-analysis",
+      "flow": "ai",
+      "kind": "feedback",
+      "label": "ONE REPAIR MAX"
+    }
+  ]
+}
