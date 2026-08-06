@@ -16,6 +16,7 @@
   --red-soft: rgba(255, 77, 77, 0.14);
   --amber: #f7b731;
   --amber-soft: rgba(247, 183, 49, 0.14);
+  --blue: #4da3ff;
   --gray: #7c878d;
   --cyan: #2fd5e7;
   --violet: #b46cff;
@@ -344,6 +345,14 @@ button {
     0 0 34px rgba(75, 242, 138, 0.08);
 }
 
+.phase-container.status-in-progress {
+  border-color: rgba(77, 163, 255, 0.78);
+  background:
+    radial-gradient(circle at 33% 42%, rgba(77, 163, 255, 0.09), transparent 43%),
+    linear-gradient(145deg, rgba(8, 18, 31, 0.82), rgba(5, 10, 18, 0.72));
+  box-shadow: 0 0 34px rgba(77, 163, 255, 0.11);
+}
+
 .phase-title {
   position: absolute;
   left: 34px;
@@ -368,6 +377,11 @@ button {
 
 .status-passed .phase-status-icon {
   color: var(--green);
+}
+
+.status-in-progress .phase-status-icon,
+.status-in-progress .phase-title b {
+  color: var(--blue);
 }
 
 .phase-title > div {
@@ -618,6 +632,13 @@ button {
   box-shadow: 0 0 20px rgba(247, 183, 49, 0.12);
 }
 
+.atlas-node.status-in-progress {
+  border-color: rgba(77, 163, 255, 0.9);
+  box-shadow:
+    0 0 0 2px rgba(77, 163, 255, 0.08),
+    0 0 22px rgba(77, 163, 255, 0.16);
+}
+
 .atlas-node.status-not-built {
   border-color: rgba(124, 135, 141, 0.36);
   color: #7d888e;
@@ -678,6 +699,10 @@ button {
 
 .status-attention .node-status {
   color: var(--amber);
+}
+
+.status-in-progress .node-status {
+  color: var(--blue);
 }
 
 .atlas-node strong {
@@ -880,6 +905,10 @@ button {
   color: var(--amber);
 }
 
+.legend-status-row .status-in-progress {
+  color: var(--blue);
+}
+
 .legend-status-row .status-not-built {
   color: var(--gray);
 }
@@ -916,6 +945,10 @@ button {
 
 .atlas-statusbar .status-attention {
   color: var(--amber);
+}
+
+.atlas-statusbar .status-in-progress {
+  color: var(--blue);
 }
 
 .atlas-statusbar .status-failed {
@@ -982,6 +1015,11 @@ button {
   background: rgba(75, 242, 138, 0.05);
 }
 
+.minimap-phase.status-in-progress {
+  border-color: rgba(77, 163, 255, 0.86);
+  background: rgba(77, 163, 255, 0.06);
+}
+
 .minimap-node {
   border-radius: 2px;
   background: rgba(124, 135, 141, 0.52);
@@ -997,6 +1035,10 @@ button {
 
 .minimap-node.status-attention {
   border: 1px solid rgba(247, 183, 49, 0.96);
+}
+
+.minimap-node.status-in-progress {
+  border: 1px solid rgba(77, 163, 255, 0.96);
 }
 
 .minimap-viewport {

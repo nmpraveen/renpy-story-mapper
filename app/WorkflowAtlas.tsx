@@ -14,7 +14,7 @@ import {
 } from "react";
 import workflowMap from "./workflow-map.json";
 
-type Status = "passed" | "failed" | "attention" | "not-built";
+type Status = "passed" | "failed" | "attention" | "in-progress" | "not-built";
 type Flow = "evidence" | "ai" | "validation" | "publication";
 type Executor = "python" | "ai" | "browser";
 type TraceMode = "both" | "upstream" | "downstream";
@@ -102,8 +102,25 @@ const statusLabels: Record<Status, string> = {
   passed: "Passed",
   failed: "Failed",
   attention: "Needs attention",
+  "in-progress": "In progress",
   "not-built": "Not built",
 };
+
+const statusDescriptions: Record<Status, string> = {
+  passed: "No active blocker at this step",
+  failed: "Downstream work is blocked",
+  attention: "Coordinator review is required",
+  "in-progress": "Active work is underway",
+  "not-built": "Work has not started",
+};
+
+function statusIcon(status: Status) {
+  if (status === "passed") return "✓";
+  if (status === "failed") return "×";
+  if (status === "attention") return "!";
+  if (status === "in-progress") return "↻";
+  return "○";
+}
 
 const flowLabels: Record<Flow, string> = {
   evidence: "Evidence flow",
@@ -236,10 +253,13 @@ export default function WorkflowAtlas() {
         counts[node.status] += 1;
         return counts;
       },
-      { passed: 0, failed: 0, attention: 0, "not-built": 0 } as Record<
-        Status,
-        number
-      >,
+      {
+        passed: 0,
+        failed: 0,
+        attention: 0,
+        "in-progress": 0,
+        "not-built": 0,
+      } as Record<Status, number>,
     );
   }, []);
 
@@ -502,7 +522,7 @@ export default function WorkflowAtlas() {
             >
               <div className="phase-title">
                 <span className="phase-status-icon" aria-hidden="true">
-                  {phase.status === "passed" ? "✓" : "○"}
+                  {statusIcon(phase.status)}
                 </span>
                 <div>
                   <b>{phase.label}</b>
@@ -673,13 +693,7 @@ export default function WorkflowAtlas() {
                 <span className="node-topline">
                   <span className="node-kicker">{node.kicker}</span>
                   <span className="node-status" aria-hidden="true">
-                    {node.status === "passed"
-                      ? "✓"
-                      : node.status === "failed"
-                        ? "×"
-                        : node.status === "attention"
-                          ? "!"
-                          : "○"}
+                    {statusIcon(node.status)}
                   </span>
                 </span>
                 <strong>{node.label}</strong>
@@ -744,6 +758,9 @@ export default function WorkflowAtlas() {
 
         <div className="atlas-statusbar" aria-label="Current workflow totals">
           <span className="status-passed">{statusCounts.passed} passed</span>
+          <span className="status-in-progress">
+            {statusCounts["in-progress"]} active
+          </span>
           <span className="status-attention">
             {statusCounts.attention} attention
           </span>
@@ -823,21 +840,11 @@ export default function WorkflowAtlas() {
 
             <div className="inspector-status">
               <span className="node-status" aria-hidden="true">
-                {selectedNode.status === "passed"
-                  ? "✓"
-                  : selectedNode.status === "failed"
-                    ? "×"
-                    : selectedNode.status === "attention"
-                      ? "!"
-                      : "○"}
+                {statusIcon(selectedNode.status)}
               </span>
               <div>
                 <b>{statusLabels[selectedNode.status]}</b>
-                <small>
-                  {selectedNode.status === "failed"
-                    ? "Downstream work is blocked"
-                    : "No active blocker at this step"}
-                </small>
+                <small>{statusDescriptions[selectedNode.status]}</small>
               </div>
             </div>
 
@@ -959,6 +966,10 @@ export default function WorkflowAtlas() {
             <div>
               <b>Trace</b>
               <span>Choose upstream, downstream, or both.</span>
+            </div>
+            <div>
+              <b>Updates</b>
+              <span>Only the active phase coordinator publishes status.</span>
             </div>
           </div>
         )}

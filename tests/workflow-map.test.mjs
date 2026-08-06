@@ -62,3 +62,17 @@ test("box fill ownership is explicit and accurate", () => {
   assert.equal(byExecutor.python.length, map.nodes.length - 3);
   assert.equal(byExecutor.undefined, undefined);
 });
+
+test("every box and phase uses a supported progress state", () => {
+  const supported = new Set([
+    "passed",
+    "failed",
+    "attention",
+    "in-progress",
+    "not-built",
+  ]);
+
+  for (const item of [...map.phases, ...map.nodes]) {
+    assert.ok(supported.has(item.status), `${item.id}: unsupported status ${item.status}`);
+  }
+});

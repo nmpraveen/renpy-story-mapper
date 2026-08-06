@@ -33,6 +33,7 @@ test("server-renders the Workflow Atlas", async () => {
   assert.match(html, /Final validator/);
   assert.match(html, /Box fill = who did the work/);
   assert.match(html, /Border = result/);
+  assert.match(html, /In progress/);
   assert.match(html, /159 \/ 159 evidence records/);
   assert.doesNotMatch(html, /codex-preview/);
   assert.doesNotMatch(html, /react-loading-skeleton/);
