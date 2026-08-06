@@ -43,8 +43,9 @@ user requests different settings. The coordinator owns scope, integration, and t
 ## Workflow Atlas progress authority
 
 The private Workflow Atlas at `workflow-atlas-site/` is the user-facing progress record for this
-project. Keep `workflow-atlas-site/app/workflow-map.json` aligned with the accepted plan and the
-actual evidence whenever future work is planned or active work changes state.
+project. It is tracked in this repository as a Git subtree; do not create a nested `.git` directory.
+Keep `workflow-atlas-site/app/workflow-map.json` aligned with the accepted plan and the actual
+evidence whenever future work is planned or active work changes state.
 
 - Add accepted future work as gray `not-built` phase containers or nodes before implementation.
 - Mark the active phase or node `in-progress` when execution begins.

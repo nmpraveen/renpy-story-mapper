@@ -1,4 +1,4 @@
 interface:
-  display_name: "RenPy Milestone"
-  short_description: "Run one evidence-backed milestone contract"
-  default_prompt: "Use $renpy-milestone to pursue the simplest useful script-to-story outcome in the current contract; pause and ask before scope or architecture grows."
+  display_name: "RenPy Storyboard Milestone"
+  short_description: "Execute or review one bounded AI-first storyboard phase"
+  default_prompt: "Use $renpy-milestone to complete the active bounded phase with AI semantic analysis, exact source evidence, deterministic ownership and coverage validation, real-artifact inspection, and no unapproved scope expansion."
