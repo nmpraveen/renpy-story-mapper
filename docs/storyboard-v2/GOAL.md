@@ -1,6 +1,6 @@
 # AI-first storyboard Phase 01 canary (Phase 01.1 hardening)
 
-Status: Phase 01.1 combined implementation locally integrated and review-pending; focused checks passed; real-canary rerun and visual acceptance pending
+Status: Phase 01.1 complete; focused checks, corrected real canary, deterministic acceptance, and normal-browser visual inspection passed; Phase 02 not started
 
 ## User outcome
 
@@ -58,14 +58,14 @@ add game-specific rules, polish the final UI, or start Phase 02.
 | Select one representative real-game canary section | Complete | `_6_2_WG_clean`, lines 218-381, recovered read-only from `v0.07_6-1_clean.rpyc` |
 | Build the isolated storyboard path and generic evidence index | Complete | `src/renpy_story_mapper/storyboard/`; 159 stable evidence records |
 | Generate AI profile/story analysis and deterministic validation | Complete | Publishable: 159/159, zero excluded, missing, or duplicated; byte-level SHA-256 provenance verified |
-| Complete bounded Phase 01.1 contract and evidence repairs | Locally integrated; review pending | 77 focused storyboard tests, Ruff, strict mypy, and both Draft 2020-12 schema checks pass; no real cloud canary or screenshot run |
-| Rerun the real canary and inspect the rendered page, then stop before Phase 02 | Pending separate acceptance worker and visual acceptance | Existing accepted artifacts predate Phase 01.1 and were not regenerated in this task |
+| Complete bounded Phase 01.1 contract and evidence repairs | Complete | 134 focused storyboard tests, Ruff, strict mypy, both Draft 2020-12 schema checks, nearest-branch ownership, transport projection, and one-repair enforcement pass |
+| Rerun the real canary and inspect the rendered page, then stop before Phase 02 | Complete | Publishable five-file output; 159/159 exact coverage; zero validation errors; unchanged source archive; normal-browser inspection and sibling screenshot complete |
 
 ## Current pause boundary
 
-The prior accepted artifacts are in
-`C:\Users\prave\Documents\RenPy Story Mapper Trials\Storyboard-V2-Phase01-20260804-accepted`.
-They remain read-only baseline evidence and were not regenerated after Phase 01.1. The combined
-Phase 01.1 implementation is locally integrated and review-pending. The bounded implementation
-checks pass, but the real cloud canary rerun and visual inspection of its generated `index.html`
-remain pending. Phase 02 and all later work stay paused.
+The accepted Phase 01.1 artifacts are in
+`C:\Users\prave\Documents\RenPy Story Mapper Trials\Storyboard-V2-Phase01_1-20260805-203052-825-literal-rules-recovery`.
+The output contains exactly the five required files, is publishable with 159/159 exact coverage and
+zero validation errors, and passed normal-browser inspection. The source archive remained unchanged
+and the screenshot is a sibling PNG outside the artifact directory. Phase 02 and all later work
+remain paused pending explicit user direction.
