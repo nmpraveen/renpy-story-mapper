@@ -1408,6 +1408,9 @@ def test_prompt_builders_and_schemas_are_generic() -> None:
     assert "Scene order is zero-based and contiguous." in analysis_authority
     assert "never a continuation ID" in analysis_authority
     assert "Do not emit menu_evidence_id" in analysis_authority
+    assert "source_evidence_ids and target_evidence_ids must both be non-empty" in (
+        analysis_authority
+    )
     for request in (profile, analysis):
         authority = request["authority"]
         assert isinstance(authority, str)

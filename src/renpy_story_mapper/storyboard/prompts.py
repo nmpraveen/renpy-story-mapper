@@ -113,7 +113,9 @@ def build_story_analysis_request(
             "choice evidence_ids; for a condition-only choice, cite only its condition evidence. "
             "Transition source evidence must be physically owned by its origin scene, including "
             "that scene's arms or continuations, and target evidence must be physically owned by "
-            "the destination scene."
+            "the destination scene. If destination_scene_id or rejoin_scene_id is non-null, its "
+            "source_evidence_ids and target_evidence_ids must both be non-empty and physically "
+            "bound; otherwise keep the destination or rejoin null."
         ),
         "security": (
             "Use only the structured profile and evidence in this request; do not use tools, "
@@ -205,8 +207,10 @@ def build_validation_repair_request(
             "a real menu in the choice evidence_ids; a condition-only choice must cite only its "
             "condition evidence. Edge source and target evidence must come from the physical "
             "ownership of the declared origin and destination scenes. Any object citing embedded "
-            "Python or runtime-computed "
-            "evidence must remain unresolved with a non-empty uncertainty. This is the only "
+            "Python or runtime-computed evidence must remain unresolved with a non-empty "
+            "uncertainty. If destination_scene_id or rejoin_scene_id is non-null, its "
+            "source_evidence_ids and target_evidence_ids must both be non-empty and physically "
+            "bound; otherwise keep the destination or rejoin null. This is the only "
             "response-level repair attempt."
         ),
         "security": (
