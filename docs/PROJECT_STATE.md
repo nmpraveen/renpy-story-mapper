@@ -1,17 +1,19 @@
 # Ren'Py Story Mapper project state
 
-Updated: 2026-08-04
+Updated: 2026-08-06
 
 ## Active work
 
 - Active product direction: AI-first Ren'Py-game-to-readable-web-storyboard pipeline.
-- Active phase: Phase 01 canary review. The implementation has completed code review and release
-  hardening; later phases remain paused pending visual acceptance.
+- Active phase: Phase 01.1 contract/evidence hardening is complete. The corrected real canary is
+  publishable with exact coverage and has passed normal-browser visual acceptance. Later phases
+  remain paused pending explicit user acceptance and direction.
 - Active goal and task ledger: [`docs/storyboard-v2/GOAL.md`](storyboard-v2/GOAL.md).
 - Phase instructions: [`_storyboard_plan/02_PHASE_01_CANARY_PROMPT.md`](../_storyboard_plan/02_PHASE_01_CANARY_PROMPT.md).
 - Repository rules: [`AGENTS.md`](../AGENTS.md).
+- Private progress map: [Workflow Atlas](https://renpy-workflow-atlas.nmpraveen.chatgpt.site).
 - Historical record: [`docs/PROJECT_HISTORY.md`](PROJECT_HISTORY.md).
-- Native Codex goal: none.
+- Native Codex goal: Phase 01.1 recovery and acceptance, fulfilled by the evidence below.
 
 ## Current decision
 
@@ -30,30 +32,31 @@ dynamic behavior remains explicitly unresolved.
 
 ## Phase 01 status
 
-The isolated `src/renpy_story_mapper/storyboard/` path now implements deterministic evidence
-extraction, schema-constrained profile and story-analysis seams, exact-once coverage validation,
-artifact-byte provenance checks, and static HTML rendering. The accepted real-game canary covers
-`_6_2_WG_clean` lines 218-381 from `v0.07_6-1_clean.rpyc`.
+The isolated `src/renpy_story_mapper/storyboard/` path now implements a parser-independent
+source-line ledger with parser annotations, one canonical evidence/profile/analysis contract,
+exact-once semantic ownership and per-scene/per-arm coverage, status-aware uncertainty validation,
+semantic scene destinations with source/target evidence, structural parent closure, public-path
+redaction, nearest-branch physical ownership, one bounded validator-guided AI repair, and
+normal-reader-first HTML rendering. The accepted real-game canary covers `_6_2_WG_clean` lines
+218-381 from `v0.07_6-1_clean.rpyc`.
 
-The five accepted artifacts are outside Git at
-`C:\Users\prave\Documents\RenPy Story Mapper Trials\Storyboard-V2-Phase01-20260804-accepted`.
-Validation is publishable with 159/159 accountable records covered, no exclusions, no unaccounted
-records, and no duplicate memberships. The two menu arms contain 17 and 33 branch-owned records.
-The evidence, profile, and analysis files are linked by verified SHA-256 hashes of the exact emitted
-UTF-8 JSON bytes. The original `scripts.rpa` remained unchanged.
+The accepted five-file Phase 01.1 output is outside Git at
+`C:\Users\prave\Documents\RenPy Story Mapper Trials\Storyboard-V2-Phase01_1-20260805-203052-825-literal-rules-recovery`.
+Validation is publishable with 159/159 accountable records covered, zero errors, exclusions,
+unaccounted records, or duplicate memberships. All five parser-derived arms are complete at
+100/100, 2/2, 17/17, 31/31, and 2/2 records. The original `scripts.rpa` SHA-256 remained
+`053ABB13454180A2CF9B0AA762E33DEDA98CF027D9C1E39082F5795982720303` before and after.
 
-Code review hardened provider-output schema enforcement, complete source-scope echoes, semantic
-scene/choice/transition references, dynamic-evidence uncertainty, stable path-based IDs, fresh
-transactional artifact publication, read-only file-input boundaries, validation-error rendering,
-package exports, and CI shard registration. Focused storyboard verification passes: 40 tests, Ruff,
-strict mypy across 143 source files, the CI sharding contract, and wheel/sdist packaging with both
-schemas present. A full legacy regression run reached 1,852 passed and 15 expected skips; its only
-two failures were stale workflow-authority assertions, and the corrected workflow contract plus all
-focused storyboard tests now pass together (42 tests).
+The Phase 01.1 focused verification passes: 134 `test_storyboard*.py` tests, Ruff, strict mypy, and
+Draft 2020-12 checks for both storyboard schemas. It includes parser-failure ledger recovery,
+branch ownership, dynamic status semantics, schema acceptance, scene ordering, nested span closure,
+canonical renderer topology, path redaction, provider transport projection, one-repair enforcement,
+and the known-game/fixed-count scan.
 
-Chrome connected, but its browser security policy rejected direct `file://` navigation to the
-generated page. Phase 01 therefore remains awaiting the user's visual inspection of `index.html`;
-no later phase may start before that acceptance.
+The accepted `index.html` was inspected through a loopback server in the normal in-app browser.
+Story order, exact lines, both menu arms, nested conditions, consequences, uncertainty, and the
+shared fadeout continuation were readable with no horizontal overflow, clipping, or broken images.
+A sibling PNG was captured outside the five-file output directory. No later phase has started.
 
 The required proof is:
 
@@ -93,3 +96,8 @@ work or from this Phase 01 canary.
 Older milestone and benchmark files are historical evidence. They do not control the active
 architecture, model/provider policy, testing scope, or orchestration unless the current authority
 explicitly adopts them.
+
+The active-phase coordinator is the sole Workflow Atlas publisher for coordinated work. Worker tasks
+report status and evidence to the coordinator and do not edit or deploy the Atlas. Accepted future
+plans, execution starts, integrated passes, failures, and attention states must be reflected in the
+published map before the coordinator closes the phase.

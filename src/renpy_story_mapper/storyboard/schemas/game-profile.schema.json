@@ -3,70 +3,28 @@
   "$id": "storyboard-game-profile-v1",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "schema",
-    "source",
-    "entry_points",
-    "characters",
-    "variables",
-    "custom_constructs",
-    "conventions",
-    "ending_patterns",
-    "unresolved"
-  ],
+  "required": ["schema", "source", "entry_points", "characters", "variables", "custom_constructs", "conventions", "ending_patterns", "unresolved", "status", "uncertainty"],
   "properties": {
     "schema": {"const": "storyboard-game-profile-v1"},
+    "title": {"$ref": "#/$defs/text"},
+    "game_title": {"$ref": "#/$defs/text"},
+    "story_title": {"$ref": "#/$defs/text"},
+    "status": {"$ref": "#/$defs/status"},
+    "uncertainty": {"type": ["string", "null"]},
     "source": {"$ref": "#/$defs/source"},
-    "entry_points": {
-      "type": "array",
-      "items": {"$ref": "#/$defs/entry_point"}
-    },
-    "characters": {
-      "type": "array",
-      "items": {"$ref": "#/$defs/character"}
-    },
-    "variables": {
-      "type": "array",
-      "items": {"$ref": "#/$defs/variable"}
-    },
-    "custom_constructs": {
-      "type": "array",
-      "items": {"$ref": "#/$defs/custom_construct"}
-    },
-    "conventions": {
-      "type": "array",
-      "items": {"$ref": "#/$defs/convention"}
-    },
-    "ending_patterns": {
-      "type": "array",
-      "items": {"$ref": "#/$defs/ending_pattern"}
-    },
-    "unresolved": {
-      "type": "array",
-      "items": {"$ref": "#/$defs/unresolved"}
-    }
+    "entry_points": {"type": "array", "items": {"$ref": "#/$defs/entry_point"}},
+    "characters": {"type": "array", "items": {"$ref": "#/$defs/character"}},
+    "variables": {"type": "array", "items": {"$ref": "#/$defs/variable"}},
+    "custom_constructs": {"type": "array", "items": {"$ref": "#/$defs/custom_construct"}},
+    "conventions": {"type": "array", "items": {"$ref": "#/$defs/convention"}},
+    "ending_patterns": {"type": "array", "items": {"$ref": "#/$defs/ending_pattern"}},
+    "unresolved": {"type": "array", "items": {"$ref": "#/$defs/unresolved"}}
   },
+  "allOf": [{"$ref": "#/$defs/status_contract"}],
   "$defs": {
-    "text": {
-      "type": "string",
-      "minLength": 1
-    },
-    "evidence_ids": {
-      "type": "array",
-      "minItems": 1,
-      "uniqueItems": true,
-      "items": {"$ref": "#/$defs/text"}
-    },
-    "inference": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["evidence_ids", "confidence", "unresolved"],
-      "properties": {
-        "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "unresolved": {"type": "string"}
-      }
-    },
+    "text": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "enum": ["resolved", "uncertain", "unresolved", "excluded"]},
+    "evidence_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/text"}},
     "source": {
       "type": "object",
       "additionalProperties": false,
@@ -76,138 +34,92 @@
         "scope_evidence_ids": {"$ref": "#/$defs/evidence_ids"}
       }
     },
+    "status_contract": {
+      "if": {"properties": {"status": {"enum": ["uncertain", "unresolved", "excluded"]}}, "required": ["status"]},
+      "then": {"properties": {"uncertainty": {"type": "string", "minLength": 1}}},
+      "else": {"properties": {"uncertainty": {"type": "null"}}}
+    },
+    "inference_fields": {
+      "type": "object",
+      "required": ["evidence_ids", "confidence", "status", "uncertainty"],
+      "properties": {
+        "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
+        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+        "status": {"$ref": "#/$defs/status"},
+        "uncertainty": {"type": ["string", "null"]},
+        "rationale": {"type": ["string", "null"]},
+        "interpretation_rationale": {"type": ["string", "null"]}
+      }
+    },
     "entry_point": {
       "allOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["id", "label", "role", "evidence_ids", "confidence", "unresolved"],
-          "properties": {
-            "id": {"$ref": "#/$defs/text"},
-            "label": {"$ref": "#/$defs/text"},
-            "role": {"$ref": "#/$defs/text"},
-            "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-            "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-            "unresolved": {"type": "string"}
-          }
-        }
-      ]
+        {"$ref": "#/$defs/inference_fields"},
+        {"type": "object", "required": ["id", "label", "role"], "properties": {
+          "id": {"$ref": "#/$defs/text"}, "label": {"$ref": "#/$defs/text"}, "role": {"$ref": "#/$defs/text"}
+        }},
+        {"$ref": "#/$defs/status_contract"}
+      ],
+      "unevaluatedProperties": false
     },
     "character": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "id",
-        "names",
-        "description",
-        "evidence_ids",
-        "confidence",
-        "unresolved"
+      "allOf": [
+        {"$ref": "#/$defs/inference_fields"},
+        {"type": "object", "required": ["id", "names", "description"], "properties": {
+          "id": {"$ref": "#/$defs/text"}, "names": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/text"}}, "description": {"$ref": "#/$defs/text"}
+        }},
+        {"$ref": "#/$defs/status_contract"}
       ],
-      "properties": {
-        "id": {"$ref": "#/$defs/text"},
-        "names": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {"$ref": "#/$defs/text"}
-        },
-        "description": {"$ref": "#/$defs/text"},
-        "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "unresolved": {"type": "string"}
-      }
+      "unevaluatedProperties": false
     },
     "variable": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "id",
-        "names",
-        "meaning",
-        "roles",
-        "evidence_ids",
-        "confidence",
-        "unresolved"
+      "allOf": [
+        {"$ref": "#/$defs/inference_fields"},
+        {"type": "object", "required": ["id", "names", "meaning", "roles"], "properties": {
+          "id": {"$ref": "#/$defs/text"}, "names": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/text"}}, "meaning": {"$ref": "#/$defs/text"}, "roles": {"type": "array", "items": {"$ref": "#/$defs/text"}}
+        }},
+        {"$ref": "#/$defs/status_contract"}
       ],
-      "properties": {
-        "id": {"$ref": "#/$defs/text"},
-        "names": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {"$ref": "#/$defs/text"}
-        },
-        "meaning": {"$ref": "#/$defs/text"},
-        "roles": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/text"}
-        },
-        "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "unresolved": {"type": "string"}
-      }
+      "unevaluatedProperties": false
     },
     "custom_construct": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "id",
-        "syntax",
-        "meaning",
-        "behavior",
-        "evidence_ids",
-        "confidence",
-        "unresolved"
+      "allOf": [
+        {"$ref": "#/$defs/inference_fields"},
+        {"type": "object", "required": ["id", "syntax", "meaning", "behavior"], "properties": {
+          "id": {"$ref": "#/$defs/text"}, "syntax": {"$ref": "#/$defs/text"}, "meaning": {"$ref": "#/$defs/text"}, "behavior": {"$ref": "#/$defs/text"}
+        }},
+        {"$ref": "#/$defs/status_contract"}
       ],
-      "properties": {
-        "id": {"$ref": "#/$defs/text"},
-        "syntax": {"$ref": "#/$defs/text"},
-        "meaning": {"$ref": "#/$defs/text"},
-        "behavior": {"$ref": "#/$defs/text"},
-        "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "unresolved": {"type": "string"}
-      }
+      "unevaluatedProperties": false
     },
     "convention": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "kind", "description", "evidence_ids", "confidence", "unresolved"],
-      "properties": {
-        "id": {"$ref": "#/$defs/text"},
-        "kind": {"$ref": "#/$defs/text"},
-        "description": {"$ref": "#/$defs/text"},
-        "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "unresolved": {"type": "string"}
-      }
+      "allOf": [
+        {"$ref": "#/$defs/inference_fields"},
+        {"type": "object", "required": ["id", "kind", "description"], "properties": {
+          "id": {"$ref": "#/$defs/text"}, "kind": {"$ref": "#/$defs/text"}, "description": {"$ref": "#/$defs/text"}
+        }},
+        {"$ref": "#/$defs/status_contract"}
+      ],
+      "unevaluatedProperties": false
     },
     "ending_pattern": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "kind", "description", "evidence_ids", "confidence", "unresolved"],
-      "properties": {
-        "id": {"$ref": "#/$defs/text"},
-        "kind": {"$ref": "#/$defs/text"},
-        "description": {"$ref": "#/$defs/text"},
-        "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "unresolved": {"type": "string"}
-      }
+      "allOf": [
+        {"$ref": "#/$defs/inference_fields"},
+        {"type": "object", "required": ["id", "kind", "description"], "properties": {
+          "id": {"$ref": "#/$defs/text"}, "kind": {"$ref": "#/$defs/text"}, "description": {"$ref": "#/$defs/text"}
+        }},
+        {"$ref": "#/$defs/status_contract"}
+      ],
+      "unevaluatedProperties": false
     },
     "unresolved": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "topic", "description", "evidence_ids", "confidence", "unresolved"],
-      "properties": {
-        "id": {"$ref": "#/$defs/text"},
-        "topic": {"$ref": "#/$defs/text"},
-        "description": {"$ref": "#/$defs/text"},
-        "evidence_ids": {"$ref": "#/$defs/evidence_ids"},
-        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "unresolved": {"type": "string"}
-      }
+      "allOf": [
+        {"$ref": "#/$defs/inference_fields"},
+        {"type": "object", "required": ["id", "topic", "description"], "properties": {
+          "id": {"$ref": "#/$defs/text"}, "topic": {"$ref": "#/$defs/text"}, "description": {"$ref": "#/$defs/text"}
+        }},
+        {"$ref": "#/$defs/status_contract"}
+      ],
+      "unevaluatedProperties": false
     }
   }
 }

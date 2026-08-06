@@ -1,6 +1,6 @@
 # Ren'Py Story Mapper master plan
 
-Updated: 2026-08-04
+Updated: 2026-08-06
 
 ## Product goal
 
@@ -109,6 +109,18 @@ Only after Phase 01 is useful may the project decompose a full game into evidenc
 cross-scope dependencies, repair concrete coverage gaps, and choose the smallest reusable reader
 surface. Full-game scaling, polished navigation, one-command integration, unseen-game
 generalization, and gradual legacy cleanup are later work, not current acceptance requirements.
+
+## Progress visibility
+
+The private Workflow Atlas is the user-facing view of the accepted roadmap and live execution state.
+Accepted future phases appear there as not built; active work is marked in progress; integrated gates
+are marked passed, failed, or needing attention with evidence. When a phase uses coordinated worker
+tasks, only the coordinator may update or publish the Atlas. Workers report status and evidence back
+to that coordinator so the map stays consistent instead of receiving competing updates.
+
+The coordinator updates and publishes the Atlas at planning, phase start, material gate transitions,
+and phase completion. Atlas presentation never replaces repository evidence or deterministic
+acceptance; it is the readable projection of that authority.
 
 ## Historical boundary
 

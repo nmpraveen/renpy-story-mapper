@@ -13,6 +13,7 @@ authors = [{ name = "Ren'Py Story Mapper contributors" }]
 dependencies = [
   "PySide6>=6.8,<7",
   "jsonschema>=4.23,<5",
+  "tiktoken>=0.11,<1",
 ]
 
 [project.optional-dependencies]

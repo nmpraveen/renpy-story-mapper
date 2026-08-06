@@ -80,9 +80,12 @@
         "tests/test_story_map_v2_whole_game_corridors.py",
         "tests/test_story_map_v2_whole_game_skeleton.py",
         "tests/test_storyboard_ai_client.py",
+        "tests/test_storyboard_core_repairs.py",
         "tests/test_storyboard_evidence.py",
+        "tests/test_storyboard_phase011.py",
         "tests/test_storyboard_pipeline.py",
         "tests/test_storyboard_render.py",
+        "tests/test_storyboard_renderer_canonical.py",
         "tests/test_storyboard_validation.py"
       ],
       "nodes": [

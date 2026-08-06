@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -13,6 +14,7 @@ from renpy_story_mapper.model import SourceSpan
 class EvidenceKind(StrEnum):
     """Stable categories emitted by the source evidence projection."""
 
+    SOURCE_LINE = "source_line"
     LABEL = "label"
     DIALOGUE = "dialogue"
     NARRATION = "narration"
@@ -53,7 +55,7 @@ class EvidenceProvenance:
     def from_source(cls, provenance: SourceProvenance) -> EvidenceProvenance:
         return cls(
             source_kind=provenance.source_kind,
-            locator=provenance.locator,
+            locator=_public_path(provenance.locator),
             tier=provenance.tier.value,
             input_sha256=provenance.input_sha256,
             output_sha256=provenance.output_sha256,
@@ -65,7 +67,7 @@ class EvidenceProvenance:
             options=dict(provenance.options),
             cache_hit=provenance.cache_hit,
             complete=provenance.complete,
-            warnings=provenance.warnings,
+            warnings=tuple(_redact_message(warning) for warning in provenance.warnings),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -80,10 +82,12 @@ class EvidenceProvenance:
             "tool_version": self.tool_version,
             "tool_commit": self.tool_commit,
             "tool_bundle_sha256": self.tool_bundle_sha256,
-            "options": dict(self.options),
+            # Options are operational metadata, not source evidence.  In particular, an
+            # arbitrary nested ``text`` value must not be exempt from path redaction.
+            "options": _redact_value(self.options),
             "cache_hit": self.cache_hit,
             "complete": self.complete,
-            "warnings": list(self.warnings),
+            "warnings": [_redact_message(warning) for warning in self.warnings],
         }
 
 
@@ -95,7 +99,7 @@ class EvidenceOrigin:
     provenance: EvidenceProvenance
 
     def to_dict(self) -> dict[str, object]:
-        return {"path": self.path, "provenance": self.provenance.to_dict()}
+        return {"path": _public_path(self.path), "provenance": self.provenance.to_dict()}
 
 
 @dataclass(frozen=True)
@@ -108,8 +112,8 @@ class EvidenceLocation:
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "path": self.path,
-            "span": self.span.to_dict(),
+            "path": _public_path(self.path),
+            "span": _public_span(self.span),
             "provenance": self.provenance.to_dict(),
         }
 
@@ -125,7 +129,7 @@ class EvidenceSelection:
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "source_path": self.source_path,
+            "source_path": None if self.source_path is None else _public_path(self.source_path),
             "label": self.label,
             "start_line": self.start_line,
             "end_line": self.end_line,
@@ -144,11 +148,11 @@ class EvidenceDiagnostic:
     def to_dict(self) -> dict[str, object]:
         value: dict[str, object] = {
             "code": self.code,
-            "message": self.message,
+            "message": _redact_message(self.message),
             "severity": self.severity,
         }
         if self.source is not None:
-            value["source"] = self.source.to_dict()
+            value["source"] = _public_span(self.source)
         return value
 
 
@@ -174,8 +178,18 @@ class EvidenceRecord:
             "kind": self.kind.value,
             "text": self.text,
             "source": self.source.to_dict(),
-            "metadata": dict(self.metadata),
+            "source_text": self.text,
+            "facts": _redact_value(self.metadata, preserve_exact_text=True),
+            "metadata": _redact_value(self.metadata, preserve_exact_text=True),
+            "accountable": self.is_leaf,
+            "role": "leaf" if self.is_leaf else "annotation",
         }
+
+    @property
+    def is_leaf(self) -> bool:
+        """Whether this record is a source-ledger leaf rather than a parser annotation."""
+
+        return self.kind is EvidenceKind.SOURCE_LINE and self.metadata.get("leaf") is True
 
 
 @dataclass(frozen=True)
@@ -216,16 +230,263 @@ class EvidenceIndex:
         counts: dict[str, int] = {}
         for record in self.records:
             counts[record.kind.value] = counts.get(record.kind.value, 0) + 1
+        record_values = [record.to_dict() for record in self.records]
+        records_by_id = {
+            record_id: record
+            for record_id, record in (
+                (record.get("id"), record) for record in record_values
+            )
+            if isinstance(record_id, str)
+        }
+        menus: list[dict[str, object]] = []
+        for record in self.menus:
+            arm_ids = [
+                arm.id
+                for arm in self.choice_arms
+                if arm.metadata.get("parent_id") == record.id
+            ]
+            arm_ids.sort(key=lambda identifier: _record_order(records_by_id[identifier]))
+            menus.append(
+                {
+                    "id": record.id,
+                    "arm_ids": arm_ids,
+                    "caption_ids": [
+                        caption.id
+                        for caption in self.records_of(EvidenceKind.MENU_CAPTION)
+                        if caption.metadata.get("parent_id") == record.id
+                    ],
+                }
+            )
+        menus.sort(key=lambda item: _record_order(records_by_id[str(item["id"])]))
+        source_line_records = self.records_of(EvidenceKind.SOURCE_LINE)
+        leaf_ids = [record.id for record in source_line_records if record.is_leaf]
+        annotation_ids = [
+            record.id for record in self.records if record.kind is not EvidenceKind.SOURCE_LINE
+        ]
+        selection = self.selection.to_dict()
+        selection_issue = next(
+            (
+                diagnostic
+                for diagnostic in self.diagnostics
+                if diagnostic.code
+                in {
+                    "label_not_found",
+                    "source_not_found",
+                    "source_selection_required",
+                    "source_selection_ambiguous",
+                }
+            ),
+            None,
+        )
+        selection["status"] = "unresolved" if selection_issue is not None else "resolved"
+        selection["uncertainty"] = (
+            None if selection_issue is None else _redact_message(selection_issue.message)
+        )
         return {
-            "schema_version": self.schema_version,
+            "schema_version": f"storyboard-evidence-v{self.schema_version}",
             "source": None if self.source is None else self.source.to_dict(),
-            "selection": self.selection.to_dict(),
-            "records": [record.to_dict() for record in self.records],
+            "selection": selection,
+            "records": record_values,
+            "ledger": [records_by_id[record.id] for record in source_line_records],
+            "annotations": [records_by_id[identifier] for identifier in annotation_ids],
+            "leaf_evidence_ids": leaf_ids,
+            "annotation_evidence_ids": annotation_ids,
+            "accountable_evidence_ids": leaf_ids,
+            "menus": menus,
             "labels": [record.id for record in self.labels],
-            "menus": [record.id for record in self.menus],
             "choice_arms": [record.id for record in self.choice_arms],
             "conditions": [record.id for record in self.conditions],
             "assignments": [record.id for record in self.assignments],
             "diagnostics": [diagnostic.to_dict() for diagnostic in self.diagnostics],
             "counts": dict(sorted(counts.items())),
         }
+
+
+_PATH_KEYS = frozenset(
+    {
+        "path",
+        "locator",
+        "source_path",
+        "relative_path",
+        "file",
+        "filename",
+        "input_path",
+        "output_path",
+        "output_directory",
+        "cwd",
+    }
+)
+_MESSAGE_KEYS = frozenset(
+    {
+        "warning",
+        "warnings",
+        "message",
+        "error",
+        "errors",
+        "diagnostic",
+        "diagnostics",
+        "detail",
+        "details",
+    }
+)
+_EXACT_TEXT_KEYS = frozenset({"source_text", "parser_text", "dialogue_text"})
+_REDACTION_ONLY_CONTAINERS = frozenset(
+    {
+        "options",
+        "warning",
+        "warnings",
+        "diagnostic",
+        "diagnostics",
+        "detail",
+        "details",
+    }
+)
+_QUOTED_ABSOLUTE_PATH_TOKEN = re.compile(
+    r'''(?ix)(?P<quote>["'])(?P<path>(?:file://)?(?:[A-Za-z]:[\\/]|\\\\|//|/)[^"'<>\r\n]*)(?P=quote)'''
+)
+_ABSOLUTE_PATH_TOKEN = re.compile(
+    r'''(?ix)(?<![A-Za-z0-9+.\-/:])(?P<path>(?:file://)?(?:[A-Za-z]:[\\/]|\\\\|//|/)[^"'<>\r\n,;!?()\[\]{}]*)'''
+)
+
+
+def _is_absolute_path(value: str) -> bool:
+    normalized = value.strip().replace("\\", "/")
+    if len(normalized) >= 2 and normalized[0] == normalized[-1] in {"'", '"'}:
+        normalized = normalized[1:-1]
+    if normalized.casefold().startswith("file://"):
+        normalized = normalized[7:]
+    return bool(re.match(r"^[A-Za-z]:/", normalized)) or normalized.startswith("/")
+
+
+def _absolute_basename(value: str) -> str:
+    normalized = value.strip().replace("\\", "/")
+    if len(normalized) >= 2 and normalized[0] == normalized[-1] in {"'", '"'}:
+        normalized = normalized[1:-1]
+    if normalized.casefold().startswith("file://"):
+        normalized = normalized[7:]
+    normalized = normalized.rstrip("/")
+    name = normalized.rsplit("/", 1)[-1]
+    return name or "source"
+
+
+def _public_path(value: str) -> str:
+    """Return a public path while preserving relative identity."""
+
+    normalized = str(value).replace("\\", "/").strip()
+    if not normalized:
+        return "source"
+    if _is_absolute_path(normalized):
+        return f"source/{_absolute_basename(normalized)}"
+    # Do not resolve or discard ``..``: relative paths can be stable logical identities.
+    return normalized
+
+
+def _public_span(span: SourceSpan) -> dict[str, object]:
+    value = span.to_dict()
+    value["path"] = _public_path(span.path)
+    return value
+
+
+def _redact_message(value: str) -> str:
+    def redact_token(token: str) -> str:
+        whitespace = token[len(token.rstrip()):]
+        token = token.rstrip()
+        trailing = ""
+        while token and token[-1] in ",.;!?)]}>":
+            trailing = token[-1] + trailing
+            token = token[:-1]
+        return f"source/{_absolute_basename(token)}{trailing}{whitespace}"
+
+    def replace_quoted(match: re.Match[str]) -> str:
+        return f"{match.group('quote')}{redact_token(match.group('path'))}{match.group('quote')}"
+
+    def replace_unquoted(match: re.Match[str]) -> str:
+        return redact_token(match.group("path"))
+
+    redacted = _QUOTED_ABSOLUTE_PATH_TOKEN.sub(replace_quoted, value)
+    return _ABSOLUTE_PATH_TOKEN.sub(replace_unquoted, redacted)
+
+
+def _redact_mapping(value: Mapping[str, object]) -> dict[str, object]:
+    redacted = _redact_value(value, preserve_exact_text=True)
+    return redacted if isinstance(redacted, dict) else {}
+
+
+def _is_evidence_record(value: Mapping[str, object]) -> bool:
+    return (
+        isinstance(value.get("id"), str)
+        and isinstance(value.get("kind"), str)
+        and isinstance(value.get("source"), Mapping)
+    )
+
+
+def _redact_value(
+    value: object,
+    *,
+    preserve_exact_text: bool = False,
+    key: str | None = None,
+) -> object:
+    """Recursively redact local paths in public/AI data without changing source text."""
+
+    normalized_key = key.casefold() if key is not None else None
+    if isinstance(value, Mapping):
+        is_evidence_record = _is_evidence_record(value)
+        redacted: dict[str, object] = {}
+        for raw_key, child in value.items():
+            child_key = str(raw_key)
+            normalized_child_key = child_key.casefold()
+            child_preserve = (
+                preserve_exact_text
+                and normalized_child_key not in _REDACTION_ONLY_CONTAINERS
+            )
+            if normalized_child_key == "text" and not is_evidence_record:
+                child_preserve = False
+            redaction_key = (
+                "source_text"
+                if normalized_child_key == "text" and is_evidence_record
+                else child_key
+            )
+            redacted[child_key] = _redact_value(
+                child,
+                preserve_exact_text=child_preserve,
+                key=redaction_key,
+            )
+        return redacted
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [
+            _redact_value(child, preserve_exact_text=preserve_exact_text, key=key)
+            for child in value
+        ]
+    if isinstance(value, str):
+        if normalized_key in _PATH_KEYS:
+            return _public_path(value)
+        if preserve_exact_text and normalized_key in _EXACT_TEXT_KEYS:
+            return value
+        if (
+            normalized_key in _MESSAGE_KEYS
+            or _is_absolute_path(value)
+            or _ABSOLUTE_PATH_TOKEN.search(value)
+        ):
+            return _redact_message(value)
+    return value
+
+
+def redact_public_value(value: object, *, preserve_exact_text: bool = False) -> object:
+    """Return recursively redacted JSON-compatible data for public or AI artifacts."""
+
+    return _redact_value(value, preserve_exact_text=preserve_exact_text)
+
+
+def _record_order(record: Mapping[str, object]) -> tuple[object, ...]:
+    source = record.get("source")
+    if not isinstance(source, Mapping):
+        return (1, "", 0, 0, "")
+    span = source.get("span")
+    if not isinstance(span, Mapping):
+        return (1, str(source.get("path", "")), 0, 0, str(record.get("id", "")))
+    start = span.get("start")
+    if not isinstance(start, Mapping):
+        return (1, str(source.get("path", "")), 0, 0, str(record.get("id", "")))
+    line = start.get("line") if isinstance(start.get("line"), int) else 0
+    column = start.get("column") if isinstance(start.get("column"), int) else 0
+    return (0, str(source.get("path", "")), line, column, str(record.get("id", "")))

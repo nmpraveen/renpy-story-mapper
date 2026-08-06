@@ -39,3 +39,27 @@ not internal subagents. Never substitute internal subagents when the user asks f
 threads. When independent investigations or implementation areas should run in parallel, dispatch
 bounded, non-overlapping user-visible Codex tasks using `gpt-5.6-sol` with High reasoning unless the
 user requests different settings. The coordinator owns scope, integration, and the final result.
+
+## Workflow Atlas progress authority
+
+The private Workflow Atlas at `workflow-atlas-site/` is the user-facing progress record for this
+project. It is tracked in this repository as a Git subtree; do not create a nested `.git` directory.
+Keep `workflow-atlas-site/app/workflow-map.json` aligned with the accepted plan and the actual
+evidence whenever future work is planned or active work changes state.
+
+- Add accepted future work as gray `not-built` phase containers or nodes before implementation.
+- Mark the active phase or node `in-progress` when execution begins.
+- Update a node when an integrated commit or acceptance gate makes it pass, fail, or need attention.
+  A pass requires concrete evidence. A failure must include a safe plain-language account of what
+  failed, what was expected, what happened, and the next action.
+- Publish the Atlas after each material status transition and before the coordinator reports the
+  phase complete. Do not expose prompts, credentials, private payloads, or absolute local paths.
+
+When a phase is executed through an orchestrator/coordinator task, that task has sole authority to
+edit, commit, push, or deploy the Workflow Atlas. Worker tasks must not modify the Atlas. They return
+their node ID or workstream, status, commit/evidence, and any safe failure summary to the coordinator,
+which integrates those reports into one consistent map update. If there is no separate orchestrator,
+the task that owns the active phase is the coordinator and carries this responsibility.
+
+A coordinated phase is not finished until its final Atlas state is published, or the coordinator
+explicitly reports why publication is blocked.

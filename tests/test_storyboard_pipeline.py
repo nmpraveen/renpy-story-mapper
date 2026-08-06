@@ -9,6 +9,10 @@ import pytest
 
 import renpy_story_mapper.storyboard.pipeline as storyboard_pipeline
 from renpy_story_mapper.cli import main
+from renpy_story_mapper.storyboard.ai_client import (
+    CanonicalValidationIssue,
+    ProviderCanonicalValidationError,
+)
 from renpy_story_mapper.storyboard.evidence import build_evidence_index
 from renpy_story_mapper.storyboard.pipeline import (
     ARTIFACT_FILENAMES,
@@ -90,7 +94,22 @@ def _schema_replays(
         "conventions": [],
         "ending_patterns": [],
         "unresolved": [],
+        "status": "resolved",
+        "uncertainty": None,
     }
+    source_lines = {
+        int(item["facts"]["line_number"]): item["id"]
+        for item in records
+        if item["kind"] == "source_line" and isinstance(item.get("facts"), dict)
+    }
+    condition = next(
+        item
+        for item in records
+        if item["kind"] == "condition"
+        and isinstance(item.get("facts"), dict)
+        and item["facts"].get("condition_type") == "if_branch"
+    )
+    condition_id = str(condition["id"])
     analysis: dict[str, object] = {
         "schema": "storyboard-story-analysis-v1",
         "source": {
@@ -105,14 +124,15 @@ def _schema_replays(
                 "summary": "The static analysis preserves exact source and both arms.",
                 "order": 0,
                 "line_evidence_ids": [
-                    item["id"]
-                    for item in records
-                    if item["kind"] in {"dialogue", "narration"}
+                    source_lines[line]
+                    for line in (1, 2, 3, 6)
+                    if line in source_lines
                 ],
-                "choice_ids": ["choice-main"],
-                "evidence_ids": ids,
+                "choice_ids": ["choice-main", "choice-condition"],
+                "evidence_ids": [ids[0]],
                 "confidence": "medium",
-                "unresolved": "Custom and embedded Python behavior remains unresolved.",
+                "status": "unresolved",
+                "uncertainty": "The assignment and runtime condition are not statically closed.",
             }
         ],
         "choices": [
@@ -125,20 +145,61 @@ def _schema_replays(
                     {
                         "id": f"arm-{ordinal}",
                         "caption": f"Arm {ordinal + 1}",
-                        "line_evidence_ids": [arm_id],
-                        "consequence": f"Arm {ordinal + 1} continues.",
-                        "destination_id": None,
-                        "rejoin_id": None,
+                        "line_evidence_ids": [
+                            source_lines[line]
+                            for line in ((7, 8) if ordinal == 0 else (9, 10))
+                            if line in source_lines
+                        ],
+                        "consequence": {
+                            "text": f"Arm {ordinal + 1} continues.",
+                            "evidence_ids": [arm_id],
+                            "confidence": "low",
+                            "status": "uncertain",
+                            "uncertainty": "The target is not established by this canary.",
+                        },
+                        "destination_scene_id": None,
+                        "rejoin_scene_id": None,
                         "terminal": "unresolved",
                         "evidence_ids": [arm_id],
                         "confidence": "low",
-                        "unresolved": "The target is not established by this canary.",
+                        "status": "uncertain",
+                        "uncertainty": "The target is not established by this canary.",
                     }
                     for ordinal, arm_id in enumerate(arm_ids)
                 ],
                 "evidence_ids": [menu["id"]],
                 "confidence": "medium",
-                "unresolved": "none",
+                "status": "resolved",
+                "uncertainty": None,
+            },
+            {
+                "id": "choice-condition",
+                "scene_id": "scene-unfamiliar-entry",
+                "caption": "Conditional line",
+                "condition": "strange_counter > 0",
+                "arms": [
+                    {
+                        "id": "arm-condition",
+                        "caption": "Condition holds",
+                        "condition": "strange_counter > 0",
+                        "line_evidence_ids": [source_lines[4], source_lines[5]],
+                        "consequence": {
+                            "text": "The conditional line is shown.",
+                            "evidence_ids": [condition_id],
+                            "confidence": "medium",
+                            "status": "resolved",
+                            "uncertainty": None,
+                        },
+                        "evidence_ids": [condition_id],
+                        "confidence": "medium",
+                        "status": "resolved",
+                        "uncertainty": None,
+                    }
+                ],
+                "evidence_ids": [condition_id],
+                "confidence": "medium",
+                "status": "resolved",
+                "uncertainty": None,
             }
         ],
         "transitions": [],
@@ -146,6 +207,8 @@ def _schema_replays(
         "excluded_evidence_ids": [],
         "unresolved": [],
         "disagreements": [],
+        "status": "resolved",
+        "uncertainty": None,
     }
     return profile, analysis
 
@@ -273,6 +336,48 @@ def test_replays_must_match_bundled_schemas(tmp_path: Path) -> None:
             label="unfamiliar_entry",
             profile_replay=profile,
             analysis_replay=invalid_analysis,
+        )
+
+
+def test_legacy_replay_envelopes_are_rejected_instead_of_unwrapped(tmp_path: Path) -> None:
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
+
+    with pytest.raises(StoryboardPipelineError, match="legacy envelope"):
+        run_storyboard_pipeline(
+            game,
+            tmp_path / "profile-envelope",
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            profile_replay={"profile": profile},
+            analysis_replay=analysis,
+        )
+    with pytest.raises(StoryboardPipelineError, match="legacy envelope"):
+        run_storyboard_pipeline(
+            game,
+            tmp_path / "game-profile-envelope",
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            profile_replay={"game_profile": profile},
+            analysis_replay=analysis,
+        )
+    with pytest.raises(StoryboardPipelineError, match="legacy envelope"):
+        run_storyboard_pipeline(
+            game,
+            tmp_path / "analysis-envelope",
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            profile_replay=profile,
+            analysis_replay={"analysis": analysis},
+        )
+    with pytest.raises(StoryboardPipelineError, match="legacy envelope"):
+        run_storyboard_pipeline(
+            game,
+            tmp_path / "story-analysis-envelope",
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            profile_replay=profile,
+            analysis_replay={"story_analysis": analysis},
         )
 
 
@@ -433,7 +538,9 @@ def test_schema_valid_dangling_story_references_reject_publication(tmp_path: Pat
     assert isinstance(choices, list)
     arms = choices[0]["arms"]
     assert isinstance(arms, list)
-    arms[0]["destination_id"] = "scene-missing-destination"
+    arms[0]["destination_scene_id"] = "scene-missing-destination"
+    arms[0]["source_evidence_ids"] = [evidence_ids[0]]
+    arms[0]["target_evidence_ids"] = [evidence_ids[-1]]
     analysis["transitions"] = [
         {
             "id": "transition-missing-target",
@@ -441,8 +548,11 @@ def test_schema_valid_dangling_story_references_reject_publication(tmp_path: Pat
             "to_id": "scene-missing-transition",
             "kind": "jump",
             "evidence_ids": [evidence_ids[0]],
+            "source_evidence_ids": [evidence_ids[0]],
+            "target_evidence_ids": [evidence_ids[-1]],
             "confidence": "low",
-            "unresolved": "The named destination is not in the scene set.",
+            "status": "uncertain",
+            "uncertainty": "The named destination is not in the scene set.",
         }
     ]
 
@@ -580,7 +690,7 @@ def test_cli_returns_two_for_rejected_validation_and_keeps_artifacts(
 
 
 def test_pipeline_makes_one_profile_and_one_analysis_provider_call(tmp_path: Path) -> None:
-    game, _raw_evidence, evidence = _source_and_evidence(tmp_path)
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
 
     class FakeClient:
         def __init__(self) -> None:
@@ -594,9 +704,40 @@ def test_pipeline_makes_one_profile_and_one_analysis_provider_call(tmp_path: Pat
             assert isinstance(payload, dict)
             request_input = payload["input"]
             assert isinstance(request_input, dict)
-            raw_evidence = request_input["evidence_index"]
-            assert isinstance(raw_evidence, dict)
-            assert raw_evidence == _raw_evidence
+            ai_evidence = request_input["evidence_index"]
+            assert isinstance(ai_evidence, dict)
+            physical_ownership = ai_evidence["physical_ownership"]
+            assert isinstance(physical_ownership, dict)
+            assert physical_ownership["contract"] == "storyboard-physical-ownership-v1"
+            assert isinstance(physical_ownership["shared_line_evidence_ids"], list)
+            physical_branches = physical_ownership["branches"]
+            assert isinstance(physical_branches, list)
+            assert physical_branches
+            assert all(item["line_evidence_ids"] for item in physical_branches)
+            assert not {
+                "annotations",
+                "ledger",
+                "leaf_evidence_ids",
+                "annotation_evidence_ids",
+                "accountable_evidence_ids",
+            } & ai_evidence.keys()
+            assert ai_evidence["source"] == raw_evidence["source"]
+            ai_records = ai_evidence["records"]
+            canonical_records = raw_evidence["records"]
+            assert isinstance(ai_records, list)
+            assert isinstance(canonical_records, list)
+            assert [item["id"] for item in ai_records] == [
+                item["id"] for item in canonical_records
+            ]
+            for compact, canonical in zip(ai_records, canonical_records, strict=True):
+                assert compact["source_text"] == canonical["source_text"]
+                assert compact["facts"] == canonical["facts"]
+                assert compact["metadata"] == canonical["metadata"]
+                assert compact["role"] == canonical["role"]
+                assert "text" not in compact
+                assert compact["source"]["path"] == canonical["source"]["path"]
+                assert compact["source"]["span"] == canonical["source"]["span"]
+                assert "provenance" not in compact["source"]
             required_provenance = payload["required_provenance"]
             assert isinstance(required_provenance, dict)
             assert required_provenance["evidence_index_hash"] == _artifact_hash(raw_evidence)
@@ -619,3 +760,400 @@ def test_pipeline_makes_one_profile_and_one_analysis_provider_call(tmp_path: Pat
 
     assert client.calls == ["game-profile.schema.json", "story-analysis.schema.json"]
     assert result.validation_report.publishable
+    assert result.evidence_index == raw_evidence
+
+
+def test_pipeline_binds_complete_source_receipts_to_provider_results(tmp_path: Path) -> None:
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    expected_ids = [
+        item["id"] for item in evidence["records"] if isinstance(item, dict)
+    ]
+    semantic_marker = "AI-owned semantic content is preserved."
+
+    class IncompleteReceiptClient:
+        def complete(self, **request: object) -> dict[str, object]:
+            schema_path = request["schema_path"]
+            payload = request["payload"]
+            assert isinstance(schema_path, Path)
+            assert isinstance(payload, dict)
+            request_input = payload["input"]
+            assert isinstance(request_input, dict)
+            current_profile = request_input.get("game_profile")
+            profile, analysis = _schema_replays(raw_evidence, evidence)
+            if schema_path.name.startswith("game-profile"):
+                profile["conventions"] = [
+                    {
+                        "id": "semantic-marker",
+                        "kind": "test-convention",
+                        "description": semantic_marker,
+                        "evidence_ids": [expected_ids[0]],
+                        "confidence": "high",
+                        "status": "resolved",
+                        "uncertainty": None,
+                    }
+                ]
+                profile_source = profile["source"]
+                assert isinstance(profile_source, dict)
+                profile_source["scope_evidence_ids"] = [expected_ids[0]]
+                return profile
+            assert isinstance(current_profile, dict)
+            analysis_source = analysis["source"]
+            assert isinstance(analysis_source, dict)
+            analysis_source["profile_hash"] = _artifact_hash(current_profile)
+            analysis_source["canary_evidence_ids"] = [expected_ids[0]]
+            return analysis
+
+        def cancel(self) -> None:
+            return None
+
+    result = run_storyboard_pipeline(
+        game,
+        tmp_path / "bound-source-artifacts",
+        source_path="canary.rpy",
+        label="unfamiliar_entry",
+        ai_client=IncompleteReceiptClient(),  # type: ignore[arg-type]
+    )
+
+    assert result.game_profile["source"] == {
+        "evidence_index_hash": _artifact_hash(raw_evidence),
+        "scope_evidence_ids": expected_ids,
+    }
+    assert result.story_analysis["source"] == {
+        "evidence_index_hash": _artifact_hash(raw_evidence),
+        "profile_hash": _artifact_hash(result.game_profile),
+        "canary_evidence_ids": expected_ids,
+    }
+    conventions = result.game_profile["conventions"]
+    assert isinstance(conventions, list)
+    assert conventions[0]["description"] == semantic_marker
+    assert result.validation_report.publishable
+
+
+def test_pipeline_allows_exactly_one_targeted_canonical_repair(tmp_path: Path) -> None:
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
+    invalid_profile = dict(profile)
+    invalid_profile["uncertainty"] = "A resolved response cannot retain uncertainty text."
+
+    class RepairClient:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def complete(self, **request: object) -> dict[str, object]:
+            payload = request["payload"]
+            assert isinstance(payload, dict)
+            self.calls.append(payload)
+            if len(self.calls) == 1:
+                raise ProviderCanonicalValidationError(
+                    invalid_profile,
+                    (
+                        CanonicalValidationIssue(
+                            ("uncertainty",),
+                            "value is not of type 'null'",
+                        ),
+                    ),
+                )
+            if len(self.calls) == 2:
+                assert payload["prompt_version"] == "storyboard-canonical-repair-prompt-v1"
+                repair_input = payload["input"]
+                assert isinstance(repair_input, dict)
+                assert repair_input["prior_response"] == invalid_profile
+                issues = repair_input["validator_issues"]
+                assert isinstance(issues, list)
+                assert issues[0]["path"] == ["uncertainty"]
+                assert "not of type 'null'" in issues[0]["message"]
+                assert payload["required_provenance"] == self.calls[0]["required_provenance"]
+                return profile
+            return analysis
+
+        def cancel(self) -> None:
+            return None
+
+    client = RepairClient()
+    output = tmp_path / "repair-artifacts"
+    result = run_storyboard_pipeline(
+        game,
+        output,
+        source_path="canary.rpy",
+        label="unfamiliar_entry",
+        ai_client=client,  # type: ignore[arg-type]
+    )
+
+    assert len(client.calls) == 3
+    assert invalid_profile["uncertainty"] == (
+        "A resolved response cannot retain uncertainty text."
+    )
+    written_profile = json.loads((output / "game-profile.json").read_text(encoding="utf-8"))
+    assert written_profile["uncertainty"] is None
+    assert result.validation_report.publishable
+
+
+def test_pipeline_fails_after_the_single_repair_attempt(tmp_path: Path) -> None:
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, _analysis = _schema_replays(raw_evidence, evidence)
+    invalid_profile = dict(profile)
+    invalid_profile["uncertainty"] = "Still invalid for resolved status."
+
+    class InvalidRepairClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def complete(self, **request: object) -> dict[str, object]:
+            del request
+            self.calls += 1
+            return invalid_profile
+
+        def cancel(self) -> None:
+            return None
+
+    client = InvalidRepairClient()
+    output = tmp_path / "failed-repair-artifacts"
+    with pytest.raises(
+        StoryboardPipelineError,
+        match="after one targeted repair",
+    ):
+        run_storyboard_pipeline(
+            game,
+            output,
+            source_path="canary.rpy",
+            label="unfamiliar_entry",
+            ai_client=client,  # type: ignore[arg-type]
+        )
+
+    assert client.calls == 2
+    assert not output.exists()
+
+
+def test_pipeline_repairs_schema_valid_deterministic_analysis_once(tmp_path: Path) -> None:
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
+    invalid_analysis = json.loads(json.dumps(analysis))
+    invalid_scenes = invalid_analysis["scenes"]
+    invalid_choices = invalid_analysis["choices"]
+    assert isinstance(invalid_scenes, list)
+    assert isinstance(invalid_choices, list)
+    invalid_scene = invalid_scenes[0]
+    invalid_choice = invalid_choices[0]
+    assert isinstance(invalid_scene, dict)
+    assert isinstance(invalid_choice, dict)
+    invalid_arms = invalid_choice["arms"]
+    assert isinstance(invalid_arms, list)
+    invalid_arm = invalid_arms[0]
+    assert isinstance(invalid_arm, dict)
+    branch_lines = list(invalid_arm["line_evidence_ids"])
+    invalid_scene["line_evidence_ids"] = [
+        *invalid_scene["line_evidence_ids"],
+        *branch_lines,
+    ]
+    invalid_arm["line_evidence_ids"] = []
+
+    class ValidationRepairClient:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def complete(self, **request: object) -> dict[str, object]:
+            payload = request["payload"]
+            assert isinstance(payload, dict)
+            self.calls.append(payload)
+            if len(self.calls) == 1:
+                return profile
+            if len(self.calls) == 2:
+                return invalid_analysis
+            assert len(self.calls) == 3
+            assert payload["prompt_version"] == "storyboard-validation-repair-prompt-v1"
+            assert "Do not emit menu_evidence_id" in payload["authority"]
+            assert "source_evidence_ids and target_evidence_ids must both be non-empty" in (
+                payload["authority"]
+            )
+            assert "must name declared scene IDs, never an arm" in payload["authority"]
+            assert "literal status=unresolved, not uncertain or resolved" in (
+                payload["authority"]
+            )
+            repair_input = payload["input"]
+            assert isinstance(repair_input, dict)
+            assert repair_input["prior_response"] == invalid_analysis
+            ownership = repair_input["physical_ownership"]
+            assert isinstance(ownership, dict)
+            assert ownership["contract"] == "storyboard-physical-ownership-v1"
+            issues = repair_input["validator_issues"]
+            assert isinstance(issues, list)
+            issue_codes = {item["path"][1] for item in issues}
+            assert "arm_leaf_in_shared_scene" in issue_codes
+            assert "incomplete_arm_coverage" in issue_codes
+            assert payload["required_provenance"] == self.calls[1]["required_provenance"]
+            return analysis
+
+        def cancel(self) -> None:
+            return None
+
+    client = ValidationRepairClient()
+    result = run_storyboard_pipeline(
+        game,
+        tmp_path / "validation-repair-artifacts",
+        source_path="canary.rpy",
+        label="unfamiliar_entry",
+        ai_client=client,  # type: ignore[arg-type]
+    )
+
+    assert len(client.calls) == 3
+    assert result.validation_report.publishable
+
+
+def test_pipeline_repairs_schema_valid_dynamic_profile_once(tmp_path: Path) -> None:
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
+    records = [item for item in evidence["records"] if isinstance(item, dict)]
+    dynamic_assignment = next(item for item in records if item["kind"] == "assignment")
+    invalid_profile = json.loads(json.dumps(profile))
+    invalid_profile["variables"] = [
+        {
+            "id": "variable-strange-counter",
+            "names": ["strange_counter"],
+            "meaning": "The assignment definitely establishes the runtime value.",
+            "roles": ["condition"],
+            "evidence_ids": [dynamic_assignment["id"]],
+            "confidence": "high",
+            "status": "resolved",
+            "uncertainty": None,
+        }
+    ]
+
+    class ProfileValidationRepairClient:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def complete(self, **request: object) -> dict[str, object]:
+            payload = request["payload"]
+            assert isinstance(payload, dict)
+            self.calls.append(payload)
+            if len(self.calls) == 1:
+                return invalid_profile
+            if len(self.calls) == 2:
+                assert payload["prompt_version"] == "storyboard-validation-repair-prompt-v1"
+                repair_input = payload["input"]
+                assert isinstance(repair_input, dict)
+                issues = repair_input["validator_issues"]
+                assert isinstance(issues, list)
+                assert issues[0]["path"] == ["validation", "dynamic_behavior_as_fact"]
+                return profile
+            return analysis
+
+        def cancel(self) -> None:
+            return None
+
+    client = ProfileValidationRepairClient()
+    result = run_storyboard_pipeline(
+        game,
+        tmp_path / "profile-validation-repair-artifacts",
+        source_path="canary.rpy",
+        label="unfamiliar_entry",
+        ai_client=client,  # type: ignore[arg-type]
+    )
+
+    assert len(client.calls) == 3
+    assert result.validation_report.publishable
+
+
+def test_pipeline_repairs_unaccounted_source_and_invalid_choice_reference(
+    tmp_path: Path,
+) -> None:
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
+    invalid_analysis = json.loads(json.dumps(analysis))
+    invalid_scene = invalid_analysis["scenes"][0]
+    invalid_choice = invalid_analysis["choices"][0]
+    assert isinstance(invalid_scene, dict)
+    assert isinstance(invalid_choice, dict)
+    invalid_arms = invalid_choice["arms"]
+    assert isinstance(invalid_arms, list)
+    first_arm = invalid_arms[0]
+    assert isinstance(first_arm, dict)
+    invalid_scene["line_evidence_ids"] = []
+    invalid_choice["evidence_ids"] = list(first_arm["evidence_ids"])
+
+    class NewlyObservedRepairClient:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def complete(self, **request: object) -> dict[str, object]:
+            payload = request["payload"]
+            assert isinstance(payload, dict)
+            self.calls.append(payload)
+            if len(self.calls) == 1:
+                return profile
+            if len(self.calls) == 2:
+                return invalid_analysis
+            assert len(self.calls) == 3
+            repair_input = payload["input"]
+            assert isinstance(repair_input, dict)
+            issues = repair_input["validator_issues"]
+            assert isinstance(issues, list)
+            issue_codes = {item["path"][1] for item in issues}
+            assert "invalid_choice_reference" in issue_codes
+            assert "missing_menu_arm" in issue_codes
+            assert "unaccounted_source" in issue_codes
+            return analysis
+
+        def cancel(self) -> None:
+            return None
+
+    client = NewlyObservedRepairClient()
+    result = run_storyboard_pipeline(
+        game,
+        tmp_path / "newly-observed-validation-repair-artifacts",
+        source_path="canary.rpy",
+        label="unfamiliar_entry",
+        ai_client=client,  # type: ignore[arg-type]
+    )
+
+    assert len(client.calls) == 3
+    assert result.validation_report.publishable
+
+
+def test_pipeline_stops_after_failed_deterministic_analysis_repair(tmp_path: Path) -> None:
+    game, raw_evidence, evidence = _source_and_evidence(tmp_path)
+    profile, analysis = _schema_replays(raw_evidence, evidence)
+    invalid_analysis = json.loads(json.dumps(analysis))
+    invalid_scenes = invalid_analysis["scenes"]
+    invalid_choices = invalid_analysis["choices"]
+    assert isinstance(invalid_scenes, list)
+    assert isinstance(invalid_choices, list)
+    invalid_scene = invalid_scenes[0]
+    invalid_choice = invalid_choices[0]
+    assert isinstance(invalid_scene, dict)
+    assert isinstance(invalid_choice, dict)
+    invalid_arm = invalid_choice["arms"][0]
+    assert isinstance(invalid_arm, dict)
+    invalid_scene["line_evidence_ids"] = [
+        *invalid_scene["line_evidence_ids"],
+        *invalid_arm["line_evidence_ids"],
+    ]
+    invalid_arm["line_evidence_ids"] = []
+
+    class FailedValidationRepairClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def complete(self, **request: object) -> dict[str, object]:
+            del request
+            self.calls += 1
+            if self.calls == 1:
+                return profile
+            return invalid_analysis
+
+        def cancel(self) -> None:
+            return None
+
+    client = FailedValidationRepairClient()
+    output = tmp_path / "failed-validation-repair-artifacts"
+    result = run_storyboard_pipeline(
+        game,
+        output,
+        source_path="canary.rpy",
+        label="unfamiliar_entry",
+        ai_client=client,  # type: ignore[arg-type]
+    )
+
+    assert client.calls == 3
+    assert not result.validation_report.publishable
+    assert set(item.name for item in output.iterdir()) == set(ARTIFACT_FILENAMES)

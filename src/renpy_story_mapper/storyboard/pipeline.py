@@ -1,11 +1,9 @@
 """Thin Phase 01 orchestration for the AI-first storyboard canary.
 
-The pipeline deliberately owns only composition.  Source recovery and syntax inventory stay in
-``storyboard.evidence``, semantic interpretation stays behind ``storyboard.ai_client``, and the
-deterministic audit and HTML renderer remain independently testable.  The two small compatibility
-projections in this module bridge the strict AI response shape (top-level choices) to the older
-mapping shape accepted by the already-present validator and renderer without changing either
-component or changing the AI artifact written to disk.
+The pipeline composes one canonical evidence/profile/analysis contract. Source recovery and syntax
+inventory stay in ``storyboard.evidence``, semantic interpretation stays behind
+``storyboard.ai_client``, and the validator and renderer consume the same mappings that are sent to
+or replayed from the AI boundary.
 """
 
 from __future__ import annotations
@@ -19,26 +17,35 @@ from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
 
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 
 from renpy_story_mapper.errors import StoryMapperError
 from renpy_story_mapper.ingestion import IngestionOptions
 from renpy_story_mapper.storyboard.ai_client import (
+    CanonicalValidationIssue,
     CodexCliJsonClient,
+    ProviderCanonicalValidationError,
     StoryboardAIError,
     StoryboardJsonClient,
 )
 from renpy_story_mapper.storyboard.evidence import build_evidence_index
-from renpy_story_mapper.storyboard.model import EvidenceIndex, EvidenceKind
+from renpy_story_mapper.storyboard.model import EvidenceIndex, redact_public_value
 from renpy_story_mapper.storyboard.prompts import (
+    build_canonical_repair_request,
     build_game_profile_request,
     build_story_analysis_request,
+    build_validation_repair_request,
     schema_path,
 )
 from renpy_story_mapper.storyboard.render import render_storyboard_html
-from renpy_story_mapper.storyboard.validation import ValidationReport, validate_phase01
+from renpy_story_mapper.storyboard.validation import (
+    ValidationIssue,
+    ValidationReport,
+    project_physical_ownership,
+    validate_phase01,
+    validate_profile_response,
+)
 
 __all__ = [
     "ARTIFACT_FILENAMES",
@@ -59,6 +66,29 @@ ARTIFACT_FILENAMES = (
 
 JsonMapping = Mapping[str, object]
 ReplayInput = str | os.PathLike[str] | JsonMapping
+
+_PROFILE_REPAIRABLE_CODES = frozenset({"dynamic_behavior_as_fact"})
+_ANALYSIS_REPAIRABLE_CODES = frozenset(
+    {
+        "arm_leaf_in_shared_scene",
+        "cross_arm_ownership",
+        "duplicate_membership",
+        "dynamic_behavior_as_fact",
+        "incomplete_arm_coverage",
+        "incomplete_scene_coverage",
+        "invalid_choice_reference",
+        "invalid_scene_order",
+        "invalid_story_reference",
+        "missing_branch_ownership",
+        "missing_menu_arm",
+        "scene_contains_branch_leaves",
+        "source_evidence_not_in_origin_arm",
+        "source_evidence_not_in_origin_scene",
+        "target_evidence_not_in_destination_scene",
+        "unaccounted_evidence",
+        "unaccounted_source",
+    }
+)
 
 
 class StoryboardPipelineError(StoryMapperError):
@@ -81,6 +111,12 @@ class PipelineResult:
         """Compatibility name for callers that prefer an explicit path property."""
 
         return self.artifacts
+
+
+@dataclass(frozen=True)
+class _AIResult:
+    value: dict[str, object]
+    validation_repair_available: bool
 
 
 def run_storyboard_pipeline(
@@ -109,9 +145,10 @@ def run_storyboard_pipeline(
     """Run one bounded, source-grounded storyboard canary.
 
     ``profile_replay`` and ``analysis_replay`` may each be a JSON file path or an in-memory JSON
-    mapping.  When a replay is absent, exactly one corresponding request is sent through the
-    supplied provider-neutral client (or a direct :class:`CodexCliJsonClient`).  No provider is
-    instantiated when both replays are supplied.
+    mapping.  When a replay is absent, one corresponding request is sent through the supplied
+    provider-neutral client (or a direct :class:`CodexCliJsonClient`); each response permits at
+    most one targeted repair, shared by canonical schema validation and the focused deterministic
+    response checks.  No provider is instantiated when both replays are supplied.
 
     The input is ingested and parsed before either AI call.  The output path is checked before
     ingestion, and the relevant source files are fingerprinted before and after the run.  Only the
@@ -147,15 +184,16 @@ def run_storyboard_pipeline(
     if before != after:
         raise StoryboardPipelineError("supported game input changed during evidence extraction")
 
-    raw_evidence = _copy_json_mapping(evidence_object.to_dict())
+    evidence = evidence_index_to_mapping(evidence_object)
+    raw_evidence = _copy_json_mapping(evidence, preserve_exact_text=True)
     if not evidence_object.records:
         diagnostics = raw_evidence.get("diagnostics", [])
         raise StoryboardPipelineError(
             "canary evidence is empty; choose a valid source, label, or line span "
             f"(diagnostics: {_describe_diagnostics(diagnostics)})"
         )
-    evidence = evidence_index_to_mapping(evidence_object)
     evidence_hash = _sha256_artifact_json(raw_evidence)
+    ai_evidence = _project_evidence_for_ai(raw_evidence)
     if (
         selected_label is None
         and selected_start is None
@@ -169,17 +207,20 @@ def run_storyboard_pipeline(
 
     canary_ids = tuple(
         record_id
-        for record_id in cast(Sequence[object], evidence["accountable_evidence_ids"])
-        if isinstance(record_id, str)
+        for raw_record in _sequence(evidence.get("records"))
+        if isinstance(raw_record, Mapping)
+        for record_id in (_text(raw_record.get("id")),)
+        if record_id is not None
     )
     provider: StoryboardJsonClient | None = ai_client
     if provider is None and (
         selected_profile_replay is None or selected_analysis_replay is None
     ):
         provider = _new_provider()
-    profile = _load_or_request_profile(
+    profile_result = _load_or_request_profile(
         selected_profile_replay,
-        raw_evidence,
+        ai_evidence,
+        canary_ids,
         provider=provider,
         evidence_hash=evidence_hash,
         model=model,
@@ -187,6 +228,7 @@ def run_storyboard_pipeline(
         fast_mode=fast_mode,
         timeout_seconds=timeout_seconds,
     )
+    profile = profile_result.value
     _validate_schema_document(profile, "game-profile")
     _verify_source_hash(
         profile,
@@ -200,10 +242,56 @@ def run_storyboard_pipeline(
         field="scope_evidence_ids",
         expected=canary_ids,
     )
+    profile_issues = validate_profile_response(raw_evidence, profile)
+    if (
+        profile_issues
+        and profile_result.validation_repair_available
+        and _issues_are_repairable(profile_issues, _PROFILE_REPAIRABLE_CODES)
+    ):
+        if provider is None:
+            raise StoryboardPipelineError("storyboard profile repair provider is unavailable")
+        profile = _repair_validated_response(
+            provider,
+            prior_response=profile,
+            issues=profile_issues,
+            kind="game-profile",
+            required_provenance={"evidence_index_hash": evidence_hash},
+            physical_ownership=None,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            fast_mode=fast_mode,
+            timeout_seconds=timeout_seconds,
+        )
+        profile = _bind_deterministic_source(
+            profile,
+            {
+                "evidence_index_hash": evidence_hash,
+                "scope_evidence_ids": list(canary_ids),
+            },
+        )
+        _validate_schema_document(profile, "game-profile")
+        _verify_source_hash(
+            profile,
+            kind="game profile",
+            field="evidence_index_hash",
+            expected=evidence_hash,
+        )
+        _verify_source_ids(
+            profile,
+            kind="game profile",
+            field="scope_evidence_ids",
+            expected=canary_ids,
+        )
+        profile_issues = validate_profile_response(raw_evidence, profile)
+    if profile_issues:
+        raise StoryboardPipelineError(
+            "storyboard AI game-profile response failed deterministic validation after its "
+            f"single allowed response attempt: {_format_response_issues(profile_issues)}"
+        )
     profile_hash = _sha256_artifact_json(profile)
-    analysis = _load_or_request_analysis(
+    analysis_result = _load_or_request_analysis(
         selected_analysis_replay,
-        raw_evidence,
+        ai_evidence,
         profile,
         canary_ids,
         provider=provider,
@@ -214,6 +302,7 @@ def run_storyboard_pipeline(
         fast_mode=fast_mode,
         timeout_seconds=timeout_seconds,
     )
+    analysis = analysis_result.value
     _validate_schema_document(analysis, "story-analysis")
     _verify_source_hash(
         analysis,
@@ -233,18 +322,69 @@ def run_storyboard_pipeline(
         field="canary_evidence_ids",
         expected=canary_ids,
     )
+    validation_report = validate_phase01(evidence, profile, analysis)
+    if (
+        not validation_report.publishable
+        and analysis_result.validation_repair_available
+        and _issues_are_repairable(validation_report.errors, _ANALYSIS_REPAIRABLE_CODES)
+    ):
+        if provider is None:
+            raise StoryboardPipelineError("storyboard analysis repair provider is unavailable")
+        physical_ownership = ai_evidence.get("physical_ownership")
+        if not isinstance(physical_ownership, Mapping):
+            raise StoryboardPipelineError("deterministic physical ownership is unavailable")
+        analysis = _repair_validated_response(
+            provider,
+            prior_response=analysis,
+            issues=validation_report.errors,
+            kind="story-analysis",
+            required_provenance={
+                "evidence_index_hash": evidence_hash,
+                "profile_hash": profile_hash,
+            },
+            physical_ownership=physical_ownership,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            fast_mode=fast_mode,
+            timeout_seconds=timeout_seconds,
+        )
+        analysis = _bind_deterministic_source(
+            analysis,
+            {
+                "evidence_index_hash": evidence_hash,
+                "profile_hash": profile_hash,
+                "canary_evidence_ids": list(canary_ids),
+            },
+        )
+        _validate_schema_document(analysis, "story-analysis")
+        _verify_source_hash(
+            analysis,
+            kind="story analysis",
+            field="evidence_index_hash",
+            expected=evidence_hash,
+        )
+        _verify_source_hash(
+            analysis,
+            kind="story analysis",
+            field="profile_hash",
+            expected=profile_hash,
+        )
+        _verify_source_ids(
+            analysis,
+            kind="story analysis",
+            field="canary_evidence_ids",
+            expected=canary_ids,
+        )
+        validation_report = validate_phase01(evidence, profile, analysis)
+
     analysis_hash = _sha256_artifact_json(analysis)
 
-    validation_profile = _validation_profile(profile, evidence)
-    validation_analysis = _validation_analysis(analysis, evidence)
-    # Keep this call before rendering.  A rejected report is still rendered so the static page
-    # exposes the exact deterministic findings instead of disappearing behind a failed command.
-    validation_report = validate_phase01(evidence, validation_profile, validation_analysis)
+    # Keep this validation before rendering.  A rejected report is still rendered so the static
+    # page exposes the exact deterministic findings instead of disappearing behind a failed command.
     report_mapping = validation_report.to_dict()
     provenance = _artifact_provenance(evidence_hash, profile_hash, analysis_hash)
     report_mapping["provenance"] = provenance
-    render_analysis = _presentation_analysis(analysis, evidence)
-    html = render_storyboard_html(evidence, profile, render_analysis, report_mapping)
+    html = render_storyboard_html(evidence, profile, analysis, report_mapping)
     html_provenance = dict(provenance)
     html_provenance["validation_report_hash"] = _sha256_artifact_json(report_mapping)
     html = _add_html_provenance(html, html_provenance)
@@ -297,113 +437,55 @@ def run_phase01_pipeline(
 
 
 def evidence_index_to_mapping(index: EvidenceIndex) -> dict[str, object]:
-    """Serialize an :class:`EvidenceIndex` into the canonical Phase 01 JSON mapping.
+    """Return the one canonical JSON contract used by every storyboard phase."""
 
-    The original dataclass representation remains intact, including its exact ``text`` field and
-    nested provenance.  The additional aliases make the seam explicit for the validator, renderer,
-    and AI prompt: menu arm ownership is represented by ``menus[*].arm_ids`` and record facts are
-    available under ``facts`` rather than being accidentally hidden in ``metadata``.
+    return _copy_json_mapping(index.to_dict(), preserve_exact_text=True)
+
+
+def _project_evidence_for_ai(evidence: Mapping[str, object]) -> dict[str, object]:
+    """Remove only redundant evidence encodings from the private AI request.
+
+    Canonical evidence remains untouched and is still written and validated in full. The records
+    collection already contains every ledger leaf and annotation, so the parallel collections and
+    their precomputed ID lists add no information for the model.
     """
 
-    raw = _copy_json_mapping(index.to_dict())
-    raw_records = _sequence(raw.get("records"))
-    records: list[dict[str, object]] = []
-    for raw_record in raw_records:
-        if not isinstance(raw_record, Mapping):
-            continue
-        record = dict(raw_record)
-        metadata = _copy_json_mapping(record.get("metadata", {}))
-        record_id = _text(record.get("id"))
-        if record_id is None:
-            continue
-        source_text = record.get("text")
-        record["source_text"] = source_text
-        record["metadata"] = metadata
-        record["facts"] = dict(metadata)
-        record["accountable"] = True
-        records.append(record)
+    projected = _copy_json_mapping(evidence, preserve_exact_text=True)
+    for duplicate_key in (
+        "annotations",
+        "ledger",
+        "leaf_evidence_ids",
+        "annotation_evidence_ids",
+        "accountable_evidence_ids",
+    ):
+        projected.pop(duplicate_key, None)
 
-    records_by_id = {
-        record_id: record
-        for record in records
-        if (record_id := _text(record.get("id"))) is not None
-    }
-    menus: list[dict[str, object]] = []
+    top_source = projected.get("source")
+    has_shared_provenance = isinstance(top_source, Mapping) and "provenance" in top_source
+    records = projected.get("records")
+    if not isinstance(records, list):
+        raise StoryboardPipelineError("canonical evidence records are unavailable for AI analysis")
     for record in records:
-        if _text(record.get("kind")) != EvidenceKind.MENU.value:
-            continue
-        menu_id = _text(record.get("id"))
-        if menu_id is None:
-            continue
-        arm_ids = [
-            arm_id
-            for arm_id, arm in records_by_id.items()
-            if _text(arm.get("kind")) == EvidenceKind.CHOICE_ARM.value
-            and _text(_facts(arm).get("parent_id")) == menu_id
-        ]
-        arm_ids.sort(key=lambda item: _record_order(records_by_id[item]))
-        menu_value: dict[str, object] = {
-            "id": menu_id,
-            "arm_ids": arm_ids,
-            "caption_ids": [
-                caption_id
-                for caption_id, caption in records_by_id.items()
-                if _text(caption.get("kind")) == EvidenceKind.MENU_CAPTION.value
-                and _text(_facts(caption).get("parent_id")) == menu_id
-            ],
-        }
-        menus.append(menu_value)
-
-        menu_facts = dict(_facts(record))
-        menu_facts["arm_ids"] = list(arm_ids)
-        record["facts"] = menu_facts
-        record["metadata"] = dict(menu_facts)
-
-    menus.sort(key=lambda item: _record_order(records_by_id[_text(item["id"]) or ""]))
-    accountable_ids = [
-        _text(record.get("id")) for record in records if _text(record.get("id")) is not None
-    ]
-    accountable_ids = [cast(str, item) for item in accountable_ids]
-
-    canonical = dict(raw)
-    canonical.update(
-        {
-            "schema_version": "storyboard-evidence-v1",
-            "records": records,
-            "menus": menus,
-            "accountable_evidence_ids": accountable_ids,
-            "labels": [
-                record_id
-                for record_id, record in records_by_id.items()
-                if _text(record.get("kind")) == EvidenceKind.LABEL.value
-            ],
-            "choice_arms": [
-                record_id
-                for record_id, record in records_by_id.items()
-                if _text(record.get("kind")) == EvidenceKind.CHOICE_ARM.value
-            ],
-            "conditions": [
-                record_id
-                for record_id, record in records_by_id.items()
-                if _text(record.get("kind")) == EvidenceKind.CONDITION.value
-            ],
-            "assignments": [
-                record_id
-                for record_id, record in records_by_id.items()
-                if _text(record.get("kind")) == EvidenceKind.ASSIGNMENT.value
-            ],
-            "diagnostics": list(_sequence(raw.get("diagnostics"))),
-        }
-    )
-    revision_payload = dict(canonical)
-    revision_payload.pop("revision", None)
-    canonical["revision"] = "idx-" + _sha256_json(revision_payload)
-    return canonical
+        if not isinstance(record, dict):
+            raise StoryboardPipelineError("canonical evidence contains a malformed record")
+        if record.get("text") == record.get("source_text"):
+            record.pop("text", None)
+        source = record.get("source")
+        if has_shared_provenance and isinstance(source, dict):
+            source.pop("provenance", None)
+    try:
+        projected["physical_ownership"] = project_physical_ownership(evidence)
+    except ValueError as error:
+        raise StoryboardPipelineError(
+            "could not derive deterministic physical ownership"
+        ) from error
+    return projected
 
 
 def _load_or_request_profile(
     replay: ReplayInput | None,
     evidence: Mapping[str, object],
+    canary_ids: Sequence[str],
     *,
     provider: StoryboardJsonClient | None,
     evidence_hash: str,
@@ -411,13 +493,13 @@ def _load_or_request_profile(
     reasoning_effort: str,
     fast_mode: bool,
     timeout_seconds: float | None,
-) -> dict[str, object]:
+) -> _AIResult:
     if replay is not None:
-        return _read_replay(replay, "profile", ("profile", "game_profile"))
+        return _AIResult(_read_replay(replay, "profile"), False)
     provider = provider or _new_provider()
     payload = build_game_profile_request(evidence_index=_copy_json_mapping(evidence))
     payload["required_provenance"] = {"evidence_index_hash": evidence_hash}
-    return _complete(
+    profile = _complete(
         provider,
         payload,
         "game-profile",
@@ -425,6 +507,16 @@ def _load_or_request_profile(
         reasoning_effort=reasoning_effort,
         fast_mode=fast_mode,
         timeout_seconds=timeout_seconds,
+    )
+    return _AIResult(
+        _bind_deterministic_source(
+            profile.value,
+            {
+                "evidence_index_hash": evidence_hash,
+                "scope_evidence_ids": list(canary_ids),
+            },
+        ),
+        profile.validation_repair_available,
     )
 
 
@@ -441,9 +533,9 @@ def _load_or_request_analysis(
     reasoning_effort: str,
     fast_mode: bool,
     timeout_seconds: float | None,
-) -> dict[str, object]:
+) -> _AIResult:
     if replay is not None:
-        return _read_replay(replay, "analysis", ("analysis", "story_analysis"))
+        return _AIResult(_read_replay(replay, "analysis"), False)
     provider = provider or _new_provider()
     payload = build_story_analysis_request(
         evidence_index=_copy_json_mapping(evidence),
@@ -454,7 +546,7 @@ def _load_or_request_analysis(
         "evidence_index_hash": evidence_hash,
         "profile_hash": profile_hash,
     }
-    return _complete(
+    analysis = _complete(
         provider,
         payload,
         "story-analysis",
@@ -463,6 +555,27 @@ def _load_or_request_analysis(
         fast_mode=fast_mode,
         timeout_seconds=timeout_seconds,
     )
+    return _AIResult(
+        _bind_deterministic_source(
+            analysis.value,
+            {
+                "evidence_index_hash": evidence_hash,
+                "profile_hash": profile_hash,
+                "canary_evidence_ids": list(canary_ids),
+            },
+        ),
+        analysis.validation_repair_available,
+    )
+
+
+def _bind_deterministic_source(
+    document: Mapping[str, object], source: Mapping[str, object]
+) -> dict[str, object]:
+    """Attach caller-owned provenance without changing AI semantic fields."""
+
+    bound = _copy_json_mapping(document)
+    bound["source"] = _copy_json_mapping(source)
+    return bound
 
 
 def _complete(
@@ -474,7 +587,60 @@ def _complete(
     reasoning_effort: str,
     fast_mode: bool,
     timeout_seconds: float | None,
-) -> dict[str, object]:
+) -> _AIResult:
+    value, issues = _complete_once(
+        provider,
+        payload,
+        kind,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        fast_mode=fast_mode,
+        timeout_seconds=timeout_seconds,
+        repair=False,
+    )
+    if not issues:
+        return _AIResult(value, True)
+
+    repair_payload = build_canonical_repair_request(
+        kind=kind,
+        prior_response=value,
+        validator_issues=[
+            {"path": list(issue.path), "message": issue.message} for issue in issues
+        ],
+    )
+    required_provenance = payload.get("required_provenance")
+    if isinstance(required_provenance, Mapping):
+        repair_payload["required_provenance"] = _copy_json_mapping(required_provenance)
+    repaired, repair_issues = _complete_once(
+        provider,
+        repair_payload,
+        kind,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        fast_mode=fast_mode,
+        timeout_seconds=timeout_seconds,
+        repair=True,
+    )
+    if repair_issues:
+        details = _format_validation_issues(repair_issues)
+        raise StoryboardPipelineError(
+            f"storyboard AI {kind} response still does not match the bundled schema after one "
+            f"targeted repair: {details}"
+        )
+    return _AIResult(repaired, False)
+
+
+def _complete_once(
+    provider: StoryboardJsonClient,
+    payload: Mapping[str, object],
+    kind: str,
+    *,
+    model: str,
+    reasoning_effort: str,
+    fast_mode: bool,
+    timeout_seconds: float | None,
+    repair: bool,
+) -> tuple[dict[str, object], tuple[CanonicalValidationIssue, ...]]:
     try:
         value = provider.complete(
             payload=payload,
@@ -484,13 +650,139 @@ def _complete(
             fast_mode=fast_mode,
             timeout_seconds=timeout_seconds,
         )
+    except ProviderCanonicalValidationError as error:
+        copied = _copy_json_mapping(error.response)
+        return copied, _canonical_validation_issues(copied, kind)
     except StoryboardAIError as error:
+        diagnostic = (
+            f"; private diagnostic: {error.diagnostic_path}"
+            if error.diagnostic_path is not None
+            else ""
+        )
+        request_kind = f"{kind} repair" if repair else kind
         raise StoryboardPipelineError(
-            f"storyboard AI {kind} request failed ({error.error_code}): {error}"
+            f"storyboard AI {request_kind} request failed ({error.error_code}): "
+            f"{error}{diagnostic}"
         ) from error
     if not isinstance(value, Mapping):
-        raise StoryboardPipelineError(f"storyboard AI {kind} response must be a JSON object")
-    return _copy_json_mapping(value)
+        request_kind = f"{kind} repair" if repair else kind
+        raise StoryboardPipelineError(
+            f"storyboard AI {request_kind} response must be a JSON object"
+        )
+    copied = _copy_json_mapping(value)
+    return copied, _canonical_validation_issues(copied, kind)
+
+
+def _repair_validated_response(
+    provider: StoryboardJsonClient,
+    *,
+    prior_response: Mapping[str, object],
+    issues: Sequence[ValidationIssue],
+    kind: str,
+    required_provenance: Mapping[str, object],
+    physical_ownership: Mapping[str, object] | None,
+    model: str,
+    reasoning_effort: str,
+    fast_mode: bool,
+    timeout_seconds: float | None,
+) -> dict[str, object]:
+    payload = build_validation_repair_request(
+        kind=kind,
+        prior_response=prior_response,
+        validator_issues=_group_response_issues(issues),
+        physical_ownership=physical_ownership,
+    )
+    payload["required_provenance"] = _copy_json_mapping(required_provenance)
+    repaired, canonical_issues = _complete_once(
+        provider,
+        payload,
+        kind,
+        model=model,
+        reasoning_effort=reasoning_effort,
+        fast_mode=fast_mode,
+        timeout_seconds=timeout_seconds,
+        repair=True,
+    )
+    if canonical_issues:
+        details = _format_validation_issues(canonical_issues)
+        raise StoryboardPipelineError(
+            f"storyboard AI {kind} response does not match the bundled schema after its single "
+            f"validation repair: {details}"
+        )
+    return repaired
+
+
+def _issues_are_repairable(
+    issues: Sequence[ValidationIssue], allowed_codes: frozenset[str]
+) -> bool:
+    return bool(issues) and all(issue.code in allowed_codes for issue in issues)
+
+
+def _group_response_issues(issues: Sequence[ValidationIssue]) -> list[dict[str, object]]:
+    grouped: dict[str, list[ValidationIssue]] = {}
+    for issue in issues:
+        grouped.setdefault(issue.code, []).append(issue)
+
+    result: list[dict[str, object]] = []
+    for code, code_issues in sorted(grouped.items()):
+        messages = list(dict.fromkeys(issue.message for issue in code_issues))
+        examples = messages[:8]
+        if len(messages) > len(examples):
+            examples.append(
+                f"{len(messages) - len(examples)} additional occurrences; apply the rule to all"
+            )
+        evidence_ids = list(
+            dict.fromkeys(
+                evidence_id
+                for issue in code_issues
+                for evidence_id in issue.evidence_ids
+            )
+        )
+        result.append(
+            {
+                "path": ["validation", code],
+                "message": f"{len(code_issues)} finding(s): " + " | ".join(examples),
+                "evidence_ids": evidence_ids[:16],
+            }
+        )
+    return result
+
+
+def _format_response_issues(issues: Sequence[ValidationIssue]) -> str:
+    grouped = _group_response_issues(issues)
+    return "; ".join(str(item["message"]) for item in grouped)
+
+
+def _canonical_validation_issues(
+    value: Mapping[str, object],
+    kind: str,
+) -> tuple[CanonicalValidationIssue, ...]:
+    try:
+        schema = json.loads(schema_path(kind).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise StoryboardPipelineError(f"could not load bundled {kind} schema") from error
+    validator = Draft202012Validator(schema)
+    errors = sorted(
+        validator.iter_errors(value),
+        key=lambda item: tuple(str(part) for part in item.absolute_path),
+    )
+    return tuple(
+        CanonicalValidationIssue(
+            tuple(
+                part if isinstance(part, int) and not isinstance(part, bool) else str(part)
+                for part in error.absolute_path
+            ),
+            " ".join(error.message.split())[:500],
+        )
+        for error in errors[:5]
+    )
+
+
+def _format_validation_issues(issues: Sequence[CanonicalValidationIssue]) -> str:
+    return "; ".join(
+        f"{'.'.join(str(part) for part in issue.path) or '$'}: {issue.message}"
+        for issue in issues
+    )
 
 
 def _validate_schema_document(value: Mapping[str, object], kind: str) -> None:
@@ -593,7 +885,6 @@ def _new_provider() -> StoryboardJsonClient:
 def _read_replay(
     replay: ReplayInput,
     kind: str,
-    wrapper_keys: Sequence[str],
 ) -> dict[str, object]:
     if isinstance(replay, Mapping):
         value = _copy_json_mapping(replay)
@@ -607,444 +898,35 @@ def _read_replay(
         if not isinstance(loaded, Mapping):
             raise StoryboardPipelineError(f"{kind} replay JSON must contain an object: {path}")
         value = _copy_json_mapping(loaded)
-    for key in wrapper_keys:
-        nested = value.get(key)
-        if isinstance(nested, Mapping) and "schema" not in value:
-            return _copy_json_mapping(nested)
-    return value
-
-
-def _validation_profile(
-    profile: Mapping[str, object], evidence: Mapping[str, object]
-) -> dict[str, object]:
-    value = _copy_json_mapping(profile)
-    value.setdefault("source_revision", _text(evidence.get("revision")) or "")
-    _normalize_claim_metadata(value)
-    value["disagreements"] = _compat_disagreements(value.get("disagreements"))
-    return value
-
-
-def _validation_analysis(
-    analysis: Mapping[str, object], evidence: Mapping[str, object]
-) -> dict[str, object]:
-    value = _presentation_analysis(analysis, evidence)
-    _flatten_validation_choices(value, evidence)
-    value.setdefault("source_revision", _text(evidence.get("revision")) or "")
-    _normalize_claim_metadata(value)
-    value["disagreements"] = _compat_disagreements(value.get("disagreements"))
-
-    exclusions = _sequence(value.get("exclusions"))
-    excluded_ids = _ids(value.get("excluded_evidence_ids"))
-    if not exclusions and excluded_ids:
-        value["exclusions"] = [
-            {
-                "evidence_id": evidence_id,
-                "reason": "AI analysis excluded this source record",
-                "unresolved": True,
-                "uncertainty": "The exclusion needs human review before the source can be omitted.",
-                "evidence_ids": [evidence_id],
-                "confidence": "low",
-            }
-            for evidence_id in excluded_ids
-        ]
-
-    scenes = value.get("scenes")
-    if isinstance(scenes, Sequence) and not isinstance(scenes, (str, bytes, bytearray)):
-        for raw_scene in scenes:
-            if not isinstance(raw_scene, dict):
-                continue
-            if "member_evidence_ids" not in raw_scene:
-                member_ids: list[str] = []
-                member_ids.extend(_ids(raw_scene.get("evidence_ids")))
-                member_ids.extend(_ids(raw_scene.get("line_evidence_ids")))
-                for raw_choice in _sequence(raw_scene.get("choices")):
-                    if not isinstance(raw_choice, Mapping):
-                        continue
-                    member_ids.extend(_ids(raw_choice.get("evidence_ids")))
-                    member_ids.extend(_ids(raw_choice.get("menu_evidence_id")))
-                    member_ids.extend(_ids(raw_choice.get("arm_evidence_id")))
-                    for raw_arm in _sequence(raw_choice.get("arms")):
-                        if isinstance(raw_arm, Mapping):
-                            member_ids.extend(_ids(raw_arm.get("evidence_ids")))
-                raw_scene["member_evidence_ids"] = _unique(member_ids)
-            # A strict-schema scene may have a semantic evidence list but no old-style lines.
-            # Keep unknown IDs in the compatibility view so deterministic validation reports them.
-    return value
-
-
-def _flatten_validation_choices(
-    value: dict[str, object], evidence: Mapping[str, object]
-) -> None:
-    """Present each strict-schema arm as one choice row to the existing validator."""
-
-    scenes = value.get("scenes")
-    if not isinstance(scenes, list):
-        return
-    for raw_scene in scenes:
-        if not isinstance(raw_scene, dict):
-            continue
-        flattened: list[dict[str, object]] = []
-        for raw_choice in _sequence(raw_scene.get("choices")):
-            if not isinstance(raw_choice, Mapping):
-                continue
-            if "arm_evidence_id" in raw_choice:
-                flattened.append(_copy_json_mapping(raw_choice))
-                continue
-            menu_id = _text(raw_choice.get("menu_evidence_id", raw_choice.get("menu_id")))
-            choice_ids = _ids(raw_choice.get("evidence_ids"))
-            arms = _sequence(raw_choice.get("arms"))
-            if not arms:
-                flattened.append(_copy_json_mapping(raw_choice))
-                continue
-            for raw_arm in arms:
-                if not isinstance(raw_arm, Mapping):
-                    continue
-                arm_ids = _ids(raw_arm.get("evidence_ids"))
-                arm_id = _text(raw_arm.get("arm_evidence_id")) or _first_kind(
-                    arm_ids, _record_lookup(evidence), EvidenceKind.CHOICE_ARM.value
-                )
-                flat: dict[str, object] = {
-                    "menu_evidence_id": menu_id,
-                    "arm_evidence_id": arm_id,
-                    "evidence_ids": _unique([*choice_ids, *arm_ids]),
-                }
-                for key in (
-                    "consequence",
-                    "destination",
-                    "confidence",
-                    "unresolved",
-                    "uncertainty",
-                ):
-                    if key in raw_arm:
-                        flat[key] = _copy_json(raw_arm[key])
-                flattened.append(flat)
-        raw_scene["choices"] = flattened
-
-
-def _presentation_analysis(
-    analysis: Mapping[str, object], evidence: Mapping[str, object]
-) -> dict[str, object]:
-    value = _copy_json_mapping(analysis)
-    records = _record_lookup(evidence)
-    raw_scenes = value.get("scenes")
-    if not isinstance(raw_scenes, list):
-        return value
-
-    raw_choices = value.get("choices")
-    strict_choices = [
-        item
-        for item in _sequence(raw_choices)
-        if isinstance(item, Mapping) and "menu_evidence_id" not in item
-    ]
-    choices_by_scene: dict[str, list[dict[str, object]]] = {}
-    menus_by_scene: dict[str, list[dict[str, object]]] = {}
-    unmatched_menus: list[dict[str, object]] = []
-    for raw_choice in strict_choices:
-        choice = _compat_choice(raw_choice, records)
-        scene_id = _text(raw_choice.get("scene_id")) or ""
-        choices_by_scene.setdefault(scene_id, []).append(choice)
-        menu_id = _text(choice.get("menu_evidence_id"))
-        menu: dict[str, object] = {
-            "id": _text(raw_choice.get("id")) or f"menu-{len(unmatched_menus)}",
-            "title": _text(raw_choice.get("caption")) or "Choice",
-            "evidence_id": menu_id,
-            "evidence_ids": _ids(raw_choice.get("evidence_ids")),
-            "arms": list(_sequence(choice.get("arms"))),
-        }
-        if menu_id is None:
-            unmatched_menus.append(menu)
-        else:
-            menus_by_scene.setdefault(scene_id, []).append(menu)
-
-    for raw_scene in raw_scenes:
-        if not isinstance(raw_scene, dict):
-            continue
-        scene_id = _text(raw_scene.get("id")) or ""
-        if strict_choices and "choices" not in raw_scene:
-            raw_scene["choices"] = choices_by_scene.get(scene_id, [])
-        if strict_choices and "menus" not in raw_scene:
-            raw_scene["menus"] = menus_by_scene.get(scene_id, [])
-        if "menus" not in raw_scene:
-            raw_scene["menus"] = _legacy_scene_menus(raw_scene, records)
-        if "branches" not in raw_scene:
-            raw_scene["branches"] = _scene_transition_branches(raw_scene, value)
-    if unmatched_menus:
-        value["menus"] = list(_sequence(value.get("menus"))) + unmatched_menus
-    return value
-
-
-def _scene_transition_branches(
-    scene: Mapping[str, object], analysis: Mapping[str, object]
-) -> list[dict[str, object]]:
-    scene_id = _text(scene.get("id"))
-    if scene_id is None:
-        return []
-    result: list[dict[str, object]] = []
-    for raw_transition in _sequence(analysis.get("transitions")):
-        if not isinstance(raw_transition, Mapping):
-            continue
-        if _text(raw_transition.get("from_id")) != scene_id:
-            continue
-        target = _text(raw_transition.get("to_id"))
-        result.append(
-            {
-                "title": _text(raw_transition.get("kind")) or "Transition",
-                "destination": target or "unresolved destination",
-                "evidence_ids": _ids(raw_transition.get("evidence_ids")),
-                "confidence": _text(raw_transition.get("confidence")) or "low",
-                "unresolved": raw_transition.get("unresolved", False),
-            }
+    legacy_envelope_keys = (
+        ("profile", "game_profile") if kind == "profile" else ("analysis", "story_analysis")
+    )
+    if any(key in value for key in legacy_envelope_keys):
+        raise StoryboardPipelineError(
+            f"{kind} replay uses a legacy envelope; supply the canonical document directly"
         )
-    return result
-
-
-def _legacy_scene_menus(
-    scene: Mapping[str, object], records: Mapping[str, Mapping[str, object]]
-) -> list[dict[str, object]]:
-    grouped: dict[str, dict[str, object]] = {}
-    for raw_choice in _sequence(scene.get("choices")):
-        if not isinstance(raw_choice, Mapping):
-            continue
-        menu_id = _text(raw_choice.get("menu_evidence_id", raw_choice.get("menu_id")))
-        arm_id = _text(raw_choice.get("arm_evidence_id", raw_choice.get("arm_id")))
-        if menu_id is None:
-            continue
-        menu = grouped.setdefault(
-            menu_id,
-            {
-                "id": menu_id,
-                "title": "Choice",
-                "evidence_id": menu_id,
-                "evidence_ids": [menu_id],
-                "arms": [],
-            },
-        )
-        facts = _facts(records.get(arm_id)) if arm_id is not None else {}
-        choice_evidence_ids = [arm_id] if arm_id is not None else []
-        choice_evidence_ids.extend(_ids(raw_choice.get("evidence_ids")))
-        arm: dict[str, object] = {
-            "id": arm_id,
-            "caption": _text(raw_choice.get("caption"))
-            or _text(facts.get("caption"))
-            or "Choice arm",
-            "condition": raw_choice.get("condition", facts.get("condition")),
-            "consequence": _copy_json(raw_choice.get("consequence")),
-            "destination": _copy_json(raw_choice.get("destination")),
-            "rejoin": _copy_json(raw_choice.get("rejoin")),
-            "terminal": _copy_json(raw_choice.get("terminal")),
-            "evidence_ids": _unique([menu_id, *choice_evidence_ids]),
-        }
-        arms = menu["arms"]
-        if isinstance(arms, list):
-            arms.append(arm)
-    return list(grouped.values())
-
-
-def _compat_choice(
-    raw_choice: Mapping[str, object], records: Mapping[str, Mapping[str, object]]
-) -> dict[str, object]:
-    if "menu_evidence_id" in raw_choice or "menu_id" in raw_choice:
-        return _copy_json_mapping(raw_choice)
-
-    choice_ids = _ids(raw_choice.get("evidence_ids"))
-    arms: list[dict[str, object]] = []
-    menu_id = _first_kind(choice_ids, records, EvidenceKind.MENU.value)
-    for raw_arm in _sequence(raw_choice.get("arms")):
-        if not isinstance(raw_arm, Mapping):
-            continue
-        arm_ids = _ids(raw_arm.get("evidence_ids"))
-        arm_id = _first_kind(arm_ids, records, EvidenceKind.CHOICE_ARM.value)
-        arm_id = arm_id or _text(raw_arm.get("id"))
-        if arm_id is not None and arm_id in records:
-            parent_id = _text(_facts(records[arm_id]).get("parent_id"))
-            if menu_id is None and parent_id in records:
-                menu_id = parent_id
-        combined_ids = _unique(arm_ids + _ids(raw_arm.get("line_evidence_ids")))
-        facts = _facts(records.get(arm_id)) if arm_id is not None else {}
-        condition = raw_arm.get("condition", facts.get("condition"))
-        arm_value: dict[str, object] = {
-            "id": _text(raw_arm.get("id")) or arm_id,
-            "caption": _text(raw_arm.get("caption")) or _text(facts.get("caption")) or "Choice arm",
-            "condition": condition,
-            "consequence": _compat_consequence(raw_arm, combined_ids),
-            "evidence_ids": combined_ids,
-            "confidence": _text(raw_arm.get("confidence")) or "low",
-            "unresolved": raw_arm.get("unresolved", False),
-        }
-        destination_id = raw_arm.get("destination_id")
-        if destination_id is not None:
-            destination_text = _text(destination_id)
-            target = records.get(destination_text or "")
-            if target is not None:
-                target_kind = _text(target.get("kind"))
-                destination_kind = (
-                    "label" if target_kind == EvidenceKind.LABEL.value else "unresolved"
-                )
-                if destination_kind == "label":
-                    arm_value["destination"] = {
-                        "kind": "label",
-                        "target_evidence_id": destination_text,
-                        "evidence_ids": _unique([*combined_ids, destination_text or ""]),
-                        "confidence": _text(raw_arm.get("confidence")) or "low",
-                        "unresolved": False,
-                    }
-                else:
-                    arm_value["destination"] = _unresolved_destination(
-                        destination_text, combined_ids
-                    )
-            else:
-                arm_value["destination"] = _unresolved_destination(
-                    destination_text, combined_ids
-                )
-        else:
-            arm_value["destination"] = _unresolved_destination(None, combined_ids)
-        rejoin_id = _text(raw_arm.get("rejoin_id"))
-        if rejoin_id is not None:
-            arm_value["rejoin"] = rejoin_id
-        terminal = _text(raw_arm.get("terminal"))
-        if terminal not in {None, "none"}:
-            arm_value["terminal"] = terminal
-        arms.append(arm_value)
-
-    value: dict[str, object] = _copy_json_mapping(raw_choice)
-    value["menu_evidence_id"] = menu_id
-    value["arms"] = arms
-    if menu_id is None:
-        value["menu_id"] = None
     return value
 
 
-def _compat_consequence(arm: Mapping[str, object], evidence_ids: Sequence[str]) -> object:
-    consequence = arm.get("consequence")
-    if isinstance(consequence, Mapping):
-        return _copy_json_mapping(consequence)
-    text = _text(consequence)
-    if text is None:
-        return None
-    return {
-        "text": text,
-        "evidence_ids": list(evidence_ids) or ["unresolved-consequence"],
-        "confidence": _text(arm.get("confidence")) or "low",
-        "unresolved": _unresolved_flag(arm.get("unresolved")),
-        "uncertainty": _uncertainty_text(arm.get("unresolved")),
-    }
+def _sequence(value: object) -> tuple[object, ...]:
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return tuple(value)
+    return ()
 
 
-def _unresolved_destination(
-    destination_id: str | None, evidence_ids: Sequence[str]
-) -> dict[str, object]:
-    label = destination_id or "no concrete destination"
-    return {
-        "kind": "unresolved",
-        "label": label,
-        "evidence_ids": list(evidence_ids),
-        "confidence": "low",
-        "unresolved": True,
-        "uncertainty": (
-            f"The analysis names {label!r}, but the selected evidence does not establish a "
-            "concrete destination record."
-        ),
-    }
+def _copy_json_mapping(value: object, *, preserve_exact_text: bool = False) -> dict[str, object]:
+    copied = _copy_json(value, preserve_exact_text=preserve_exact_text)
+    if not isinstance(copied, dict):
+        raise StoryboardPipelineError("storyboard JSON value must be an object")
+    return copied
 
 
-def _compat_disagreements(value: object) -> list[dict[str, object]]:
-    result: list[dict[str, object]] = []
-    for raw in _sequence(value):
-        if not isinstance(raw, Mapping):
-            continue
-        if "parser" in raw or "parser_observation" in raw:
-            result.append(_copy_json_mapping(raw))
-            continue
-        evidence_ids = _ids(raw.get("deterministic_evidence_ids"))
-        unresolved = raw.get("unresolved")
-        result.append(
-            {
-                "id": _text(raw.get("id")) or "disagreement",
-                "evidence_ids": evidence_ids,
-                "parser": "Deterministic evidence cited by the parser: " + ", ".join(evidence_ids),
-                "ai": _text(raw.get("ai_statement")) or "AI interpretation was not supplied.",
-                "resolution": _text(raw.get("resolution")) or "unresolved",
-                "confidence": _text(raw.get("confidence")) or "low",
-                "unresolved": _unresolved_flag(unresolved),
-                "uncertainty": _uncertainty_text(unresolved)
-                or "The parser and AI interpretation remain separate for review.",
-            }
-        )
-    return result
+def _copy_json(value: object, *, preserve_exact_text: bool = False) -> object:
+    return redact_public_value(value, preserve_exact_text=preserve_exact_text)
 
 
-def _normalize_claim_metadata(value: object) -> None:
-    if isinstance(value, dict):
-        if "evidence_ids" in value and "confidence" in value and "unresolved" in value:
-            raw_unresolved = value.get("unresolved")
-            if not isinstance(raw_unresolved, bool):
-                unresolved = _unresolved_flag(raw_unresolved)
-                value["unresolved"] = unresolved
-                if unresolved and not _text(value.get("uncertainty")):
-                    value["uncertainty"] = _uncertainty_text(raw_unresolved) or (
-                        "The AI marked this evidence-dependent behavior as unresolved."
-                    )
-        for child in value.values():
-            _normalize_claim_metadata(child)
-    elif isinstance(value, list):
-        for child in value:
-            _normalize_claim_metadata(child)
-
-
-def _unresolved_flag(value: object) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalized = " ".join(value.casefold().split())
-        return normalized not in {"", "none", "no", "resolved", "not unresolved", "n/a", "na"}
-    return bool(value)
-
-
-def _uncertainty_text(value: object) -> str:
-    if isinstance(value, str) and _unresolved_flag(value):
-        return value
-    return ""
-
-
-def _record_lookup(evidence: Mapping[str, object]) -> dict[str, Mapping[str, object]]:
-    result: dict[str, Mapping[str, object]] = {}
-    for raw in _sequence(evidence.get("records", evidence.get("evidence"))):
-        if isinstance(raw, Mapping):
-            identifier = _text(raw.get("id", raw.get("evidence_id")))
-            if identifier is not None:
-                result[identifier] = raw
-    return result
-
-
-def _facts(record: Mapping[str, object] | None) -> Mapping[str, object]:
-    if record is None:
-        return {}
-    value = record.get("facts", record.get("metadata"))
-    return value if isinstance(value, Mapping) else {}
-
-
-def _first_kind(
-    identifiers: Sequence[str], records: Mapping[str, Mapping[str, object]], kind: str
-) -> str | None:
-    for identifier in identifiers:
-        if _text(records.get(identifier, {}).get("kind")) == kind:
-            return identifier
-    return None
-
-
-def _record_order(record: Mapping[str, object]) -> tuple[object, ...]:
-    source = record.get("source")
-    if not isinstance(source, Mapping):
-        return (1, "", 0, 0, _text(record.get("id")) or "")
-    span = source.get("span")
-    if not isinstance(span, Mapping):
-        return (1, _text(source.get("path")) or "", 0, 0, _text(record.get("id")) or "")
-    start = span.get("start")
-    if not isinstance(start, Mapping):
-        return (1, _text(source.get("path")) or "", 0, 0, _text(record.get("id")) or "")
-    line = start.get("line") if isinstance(start.get("line"), int) else 0
-    column = start.get("column") if isinstance(start.get("column"), int) else 0
-    return (0, _text(source.get("path")) or "", line, column, _text(record.get("id")) or "")
+def _text(value: object) -> str | None:
+    return value if isinstance(value, str) and value.strip() else None
 
 
 def _ids(value: object) -> list[str]:
@@ -1065,35 +947,6 @@ def _ids(value: object) -> list[str]:
             result.extend(_ids(item))
         return result
     return []
-
-
-def _unique(values: Sequence[str]) -> list[str]:
-    return list(dict.fromkeys(item for item in values if item))
-
-
-def _sequence(value: object) -> tuple[object, ...]:
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return tuple(value)
-    return ()
-
-
-def _copy_json_mapping(value: object) -> dict[str, object]:
-    copied = _copy_json(value)
-    if not isinstance(copied, dict):
-        raise StoryboardPipelineError("storyboard JSON value must be an object")
-    return copied
-
-
-def _copy_json(value: object) -> object:
-    if isinstance(value, Mapping):
-        return {str(key): _copy_json(item) for key, item in value.items()}
-    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return [_copy_json(item) for item in value]
-    return value
-
-
-def _text(value: object) -> str | None:
-    return value if isinstance(value, str) and value.strip() else None
 
 
 def _sha256_json(value: object) -> str:
