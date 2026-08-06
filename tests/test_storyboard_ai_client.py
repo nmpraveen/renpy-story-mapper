@@ -1411,6 +1411,8 @@ def test_prompt_builders_and_schemas_are_generic() -> None:
     assert "source_evidence_ids and target_evidence_ids must both be non-empty" in (
         analysis_authority
     )
+    assert "must name declared scene IDs, never an arm" in analysis_authority
+    assert "literal status=unresolved, not uncertain or resolved" in analysis_authority
     for request in (profile, analysis):
         authority = request["authority"]
         assert isinstance(authority, str)

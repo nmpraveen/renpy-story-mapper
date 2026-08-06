@@ -965,6 +965,10 @@ def test_pipeline_repairs_schema_valid_deterministic_analysis_once(tmp_path: Pat
             assert "source_evidence_ids and target_evidence_ids must both be non-empty" in (
                 payload["authority"]
             )
+            assert "must name declared scene IDs, never an arm" in payload["authority"]
+            assert "literal status=unresolved, not uncertain or resolved" in (
+                payload["authority"]
+            )
             repair_input = payload["input"]
             assert isinstance(repair_input, dict)
             assert repair_input["prior_response"] == invalid_analysis

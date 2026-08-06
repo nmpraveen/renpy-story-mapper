@@ -115,7 +115,12 @@ def build_story_analysis_request(
             "that scene's arms or continuations, and target evidence must be physically owned by "
             "the destination scene. If destination_scene_id or rejoin_scene_id is non-null, its "
             "source_evidence_ids and target_evidence_ids must both be non-empty and physically "
-            "bound; otherwise keep the destination or rejoin null."
+            "bound; otherwise keep the destination or rejoin null. Transition from_id and to_id "
+            "must name declared scene IDs, never an arm, choice, or continuation ID; express "
+            "branch-specific movement on the arm destination/rejoin fields instead. Any arm, "
+            "consequence, or other object citing embedded Python or runtime-computed evidence "
+            "must use the literal status=unresolved, not uncertain or resolved, with a non-empty "
+            "uncertainty string."
         ),
         "security": (
             "Use only the structured profile and evidence in this request; do not use tools, "
@@ -210,8 +215,12 @@ def build_validation_repair_request(
             "Python or runtime-computed evidence must remain unresolved with a non-empty "
             "uncertainty. If destination_scene_id or rejoin_scene_id is non-null, its "
             "source_evidence_ids and target_evidence_ids must both be non-empty and physically "
-            "bound; otherwise keep the destination or rejoin null. This is the only "
-            "response-level repair attempt."
+            "bound; otherwise keep the destination or rejoin null. Transition from_id and to_id "
+            "must name declared scene IDs, never an arm, choice, or continuation ID; put branch "
+            "movement on the arm destination/rejoin fields. Every arm, consequence, or other "
+            "object citing embedded Python or runtime-computed evidence must use the literal "
+            "status=unresolved, not uncertain or resolved, with non-empty uncertainty. This is "
+            "the only response-level repair attempt."
         ),
         "security": (
             "Use only the prior response, validator findings, and physical ownership facts in this "
